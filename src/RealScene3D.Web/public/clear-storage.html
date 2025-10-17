@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清除存储</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 500px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 1rem;
+        }
+        #status {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            border-radius: 6px;
+            background: #f5f5f5;
+        }
+        .info {
+            text-align: left;
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #e3f2fd;
+            border-radius: 6px;
+        }
+        button {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            border: none;
+            border-radius: 6px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin: 0.5rem;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .success {
+            color: #4caf50;
+        }
+        .error {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>本地存储管理</h1>
+
+        <div class="info">
+            <h3>当前存储状态:</h3>
+            <div id="storageInfo"></div>
+        </div>
+
+        <div id="status"></div>
+
+        <button onclick="clearStorage()">清除所有存储</button>
+        <button onclick="location.href='/'">返回首页</button>
+    </div>
+
+    <script>
+        function displayStorageInfo() {
+            const info = document.getElementById('storageInfo');
+            const token = localStorage.getItem('realscene3d_token');
+            const userInfo = localStorage.getItem('realscene3d_user_info');
+            const refreshToken = localStorage.getItem('realscene3d_refresh_token');
+
+            info.innerHTML = `
+                <p><strong>认证令牌:</strong> ${token ? '存在' : '不存在'}</p>
+                <p><strong>用户信息:</strong> ${userInfo ? '存在' : '不存在'}</p>
+                <p><strong>刷新令牌:</strong> ${refreshToken ? '存在' : '不存在'}</p>
+                <p><strong>认证状态:</strong> ${token ? '<span class="success">已登录</span>' : '<span class="error">未登录</span>'}</p>
+            `;
+        }
+
+        function clearStorage() {
+            try {
+                localStorage.clear();
+                sessionStorage.clear();
+                document.getElementById('status').innerHTML = '<p class="success">✓ 存储已清除！</p>';
+                displayStorageInfo();
+                setTimeout(() => {
+                    location.href = '/';
+                }, 1500);
+            } catch (error) {
+                document.getElementById('status').innerHTML = '<p class="error">✗ 清除失败: ' + error.message + '</p>';
+            }
+        }
+
+        // 页面加载时显示存储信息
+        displayStorageInfo();
+    </script>
+</body>
+</html>

@@ -1,0 +1,679 @@
+/**
+ * 工作流设计器增强样式
+ * 为重新设计的工作流界面提供现代化的视觉效果
+ */
+
+/* ==================== 顶部导航栏增强样式 ==================== */
+
+/* Logo区域 */
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 24px;
+  animation: rotate 3s linear infinite;
+}
+
+@keyframes rotate {
+  0%, 90% {
+    transform: rotate(0deg);
+  }
+  95% {
+    transform: rotate(20deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+/* 工作流信息区 */
+.workflow-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workflow-name-input {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  min-width: 200px;
+}
+
+.workflow-name-input:hover {
+  background: #f8f9fa;
+  border-color: #e1e5e9;
+}
+
+.workflow-name-input:focus {
+  outline: none;
+  background: white;
+  border-color: #007acc;
+  box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.1);
+}
+
+/* 工作流状态标签 */
+.workflow-status {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workflow-status.draft {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.workflow-status.valid {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.workflow-status.invalid {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.workflow-status.running {
+  background: #e3f2fd;
+  color: #1976d2;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* 中央快速工具栏 */
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.quick-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.tool-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #333;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tool-btn:hover:not(:disabled) {
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.tool-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tool-btn .icon {
+  font-size: 16px;
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: #ddd;
+  margin: 0 8px;
+}
+
+.zoom-level {
+  min-width: 50px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  user-select: none;
+}
+
+/* 右侧操作按钮 */
+.header-btn.success {
+  background: #4caf50;
+  color: white;
+  border-color: #4caf50;
+}
+
+.header-btn.success:hover:not(:disabled) {
+  background: #45a049;
+}
+
+.header-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 下拉菜单 */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+  z-index: 100;
+  animation: dropdownFadeIn 0.2s ease;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #333;
+}
+
+.dropdown-item:hover {
+  background: #f8f9fa;
+}
+
+.dropdown-item:first-child {
+  border-radius: 6px 6px 0 0;
+}
+
+.dropdown-item:last-child {
+  border-radius: 0 0 6px 6px;
+}
+
+.dropdown-item .icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: #e1e5e9;
+  margin: 4px 0;
+}
+
+/* ==================== 侧边面板样式 ==================== */
+
+/* 左侧面板 */
+.left-panel {
+  width: 280px;
+  background: #f8f9fa;
+  border-right: 1px solid #e1e5e9;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+}
+
+.left-panel.collapsed {
+  width: 40px;
+}
+
+/* 右侧面板 */
+.right-panel {
+  width: 320px;
+  background: #f8f9fa;
+  border-left: 1px solid #e1e5e9;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+}
+
+.right-panel.collapsed {
+  width: 40px;
+}
+
+/* 面板头部 */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e1e5e9;
+  background: white;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.toggle-btn {
+  background: transparent;
+  border: 1px solid #e1e5e9;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #666;
+  font-size: 12px;
+}
+
+.toggle-btn:hover {
+  background: #f8f9fa;
+  border-color: #007acc;
+  color: #007acc;
+}
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  animation: panelFadeIn 0.3s ease;
+}
+
+@keyframes panelFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ==================== 画布区域样式 ==================== */
+
+/* 画布工具栏 */
+.canvas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: white;
+  border-bottom: 1px solid #e1e5e9;
+}
+
+.canvas-toolbar-left,
+.canvas-toolbar-right {
+  display: flex;
+  gap: 4px;
+}
+
+/* 视图标签 */
+.view-tab {
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #666;
+}
+
+.view-tab:hover {
+  background: #f8f9fa;
+  color: #333;
+}
+
+.view-tab.active {
+  background: #007acc;
+  color: white;
+  border-color: #007acc;
+}
+
+.view-tab .icon {
+  font-size: 14px;
+}
+
+/* 画布工具按钮 */
+.canvas-tool-btn {
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #666;
+}
+
+.canvas-tool-btn:hover {
+  border-color: #007acc;
+  color: #007acc;
+}
+
+.canvas-tool-btn.active {
+  background: #e3f2fd;
+  border-color: #2196f3;
+  color: #1976d2;
+}
+
+.canvas-tool-btn .icon {
+  font-size: 14px;
+}
+
+/* 小地图 */
+.minimap {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 8px;
+  z-index: 10;
+  animation: minimapFadeIn 0.3s ease;
+}
+
+@keyframes minimapFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.minimap-content {
+  position: relative;
+}
+
+.minimap-svg {
+  display: block;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.minimap-svg rect {
+  stroke: #fff;
+  stroke-width: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.minimap-svg rect:hover {
+  opacity: 0.8;
+}
+
+.minimap-svg rect.selected {
+  stroke: #007acc;
+  stroke-width: 1;
+}
+
+/* ==================== 底部状态栏增强样式 ==================== */
+
+.designer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  background: white;
+  border-top: 1px solid #e1e5e9;
+  font-size: 12px;
+  color: #666;
+}
+
+.status-left,
+.status-right {
+  display: flex;
+  gap: 16px;
+}
+
+.status-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-label {
+  color: #999;
+}
+
+.status-value {
+  color: #333;
+  font-weight: 500;
+}
+
+/* 状态消息 */
+.status-message {
+  padding: 6px 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  animation: statusFadeIn 0.3s ease;
+}
+
+@keyframes statusFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.status-message.info {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.status-message.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.status-message.warning {
+  background: #fff3e0;
+  color: #ef6c00;
+}
+
+.status-message.error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.status-icon {
+  font-size: 16px;
+}
+
+/* ==================== 响应式设计 ==================== */
+
+@media (max-width: 1400px) {
+  .left-panel {
+    width: 240px;
+  }
+
+  .right-panel {
+    width: 280px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .header-center .quick-tools {
+    gap: 2px;
+  }
+
+  .tool-btn {
+    padding: 4px 8px;
+  }
+
+  .zoom-level {
+    min-width: 45px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 992px) {
+  .workflow-name-input {
+    min-width: 150px;
+  }
+
+  .minimap {
+    display: none;
+  }
+}
+
+/* ==================== 打印样式 ==================== */
+
+@media print {
+  .designer-header,
+  .left-panel,
+  .right-panel,
+  .designer-footer,
+  .canvas-toolbar,
+  .minimap {
+    display: none !important;
+  }
+
+  .canvas-area {
+    border: none;
+  }
+}
+
+/* ==================== 辅助功能增强 ==================== */
+
+/* 键盘焦点样式 */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
+}
+
+/* 高对比度模式 */
+@media (prefers-contrast: high) {
+  .header-btn,
+  .tool-btn,
+  .canvas-tool-btn {
+    border-width: 2px;
+  }
+
+  .status-message {
+    border: 2px solid currentColor;
+  }
+}
+
+/* 减少动画模式 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 暗色主题支持 */
+@media (prefers-color-scheme: dark) {
+  .workflow-designer {
+    background: #1e1e1e;
+  }
+
+  .designer-header,
+  .panel-header,
+  .canvas-toolbar,
+  .designer-footer {
+    background: #252525;
+    border-color: #3e3e3e;
+  }
+
+  .left-panel,
+  .right-panel {
+    background: #2d2d2d;
+    border-color: #3e3e3e;
+  }
+
+  .workflow-name-input,
+  .header-btn,
+  .tool-btn,
+  .canvas-tool-btn {
+    color: #e0e0e0;
+  }
+
+  .workflow-name-input:hover,
+  .tool-btn:hover,
+  .canvas-tool-btn:hover {
+    background: #3e3e3e;
+  }
+
+  .minimap {
+    background: #252525;
+    border-color: #3e3e3e;
+  }
+
+  .minimap-svg {
+    background: #1e1e1e;
+  }
+}

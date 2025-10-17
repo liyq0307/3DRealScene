@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # PostgreSQL + PostGIS - 主数据库
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: realscene3d-postgres
+    environment:
+      POSTGRES_DB: RealScene3D
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - realscene3d-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB - 非结构化数据存储
+  mongodb:
+    image: mongo:7.0
+    container_name: realscene3d-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: RealScene3D
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    networks:
+      - realscene3d-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - 缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: realscene3d-redis
+    command: redis-server --appendonly yes --requirepass redis123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - realscene3d-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # MinIO - 对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: realscene3d-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"  # API端口
+      - "9001:9001"  # 控制台端口
+    volumes:
+      - minio-data:/data
+    networks:
+      - realscene3d-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # SQL Server (可选) - 兼容选项
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: realscene3d-sqlserver
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: "YourStrong@Passw0rd"
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    networks:
+      - realscene3d-network
+    profiles:
+      - sqlserver  # 使用 --profile sqlserver 启动
+
+volumes:
+  postgres-data:
+  mongodb-data:
+  mongodb-config:
+  redis-data:
+  minio-data:
+  sqlserver-data:
+
+networks:
+  realscene3d-network:
+    driver: bridge

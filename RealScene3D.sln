@@ -1,0 +1,48 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{FF77A79F-E458-43C9-878B-006E19AD497F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RealScene3D.Domain", "src\RealScene3D.Domain\RealScene3D.Domain.csproj", "{EC67D627-D421-4862-9F10-856EE1399D91}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RealScene3D.Infrastructure", "src\RealScene3D.Infrastructure\RealScene3D.Infrastructure.csproj", "{560F81DB-9550-422A-AC15-8D0900A185AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RealScene3D.Application", "src\RealScene3D.Application\RealScene3D.Application.csproj", "{6EE7FA6A-61FB-4293-91D5-E903FE214B69}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RealScene3D.WebApi", "src\RealScene3D.WebApi\RealScene3D.WebApi.csproj", "{CEE28812-402C-46F5-88D8-242303F1961D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EC67D627-D421-4862-9F10-856EE1399D91}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC67D627-D421-4862-9F10-856EE1399D91}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EC67D627-D421-4862-9F10-856EE1399D91}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC67D627-D421-4862-9F10-856EE1399D91}.Release|Any CPU.Build.0 = Release|Any CPU
+		{560F81DB-9550-422A-AC15-8D0900A185AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{560F81DB-9550-422A-AC15-8D0900A185AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{560F81DB-9550-422A-AC15-8D0900A185AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{560F81DB-9550-422A-AC15-8D0900A185AB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6EE7FA6A-61FB-4293-91D5-E903FE214B69}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6EE7FA6A-61FB-4293-91D5-E903FE214B69}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6EE7FA6A-61FB-4293-91D5-E903FE214B69}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6EE7FA6A-61FB-4293-91D5-E903FE214B69}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CEE28812-402C-46F5-88D8-242303F1961D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CEE28812-402C-46F5-88D8-242303F1961D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CEE28812-402C-46F5-88D8-242303F1961D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CEE28812-402C-46F5-88D8-242303F1961D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{EC67D627-D421-4862-9F10-856EE1399D91} = {FF77A79F-E458-43C9-878B-006E19AD497F}
+		{560F81DB-9550-422A-AC15-8D0900A185AB} = {FF77A79F-E458-43C9-878B-006E19AD497F}
+		{6EE7FA6A-61FB-4293-91D5-E903FE214B69} = {FF77A79F-E458-43C9-878B-006E19AD497F}
+		{CEE28812-402C-46F5-88D8-242303F1961D} = {FF77A79F-E458-43C9-878B-006E19AD497F}
+	EndGlobalSection
+EndGlobal
