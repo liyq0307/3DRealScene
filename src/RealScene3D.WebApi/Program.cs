@@ -13,6 +13,7 @@ using RealScene3D.Application.Services;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.Data;
 using RealScene3D.Infrastructure.MongoDB;
+using RealScene3D.Infrastructure.MongoDB.Repositories;
 using RealScene3D.Infrastructure.Redis;
 using RealScene3D.Infrastructure.MinIO;
 using RealScene3D.Infrastructure.Repositories;
@@ -233,6 +234,14 @@ builder.Services.AddScoped<MongoDbContext>(sp =>
     return new MongoDbContext(mongoClient, mongoDatabaseName);
 });
 
+// MongoDB 仓储注册
+builder.Services.AddScoped<IVideoMetadataRepository, VideoMetadataRepository>();
+builder.Services.AddScoped<IBimModelMetadataRepository, BimModelMetadataRepository>();
+builder.Services.AddScoped<ITiltPhotographyMetadataRepository, TiltPhotographyMetadataRepository>();
+
+// MongoDB 数据库初始化器
+builder.Services.AddScoped<MongoDbInitializer>();
+
 // 3. Redis - 缓存（会话、热点数据）
 var redisConnection = builder.Configuration.GetConnectionString("RedisConnection")
     ?? "localhost:6379";
@@ -435,29 +444,58 @@ _ = Task.Run(async () =>
         try
         {
             /// <summary>
-            /// 获取PostgreSQL数据库上下文并执行迁移
+            /// 获取ApplicationDbContext数据库上下文并执行迁移
             /// 迁移操作：创建表、索引、约束、外键等数据库对象
             /// 支持增量迁移，保留现有数据不丢失
             /// </summary>
-            var postgresContext = scope.ServiceProvider.GetService<PostgreSqlDbContext>();
-            if (postgresContext != null && app.Environment.IsDevelopment())
+            var appContext = scope.ServiceProvider.GetService<ApplicationDbContext>();
+            if (appContext != null)
             {
                 logger.LogInformation("正在执行PostgreSQL数据库迁移...");
-                await postgresContext.Database.MigrateAsync();
+
+                // 获取待处理的迁移
+                var pendingMigrations = await appContext.Database.GetPendingMigrationsAsync();
+                if (pendingMigrations.Any())
+                {
+                    logger.LogInformation("发现 {Count} 个待处理的迁移: {Migrations}",
+                        pendingMigrations.Count(),
+                        string.Join(", ", pendingMigrations));
+                }
+                else
+                {
+                    logger.LogInformation("没有待处理的迁移");
+                }
+
+                // 执行迁移（如果数据库不存在会自动创建）
+                logger.LogInformation("应用数据库迁移...");
+                await appContext.Database.MigrateAsync();
+
+                // 获取已应用的迁移
+                var appliedMigrations = await appContext.Database.GetAppliedMigrationsAsync();
+                logger.LogInformation("已应用 {Count} 个迁移", appliedMigrations.Count());
+
                 logger.LogInformation("✓ PostgreSQL/PostGIS database initialized successfully");
 
-                // 可选：执行数据库健康检查
-                // await postgresContext.Database.CanConnectAsync();
-                // logger.LogInformation("✓ PostgreSQL连接测试通过");
+                // 验证连接
+                var canConnect = await appContext.Database.CanConnectAsync();
+                if (canConnect)
+                {
+                    logger.LogInformation("✓ PostgreSQL连接测试通过");
+                }
+                else
+                {
+                    logger.LogWarning("✗ PostgreSQL连接测试失败");
+                }
             }
             else
             {
-                logger.LogInformation("跳过PostgreSQL迁移（生产环境或上下文不存在）");
+                logger.LogInformation("跳过PostgreSQL迁移（上下文不存在）");
             }
         }
         catch (Exception ex)
         {
             logger.LogWarning("✗ PostgreSQL database migration failed: {Message}", ex.Message);
+            logger.LogWarning("详细错误信息: {Details}", ex.ToString());
             logger.LogWarning("系统将继续运行，但部分功能可能受限");
         }
     }
@@ -568,7 +606,7 @@ _ = Task.Run(async () =>
         }
     }
 
-    // 5. 测试MongoDB连接（仅当配置时）
+    // 5. 测试MongoDB连接并初始化索引（仅当配置时）
     if (!string.IsNullOrEmpty(configuration.GetConnectionString("MongoDbConnection")))
     {
         try
@@ -576,6 +614,11 @@ _ = Task.Run(async () =>
             var mongoClient = scope.ServiceProvider.GetRequiredService<IMongoClient>();
             await mongoClient.ListDatabaseNamesAsync();
             logger.LogInformation("✓ MongoDB connection established successfully");
+
+            // 初始化 MongoDB 索引
+            var mongoInitializer = scope.ServiceProvider.GetRequiredService<MongoDbInitializer>();
+            await mongoInitializer.InitializeAsync();
+            await mongoInitializer.ValidateAsync();
         }
         catch (Exception ex)
         {

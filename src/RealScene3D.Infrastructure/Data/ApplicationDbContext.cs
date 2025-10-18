@@ -164,5 +164,89 @@ public class ApplicationDbContext : DbContext
                   .HasForeignKey(e => e.WorkflowInstanceId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // 配置切片任务实体
+        modelBuilder.Entity<SlicingTaskEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.SourceModelPath).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.ModelType).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.SlicingConfig).IsRequired();
+            entity.Property(e => e.OutputPath).HasMaxLength(500);
+        });
+
+        // 配置切片实体
+        modelBuilder.Entity<SliceEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FilePath).IsRequired().HasMaxLength(500);
+
+            entity.HasOne(e => e.SlicingTask)
+                  .WithMany()
+                  .HasForeignKey(e => e.SlicingTaskId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // 配置系统指标实体
+        modelBuilder.Entity<SystemMetricEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.MetricName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Category).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Unit).HasMaxLength(20);
+            entity.Property(e => e.Host).HasMaxLength(100);
+        });
+
+        // 配置业务指标实体
+        modelBuilder.Entity<BusinessMetricEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.MetricName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Unit).HasMaxLength(20);
+        });
+
+        // 配置告警规则实体
+        modelBuilder.Entity<AlertRuleEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.MetricName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Condition).IsRequired();
+            entity.Property(e => e.NotificationChannels).IsRequired();
+
+            entity.HasOne<User>()
+                  .WithMany()
+                  .HasForeignKey(e => e.CreatedBy)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // 配置告警事件实体
+        modelBuilder.Entity<AlertEventEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Message).IsRequired();
+
+            entity.HasOne(e => e.AlertRule)
+                  .WithMany()
+                  .HasForeignKey(e => e.AlertRuleId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // 配置仪表板实体
+        modelBuilder.Entity<DashboardEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.Configuration).IsRequired();
+
+            entity.HasOne<User>()
+                  .WithMany()
+                  .HasForeignKey(e => e.CreatedBy)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }
