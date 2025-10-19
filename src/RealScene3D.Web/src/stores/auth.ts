@@ -5,7 +5,7 @@
 
 import { ref, computed } from 'vue'
 import { authStorage } from '@/utils/storage'
-import { userService } from '@/services/api'
+import { authService } from '@/services/api'
 
 /**
  * 用户信息接口
@@ -49,7 +49,7 @@ export const useAuthStore = () => {
     error.value = null
 
     try {
-      const response: LoginResponse = await userService.login(email, password)
+      const response: LoginResponse = await authService.login(email, password)
 
       // 保存令牌和用户信息
       token.value = response.token
@@ -79,7 +79,7 @@ export const useAuthStore = () => {
     error.value = null
 
     try {
-      const response: LoginResponse = await userService.register(username, email, password)
+      const response: LoginResponse = await authService.register(username, email, password)
 
       // 注册成功后自动登录，保存令牌和用户信息
       token.value = response.token

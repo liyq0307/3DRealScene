@@ -166,9 +166,9 @@
         v-model="avatarFile"
         accept="image/*"
         :max-size="5"
-        hint="支持JPG、PNG格式,单个文件不超过5MB"
+        hint="支持JPG、PNG、WebP格式,单个文件不超过5MB"
         :auto-upload="false"
-        @upload="handleAvatarUpload"
+        @upload="handleAvatarFileUpload"
       />
     </Modal>
   </div>
@@ -194,7 +194,7 @@ import authStore from '@/stores/auth'
 import Card from '@/components/Card.vue'
 import Modal from '@/components/Modal.vue'
 import FileUpload from '@/components/FileUpload.vue'
-import { sceneService, workflowService, slicingService } from '@/services/api'
+import { sceneService, workflowService, slicingService, fileService } from '@/services/api'
 
 const { success, error: showError } = useMessage()
 
@@ -297,13 +297,18 @@ const openAvatarUpload = () => {
   showAvatarUpload.value = true
 }
 
-// 头像上传成功
-const handleAvatarUpload = async (file: File) => {
+// 头像上传处理 - 当文件被选择并点击上传时
+const handleAvatarFileUpload = async (file: File) => {
   try {
-    // TODO: 调用API上传头像
-    // const formData = new FormData()
-    // formData.append('avatar', file)
-    // const response = await api.post('/user/avatar', formData)
+    // 调用头像专用API上传
+    const response = await fileService.uploadAvatar(file, (percent) => {
+      console.log(`上传进度: ${percent}%`)
+    })
+
+    // 更新用户头像URL
+    if (userInfo.value && response.avatarUrl) {
+      userInfo.value.avatar = response.avatarUrl
+    }
 
     success('头像上传成功')
     showAvatarUpload.value = false

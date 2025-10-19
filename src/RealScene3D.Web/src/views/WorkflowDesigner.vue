@@ -955,6 +955,8 @@ onMounted(async () => {
 })
 </script>
 
+<style src="@/styles/workflow-enhanced.css"></style>
+
 <style scoped>
 .workflow-designer {
   height: 100vh;

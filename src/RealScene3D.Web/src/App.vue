@@ -7,12 +7,46 @@
       <!-- 导航菜单 -->
       <nav class="nav">
         <router-link to="/" class="nav-link">首页</router-link>
-        <router-link to="/scenes" class="nav-link">场景列表</router-link>
-        <router-link to="/scene-objects" class="nav-link">场景对象</router-link>
-        <router-link to="/workflow-designer" class="nav-link">工作流设计</router-link>
-        <router-link to="/workflow-instances" class="nav-link">工作流实例</router-link>
+
+        <!-- 场景管理下拉菜单 -->
+        <div class="nav-dropdown" @mouseenter="showDropdown('scenes')" @mouseleave="hideDropdown('scenes')">
+          <div class="nav-link dropdown-toggle" :class="{ active: isSceneActive }">
+            场景管理
+            <span class="dropdown-icon">▾</span>
+          </div>
+          <div class="dropdown-menu" v-show="activeDropdown === 'scenes'">
+            <router-link to="/scenes" class="dropdown-item">场景列表</router-link>
+            <router-link to="/scene-objects" class="dropdown-item">场景对象</router-link>
+            <router-link to="/slicing" class="dropdown-item">切片管理</router-link>
+          </div>
+        </div>
+
+        <!-- 元数据管理下拉菜单 -->
+        <div class="nav-dropdown" @mouseenter="showDropdown('metadata')" @mouseleave="hideDropdown('metadata')">
+          <div class="nav-link dropdown-toggle" :class="{ active: isMetadataActive }">
+            元数据管理
+            <span class="dropdown-icon">▾</span>
+          </div>
+          <div class="dropdown-menu" v-show="activeDropdown === 'metadata'">
+            <router-link to="/video-metadata" class="dropdown-item">视频元数据</router-link>
+            <router-link to="/bim-model-metadata" class="dropdown-item">BIM模型</router-link>
+            <router-link to="/tilt-photography-metadata" class="dropdown-item">倾斜摄影</router-link>
+          </div>
+        </div>
+
+        <!-- 工作流下拉菜单 -->
+        <div class="nav-dropdown" @mouseenter="showDropdown('workflow')" @mouseleave="hideDropdown('workflow')">
+          <div class="nav-link dropdown-toggle" :class="{ active: isWorkflowActive }">
+            工作流
+            <span class="dropdown-icon">▾</span>
+          </div>
+          <div class="dropdown-menu" v-show="activeDropdown === 'workflow'">
+            <router-link to="/workflow-designer" class="dropdown-item">工作流设计</router-link>
+            <router-link to="/workflow-instances" class="dropdown-item">工作流实例</router-link>
+          </div>
+        </div>
+
         <router-link to="/monitoring" class="nav-link">系统监控</router-link>
-        <router-link to="/slicing" class="nav-link">切片管理</router-link>
       </nav>
 
       <!-- 用户信息和操作 -->
@@ -46,15 +80,50 @@
  * 负责整体布局和路由视图管理
  * 采用TypeScript增强类型安全性
  */
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import authStore from '@/stores/auth'
 import MessageToast from '@/components/MessageToast.vue'
 
 const router = useRouter()
+const route = useRoute()
 
 // 认证状态 - authStore的isAuthenticated和currentUser已经是computed,直接使用
 const isAuthenticated = authStore.isAuthenticated
 const currentUser = authStore.currentUser
+
+// 下拉菜单状态
+const activeDropdown = ref<string | null>(null)
+
+// 显示下拉菜单
+const showDropdown = (menu: string) => {
+  activeDropdown.value = menu
+}
+
+// 隐藏下拉菜单
+const hideDropdown = (menu: string) => {
+  if (activeDropdown.value === menu) {
+    activeDropdown.value = null
+  }
+}
+
+// 判断当前路由是否在场景管理分组
+const isSceneActive = computed(() => {
+  const sceneRoutes = ['/scenes', '/scene-objects', '/slicing']
+  return sceneRoutes.includes(route.path)
+})
+
+// 判断当前路由是否在元数据管理分组
+const isMetadataActive = computed(() => {
+  const metadataRoutes = ['/video-metadata', '/bim-model-metadata', '/tilt-photography-metadata']
+  return metadataRoutes.includes(route.path)
+})
+
+// 判断当前路由是否在工作流分组
+const isWorkflowActive = computed(() => {
+  const workflowRoutes = ['/workflow-designer', '/workflow-instances']
+  return workflowRoutes.includes(route.path)
+})
 
 // 处理登出
 const handleLogout = async () => {
@@ -122,6 +191,12 @@ const handleLogout = async () => {
   gap: 0.5rem;
   flex: 1;
   justify-content: center;
+  align-items: center;
+}
+
+/* 下拉菜单容器 */
+.nav-dropdown {
+  position: relative;
 }
 
 .nav-link {
@@ -137,6 +212,21 @@ const handleLogout = async () => {
   overflow: hidden;
   display: block;
   cursor: pointer;
+}
+
+.dropdown-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.dropdown-icon {
+  font-size: 0.8rem;
+  transition: transform var(--transition-base);
+}
+
+.nav-dropdown:hover .dropdown-icon {
+  transform: rotate(180deg);
 }
 
 .nav-link::before {
@@ -176,16 +266,69 @@ const handleLogout = async () => {
   transform: translateX(-50%) scaleX(1);
 }
 
-.nav-link.router-link-active {
+.nav-link.router-link-active,
+.nav-link.active {
   color: var(--primary-color);
   font-weight: 600;
   background: linear-gradient(135deg, var(--primary-lighter) 0%, var(--primary-light) 100%);
   box-shadow: var(--shadow-sm), inset 0 1px 2px rgba(99, 102, 241, 0.1);
 }
 
-.nav-link.router-link-active::before {
+.nav-link.router-link-active::before,
+.nav-link.active::before {
   transform: translateX(-50%) scaleX(1);
   background: var(--gradient-primary-alt);
+}
+
+/* 下拉菜单样式 */
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 160px;
+  
+  background: white;
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  animation: dropdownSlide 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1000;
+}
+
+@keyframes dropdownSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  display: block;
+  padding: 0.75rem 1.2rem;
+  color: var(--gray-700);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all var(--transition-base);
+  border-left: 3px solid transparent;
+}
+
+.dropdown-item:hover {
+  background: linear-gradient(90deg, var(--primary-lighter) 0%, transparent 100%);
+  color: var(--primary-color);
+  border-left-color: var(--primary-color);
+  padding-left: 1.4rem;
+}
+
+.dropdown-item.router-link-active {
+  background: linear-gradient(90deg, var(--primary-light) 0%, var(--primary-lighter) 100%);
+  color: var(--primary-color);
+  font-weight: 600;
+  border-left-color: var(--primary-color);
 }
 
 .main-content {
@@ -354,6 +497,11 @@ const handleLogout = async () => {
     padding: 0.5rem 0.8rem;
     font-size: 0.85rem;
   }
+
+  .dropdown-item {
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+  }
 }
 
 @media (max-width: 992px) {
@@ -369,7 +517,7 @@ const handleLogout = async () => {
   .nav {
     width: 100%;
     order: 3;
-    margin-top: 0.5rem;
+    
     justify-content: flex-start;
     overflow-x: auto;
     padding-bottom: 0.25rem;
@@ -397,6 +545,15 @@ const handleLogout = async () => {
   .btn-login {
     padding: 0.5rem 0.8rem;
     font-size: 0.85rem;
+  }
+
+  /* 移动端将下拉菜单改为点击展开 */
+  .dropdown-menu {
+    position: static;
+    box-shadow: none;
+    margin-top: 0.25rem;
+    border-radius: 0;
+    border-left: 3px solid var(--primary-color);
   }
 }
 

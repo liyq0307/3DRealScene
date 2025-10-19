@@ -209,10 +209,10 @@ export const sceneObjectService = {
 // ==================== 用户认证服务 ====================
 
 /**
- * 用户认证相关API服务
- * 提供登录、注册、用户信息管理等认证功能
+ * 认证相关API服务
+ * 提供登录、注册等认证功能
  */
-export const userService = {
+export const authService = {
   /**
    * 用户登录
    * @param email 用户邮箱
@@ -233,6 +233,85 @@ export const userService = {
    */
   async register(username: string, email: string, password: string) {
     const response = await api.post('/users/register', { username, email, password })
+    return response.data
+  },
+
+  /**
+   * 获取当前登录用户信息
+   * @returns Promise<UserDto> 当前用户详细信息
+   */
+  async getCurrentUser() {
+    const response = await api.get('/auth/me')
+    return response.data
+  }
+}
+
+/**
+ * 用户管理相关API服务
+ * 提供用户信息管理、头像上传等功能
+ */
+export const userService = {
+  /**
+   * 根据ID获取用户信息
+   * @param id 用户ID
+   * @returns Promise<UserDto> 用户信息
+   */
+  async getUser(id: string) {
+    const response = await api.get(`/users/${id}`)
+    return response.data
+  },
+
+  /**
+   * 获取所有用户列表
+   * @returns Promise<UserDto[]> 所有用户列表
+   */
+  async getAllUsers() {
+    const response = await api.get('/users')
+    return response.data
+  },
+
+  /**
+   * 上传用户头像
+   * @param file 头像文件
+   * @param onProgress 上传进度回调
+   * @returns Promise<AvatarUploadResponse> 头像上传结果
+   */
+  async uploadAvatar(file: File, onProgress?: (percent: number) => void) {
+    const formData = new FormData()
+    formData.append('avatar', file)
+
+    const response = await api.post('/users/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          onProgress(percent)
+        }
+      }
+    })
+    return response.data
+  },
+
+  /**
+   * 更新用户信息
+   * @param id 用户ID
+   * @param data 更新数据
+   * @returns Promise<UserDto> 更新后的用户信息
+   */
+  async updateUser(id: string, data: any) {
+    const response = await api.put(`/users/${id}`, data)
+    return response.data
+  },
+
+  /**
+   * 修改密码
+   * @param oldPassword 旧密码
+   * @param newPassword 新密码
+   */
+  async changePassword(oldPassword: string, newPassword: string) {
+    const response = await api.post('/users/change-password', { oldPassword, newPassword })
     return response.data
   }
 }
@@ -879,6 +958,489 @@ export const slicingService = {
    */
   async getIncrementalUpdateIndex(taskId: string) {
     const response = await api.get(`/slicing/tasks/${taskId}/incremental-index`)
+    return response.data
+  }
+}
+
+// ==================== 文件上传服务 ====================
+
+/**
+ * 文件上传相关API服务
+ * 提供通用文件上传、批量上传、头像上传等功能
+ */
+export const fileService = {
+  /**
+   * 通用文件上传
+   * @param file 要上传的文件
+   * @param bucketName 可选的存储桶名称
+   * @param onProgress 上传进度回调函数
+   * @returns Promise<FileUploadResponse> 上传结果
+   */
+  async uploadFile(
+    file: File,
+    bucketName?: string,
+    onProgress?: (percent: number) => void
+  ) {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (bucketName) {
+      formData.append('bucketName', bucketName)
+    }
+
+    const response = await api.post('/files/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          onProgress(percent)
+        }
+      }
+    })
+    return response.data
+  },
+
+  /**
+   * 批量文件上传
+   * @param files 要上传的文件数组
+   * @param bucketName 可选的存储桶名称
+   * @returns Promise<BatchFileUploadResponse> 批量上传结果
+   */
+  async uploadFilesBatch(files: File[], bucketName?: string) {
+    const formData = new FormData()
+    files.forEach(file => {
+      formData.append('files', file)
+    })
+    if (bucketName) {
+      formData.append('bucketName', bucketName)
+    }
+
+    const response = await api.post('/files/upload/batch', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    return response.data
+  },
+
+  /**
+   * 上传用户头像
+   * @param file 头像文件
+   * @param onProgress 上传进度回调
+   * @returns Promise<AvatarUploadResponse> 头像上传结果
+   */
+  async uploadAvatar(file: File, onProgress?: (percent: number) => void) {
+    const formData = new FormData()
+    formData.append('avatar', file)
+
+    const response = await api.post('/users/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          onProgress(percent)
+        }
+      }
+    })
+    return response.data
+  },
+
+  /**
+   * 删除文件
+   * @param bucket 存储桶名称
+   * @param objectName 对象名称
+   */
+  async deleteFile(bucket: string, objectName: string) {
+    await api.delete(`/files/${bucket}/${objectName}`)
+  },
+
+  /**
+   * 获取文件下载链接
+   * @param bucket 存储桶名称
+   * @param objectName 对象名称
+   * @param expiryHours 链接有效时间（小时）
+   * @returns Promise<DownloadUrlResponse> 下载链接响应
+   */
+  async getDownloadUrl(bucket: string, objectName: string, expiryHours = 24) {
+    const response = await api.get(`/files/download-url/${bucket}/${objectName}`, {
+      params: { expiryHours }
+    })
+    return response.data
+  },
+
+  /**
+   * 列出存储桶中的文件
+   * @param bucket 存储桶名称
+   * @param prefix 可选的文件前缀
+   * @returns Promise<string[]> 文件名称列表
+   */
+  async listFiles(bucket: string, prefix?: string) {
+    const response = await api.get(`/files/list/${bucket}`, {
+      params: prefix ? { prefix } : {}
+    })
+    return response.data
+  }
+}
+
+// ==================== 视频元数据管理服务 ====================
+
+/**
+ * 视频元数据相关API服务
+ * 提供视频元数据的完整CRUD操作和查询功能
+ */
+export const videoMetadataService = {
+  /**
+   * 获取所有视频元数据
+   * @returns Promise<VideoMetadata[]> 视频元数据列表
+   */
+  async getAllVideos() {
+    const response = await api.get('/videometadata/all')
+    return response.data
+  },
+
+  /**
+   * 根据ID获取视频元数据
+   * @param id 视频元数据ID
+   * @returns Promise<VideoMetadata> 视频元数据详情
+   */
+  async getVideoById(id: string) {
+    const response = await api.get(`/videometadata/${id}`)
+    return response.data
+  },
+
+  /**
+   * 根据场景ID获取视频列表
+   * @param sceneId 场景ID
+   * @returns Promise<VideoMetadata[]> 场景关联的视频列表
+   */
+  async getVideosBySceneId(sceneId: string) {
+    const response = await api.get(`/videometadata/scene/${sceneId}`)
+    return response.data
+  },
+
+  /**
+   * 根据文件名搜索视频
+   * @param fileName 文件名关键词
+   * @returns Promise<VideoMetadata[]> 匹配的视频列表
+   */
+  async searchVideosByFileName(fileName: string) {
+    const response = await api.get(`/videometadata/search/${fileName}`)
+    return response.data
+  },
+
+  /**
+   * 根据标签查询视频
+   * @param tags 标签数组
+   * @returns Promise<VideoMetadata[]> 匹配的视频列表
+   */
+  async getVideosByTags(tags: string[]) {
+    const response = await api.get('/videometadata/tags', {
+      params: { tags }
+    })
+    return response.data
+  },
+
+  /**
+   * 分页查询视频
+   * @param sceneId 可选的场景ID过滤
+   * @param pageNumber 页码（从1开始）
+   * @param pageSize 每页大小
+   * @returns Promise<PagedResult> 分页结果
+   */
+  async getVideosPaged(sceneId?: string, pageNumber = 1, pageSize = 20) {
+    const params: any = { pageNumber, pageSize }
+    if (sceneId) params.sceneId = sceneId
+
+    const response = await api.get('/videometadata/paged', { params })
+    return response.data
+  },
+
+  /**
+   * 创建视频元数据
+   * @param video 视频元数据
+   * @returns Promise<VideoMetadata> 创建的视频元数据
+   */
+  async createVideo(video: any) {
+    const response = await api.post('/videometadata', video)
+    return response.data
+  },
+
+  /**
+   * 更新视频元数据
+   * @param id 视频元数据ID
+   * @param video 更新的视频元数据
+   */
+  async updateVideo(id: string, video: any) {
+    await api.put(`/videometadata/${id}`, video)
+  },
+
+  /**
+   * 删除视频元数据
+   * @param id 视频元数据ID
+   */
+  async deleteVideo(id: string) {
+    await api.delete(`/videometadata/${id}`)
+  },
+
+  /**
+   * 统计视频数量
+   * @param sceneId 可选的场景ID过滤
+   * @returns Promise<number> 视频数量
+   */
+  async countVideos(sceneId?: string) {
+    const params = sceneId ? { sceneId } : {}
+    const response = await api.get('/videometadata/count', { params })
+    return response.data
+  }
+}
+
+// ==================== BIM模型元数据管理服务 ====================
+
+/**
+ * BIM模型元数据相关API服务
+ * 提供BIM模型元数据的完整CRUD操作和查询功能
+ */
+export const bimModelMetadataService = {
+  /**
+   * 获取所有BIM模型元数据
+   * @returns Promise<BimModelMetadata[]> BIM模型元数据列表
+   */
+  async getAllBimModels() {
+    const response = await api.get('/bimmodelmetadata/all')
+    return response.data
+  },
+
+  /**
+   * 根据ID获取BIM模型元数据
+   * @param id BIM模型元数据ID
+   * @returns Promise<BimModelMetadata> BIM模型元数据详情
+   */
+  async getBimModelById(id: string) {
+    const response = await api.get(`/bimmodelmetadata/${id}`)
+    return response.data
+  },
+
+  /**
+   * 根据场景ID获取BIM模型列表
+   * @param sceneId 场景ID
+   * @returns Promise<BimModelMetadata[]> 场景关联的BIM模型列表
+   */
+  async getBimModelsBySceneId(sceneId: string) {
+    const response = await api.get(`/bimmodelmetadata/scene/${sceneId}`)
+    return response.data
+  },
+
+  /**
+   * 根据学科类型查询BIM模型
+   * @param discipline 学科类型 (如: 建筑、结构、机电等)
+   * @returns Promise<BimModelMetadata[]> 匹配的BIM模型列表
+   */
+  async getBimModelsByDiscipline(discipline: string) {
+    const response = await api.get(`/bimmodelmetadata/discipline/${discipline}`)
+    return response.data
+  },
+
+  /**
+   * 根据格式查询BIM模型
+   * @param format 文件格式 (如: IFC, RVT等)
+   * @returns Promise<BimModelMetadata[]> 匹配的BIM模型列表
+   */
+  async getBimModelsByFormat(format: string) {
+    const response = await api.get(`/bimmodelmetadata/format/${format}`)
+    return response.data
+  },
+
+  /**
+   * 根据场景和学科查询BIM模型
+   * @param sceneId 场景ID
+   * @param discipline 学科类型
+   * @returns Promise<BimModelMetadata[]> 匹配的BIM模型列表
+   */
+  async getBimModelsBySceneAndDiscipline(sceneId: string, discipline: string) {
+    const response = await api.get(`/bimmodelmetadata/scene/${sceneId}/discipline/${discipline}`)
+    return response.data
+  },
+
+  /**
+   * 获取BIM模型构件统计
+   * @param id BIM模型元数据ID
+   * @returns Promise<BimElementStats> 构件统计信息
+   */
+  async getBimModelElementStats(id: string) {
+    const response = await api.get(`/bimmodelmetadata/${id}/elements/stats`)
+    return response.data
+  },
+
+  /**
+   * 创建BIM模型元数据
+   * @param model BIM模型元数据
+   * @returns Promise<BimModelMetadata> 创建的BIM模型元数据
+   */
+  async createBimModel(model: any) {
+    const response = await api.post('/bimmodelmetadata', model)
+    return response.data
+  },
+
+  /**
+   * 更新BIM模型元数据
+   * @param id BIM模型元数据ID
+   * @param model 更新的BIM模型元数据
+   */
+  async updateBimModel(id: string, model: any) {
+    await api.put(`/bimmodelmetadata/${id}`, model)
+  },
+
+  /**
+   * 删除BIM模型元数据
+   * @param id BIM模型元数据ID
+   */
+  async deleteBimModel(id: string) {
+    await api.delete(`/bimmodelmetadata/${id}`)
+  }
+}
+
+// ==================== 倾斜摄影元数据管理服务 ====================
+
+/**
+ * 倾斜摄影元数据相关API服务
+ * 提供倾斜摄影元数据的完整CRUD操作和查询功能
+ */
+export const tiltPhotographyMetadataService = {
+  /**
+   * 获取所有倾斜摄影元数据
+   * @returns Promise<TiltPhotographyMetadata[]> 倾斜摄影元数据列表
+   */
+  async getAllTiltPhotography() {
+    const response = await api.get('/tiltphotographymetadata/all')
+    return response.data
+  },
+
+  /**
+   * 根据ID获取倾斜摄影元数据
+   * @param id 倾斜摄影元数据ID
+   * @returns Promise<TiltPhotographyMetadata> 倾斜摄影元数据详情
+   */
+  async getTiltPhotographyById(id: string) {
+    const response = await api.get(`/tiltphotographymetadata/${id}`)
+    return response.data
+  },
+
+  /**
+   * 根据场景ID获取倾斜摄影列表
+   * @param sceneId 场景ID
+   * @returns Promise<TiltPhotographyMetadata[]> 场景关联的倾斜摄影列表
+   */
+  async getTiltPhotographyBySceneId(sceneId: string) {
+    const response = await api.get(`/tiltphotographymetadata/scene/${sceneId}`)
+    return response.data
+  },
+
+  /**
+   * 根据项目名称搜索倾斜摄影
+   * @param projectName 项目名称关键词
+   * @returns Promise<TiltPhotographyMetadata[]> 匹配的倾斜摄影列表
+   */
+  async searchTiltPhotographyByProjectName(projectName: string) {
+    const response = await api.get(`/tiltphotographymetadata/search/${projectName}`)
+    return response.data
+  },
+
+  /**
+   * 根据采集日期范围查询倾斜摄影
+   * @param startDate 开始日期
+   * @param endDate 结束日期
+   * @returns Promise<TiltPhotographyMetadata[]> 匹配的倾斜摄影列表
+   */
+  async getTiltPhotographyByDateRange(startDate: Date, endDate: Date) {
+    const response = await api.get('/tiltphotographymetadata/date-range', {
+      params: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      }
+    })
+    return response.data
+  },
+
+  /**
+   * 根据覆盖面积查询倾斜摄影
+   * @param minAreaKm2 最小覆盖面积（平方公里）
+   * @returns Promise<TiltPhotographyMetadata[]> 匹配的倾斜摄影列表
+   */
+  async getTiltPhotographyByCoverageArea(minAreaKm2: number) {
+    const response = await api.get('/tiltphotographymetadata/coverage-area', {
+      params: { minAreaKm2 }
+    })
+    return response.data
+  },
+
+  /**
+   * 根据输出格式查询倾斜摄影
+   * @param format 输出格式 (如: OSGB, 3DTiles等)
+   * @returns Promise<TiltPhotographyMetadata[]> 匹配的倾斜摄影列表
+   */
+  async getTiltPhotographyByOutputFormat(format: string) {
+    const response = await api.get(`/tiltphotographymetadata/format/${format}`)
+    return response.data
+  },
+
+  /**
+   * 根据地理边界查询倾斜摄影（空间查询）
+   * @param minLon 最小经度
+   * @param minLat 最小纬度
+   * @param maxLon 最大经度
+   * @param maxLat 最大纬度
+   * @returns Promise<TiltPhotographyMetadata[]> 匹配的倾斜摄影列表
+   */
+  async getTiltPhotographyByBounds(
+    minLon: number,
+    minLat: number,
+    maxLon: number,
+    maxLat: number
+  ) {
+    const response = await api.get('/tiltphotographymetadata/bounds', {
+      params: { minLon, minLat, maxLon, maxLat }
+    })
+    return response.data
+  },
+
+  /**
+   * 创建倾斜摄影元数据
+   * @param data 倾斜摄影元数据
+   * @returns Promise<TiltPhotographyMetadata> 创建的倾斜摄影元数据
+   */
+  async createTiltPhotography(data: any) {
+    const response = await api.post('/tiltphotographymetadata', data)
+    return response.data
+  },
+
+  /**
+   * 更新倾斜摄影元数据
+   * @param id 倾斜摄影元数据ID
+   * @param data 更新的倾斜摄影元数据
+   */
+  async updateTiltPhotography(id: string, data: any) {
+    await api.put(`/tiltphotographymetadata/${id}`, data)
+  },
+
+  /**
+   * 删除倾斜摄影元数据
+   * @param id 倾斜摄影元数据ID
+   */
+  async deleteTiltPhotography(id: string) {
+    await api.delete(`/tiltphotographymetadata/${id}`)
+  },
+
+  /**
+   * 统计倾斜摄影数量
+   * @param sceneId 可选的场景ID过滤
+   * @returns Promise<number> 倾斜摄影数量
+   */
+  async countTiltPhotography(sceneId?: string) {
+    const params = sceneId ? { sceneId } : {}
+    const response = await api.get('/tiltphotographymetadata/count', { params })
     return response.data
   }
 }

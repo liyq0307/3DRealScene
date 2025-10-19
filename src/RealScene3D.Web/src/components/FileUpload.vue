@@ -113,6 +113,7 @@
 
 import { ref, computed } from 'vue'
 import { useMessage } from '@/composables/useMessage'
+import { fileService } from '@/services/api'
 
 interface Props {
   modelValue?: File | null
@@ -121,6 +122,7 @@ interface Props {
   multiple?: boolean
   hint?: string
   autoUpload?: boolean
+  bucketName?: string // 指定存储桶
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -129,7 +131,8 @@ const props = withDefaults(defineProps<Props>(), {
   maxSize: 100,
   multiple: false,
   hint: '支持所有格式,单个文件不超过100MB',
-  autoUpload: false
+  autoUpload: false,
+  bucketName: undefined
 })
 
 const emit = defineEmits<{
@@ -251,35 +254,26 @@ const handleUpload = async () => {
   uploadProgress.value = 0
 
   try {
-    // 模拟上传进度
-    const interval = setInterval(() => {
-      uploadProgress.value += 10
-      emit('progress', uploadProgress.value)
-
-      if (uploadProgress.value >= 100) {
-        clearInterval(interval)
-        uploading.value = false
-        uploaded.value = true
-        emit('success', { url: 'https://example.com/file.glb' })
-      }
-    }, 200)
-
     // 触发上传事件
     emit('upload', file.value)
 
-    // TODO: 实际的文件上传逻辑
-    // const formData = new FormData()
-    // formData.append('file', file.value)
-    // const response = await api.post('/upload', formData, {
-    //   onUploadProgress: (progressEvent) => {
-    //     const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-    //     uploadProgress.value = percent
-    //     emit('progress', percent)
-    //   }
-    // })
+    // 实际的文件上传逻辑
+    const response = await fileService.uploadFile(
+      file.value,
+      props.bucketName,
+      (percent) => {
+        uploadProgress.value = percent
+        emit('progress', percent)
+      }
+    )
 
+    // 上传成功
+    uploading.value = false
+    uploaded.value = true
+    emit('success', response)
   } catch (err) {
     uploading.value = false
+    uploadProgress.value = 0
     showError('上传失败,请重试')
     emit('error', err as Error)
   }

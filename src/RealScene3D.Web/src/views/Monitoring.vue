@@ -7,14 +7,12 @@
         <p class="subtitle">实时监控系统状态和业务指标</p>
       </div>
       <div class="header-right">
-        <button @click="refreshData" class="btn btn-primary">
-          <span class="icon">🔄</span>
+        <Button variant="primary" icon="🔄" @click="refreshData">
           刷新数据
-        </button>
-        <button @click="openDashboardDialog" class="btn btn-secondary">
-          <span class="icon">➕</span>
+        </Button>
+        <Button variant="success" icon="➕" @click="openDashboardDialog">
           新建仪表板
-        </button>
+        </Button>
       </div>
     </header>
 
@@ -35,6 +33,19 @@
     <div v-if="activeTab === 'metrics'" class="tab-content">
       <div class="metrics-section">
         <h2>系统指标</h2>
+
+        <!-- 图表可视化 -->
+        <div v-if="metricBarChartData.length > 0" class="charts-container">
+          <div class="chart-wrapper">
+            <BarChart
+              :data="metricBarChartData"
+              :width="600"
+              :height="300"
+              title="当前系统指标"
+              color="#667eea"
+            />
+          </div>
+        </div>
 
         <!-- 快照数据卡片 -->
         <div class="metrics-grid">
@@ -59,31 +70,37 @@
         <div class="history-query">
           <h3>查询历史数据</h3>
           <div class="query-form">
-            <input
+            <Input
               v-model="metricQuery.name"
-              type="text"
               placeholder="指标名称"
-              class="form-input"
+              required
             />
-            <input
+            <Input
               v-model="metricQuery.category"
-              type="text"
               placeholder="分类 (可选)"
-              class="form-input"
             />
-            <input
+            <Input
               v-model="metricQuery.startTime"
               type="datetime-local"
-              class="form-input"
             />
-            <input
+            <Input
               v-model="metricQuery.endTime"
               type="datetime-local"
-              class="form-input"
             />
-            <button @click="queryMetricHistory" class="btn btn-primary">
+            <Button variant="primary" @click="queryMetricHistory">
               查询
-            </button>
+            </Button>
+          </div>
+
+          <!-- 历史数据图表 -->
+          <div v-if="metricLineChartData.length > 0" class="history-chart">
+            <LineChart
+              :data="metricLineChartData"
+              :width="800"
+              :height="300"
+              :title="`${metricQuery.name} 历史趋势`"
+              color="#28a745"
+            />
           </div>
 
           <!-- 历史数据列表 -->
@@ -118,10 +135,9 @@
       <div class="alerts-section">
         <div class="section-header">
           <h2>告警管理</h2>
-          <button @click="openAlertRuleDialog" class="btn btn-primary">
-            <span class="icon">➕</span>
+          <Button variant="primary" icon="➕" @click="openAlertRuleDialog">
             创建告警规则
-          </button>
+          </Button>
         </div>
 
         <!-- 活跃告警 -->
@@ -150,16 +166,20 @@
                 </div>
               </div>
               <div class="alert-actions">
-                <button
+                <Button
+                  size="sm"
                   @click="acknowledgeAlert(alert.id)"
-                  class="btn btn-sm"
                   :disabled="alert.acknowledgedAt !== null"
                 >
                   {{ alert.acknowledgedAt ? '已确认' : '确认' }}
-                </button>
-                <button @click="resolveAlert(alert.id)" class="btn btn-sm btn-success">
+                </Button>
+                <Button
+                  size="sm"
+                  variant="success"
+                  @click="resolveAlert(alert.id)"
+                >
                   解决
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -187,12 +207,12 @@
                 <span>级别: {{ getAlertLevelText(rule.level) }}</span>
               </div>
               <div class="rule-actions">
-                <button @click="editAlertRule(rule.id)" class="btn btn-sm">
+                <Button size="sm" @click="editAlertRule(rule.id)">
                   编辑
-                </button>
-                <button @click="deleteAlertRule(rule.id)" class="btn btn-sm btn-danger">
+                </Button>
+                <Button size="sm" variant="danger" @click="deleteAlertRule(rule.id)">
                   删除
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -202,26 +222,22 @@
         <div class="alert-history">
           <h3>告警历史</h3>
           <div class="history-filters">
-            <input
+            <Input
               v-model="alertHistoryQuery.startTime"
               type="datetime-local"
-              class="form-input"
             />
-            <input
+            <Input
               v-model="alertHistoryQuery.endTime"
               type="datetime-local"
-              class="form-input"
             />
-            <select v-model="alertHistoryQuery.level" class="form-select">
-              <option value="">所有级别</option>
-              <option value="0">信息</option>
-              <option value="1">警告</option>
-              <option value="2">错误</option>
-              <option value="3">严重</option>
-            </select>
-            <button @click="queryAlertHistory" class="btn btn-primary">
+            <Select
+              v-model="alertHistoryQuery.level"
+              :options="alertLevelFilterOptions"
+              placeholder="选择级别"
+            />
+            <Button variant="primary" @click="queryAlertHistory">
               查询
-            </button>
+            </Button>
           </div>
           <div v-if="alertHistory.length > 0" class="history-table">
             <table class="data-table">
@@ -274,18 +290,19 @@
               <span>刷新间隔: {{ dashboard.config.refreshInterval }}s</span>
             </div>
             <div class="dashboard-actions">
-              <button
+              <Button
+                size="sm"
                 @click.stop="editDashboard(dashboard.id)"
-                class="btn btn-sm"
               >
                 编辑
-              </button>
-              <button
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
                 @click.stop="deleteDashboard(dashboard.id)"
-                class="btn btn-sm btn-danger"
               >
                 删除
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -297,12 +314,11 @@
       <div class="modal-content" @click.stop>
         <h3>{{ editingAlertRule ? '编辑告警规则' : '创建告警规则' }}</h3>
         <div class="form-group">
-          <label>规则名称</label>
-          <input
+          <Input
             v-model="alertRuleForm.name"
-            type="text"
-            class="form-input"
+            label="规则名称"
             placeholder="输入规则名称"
+            required
           />
         </div>
         <div class="form-group">
@@ -314,58 +330,53 @@
           ></textarea>
         </div>
         <div class="form-group">
-          <label>指标名称</label>
-          <input
+          <Input
             v-model="alertRuleForm.metricName"
-            type="text"
-            class="form-input"
+            label="指标名称"
             placeholder="输入指标名称"
+            required
           />
         </div>
         <div class="form-group">
-          <label>告警级别</label>
-          <select v-model="alertRuleForm.level" class="form-select">
-            <option :value="0">信息</option>
-            <option :value="1">警告</option>
-            <option :value="2">错误</option>
-            <option :value="3">严重</option>
-          </select>
+          <Select
+            v-model="alertRuleForm.level"
+            label="告警级别"
+            :options="alertLevelOptions"
+            required
+          />
         </div>
         <div class="form-group">
-          <label>比较运算符</label>
-          <select v-model="alertRuleForm.condition.operator" class="form-select">
-            <option :value="0">大于</option>
-            <option :value="1">大于等于</option>
-            <option :value="2">等于</option>
-            <option :value="3">小于等于</option>
-            <option :value="4">小于</option>
-          </select>
+          <Select
+            v-model="alertRuleForm.condition.operator"
+            label="比较运算符"
+            :options="operatorOptions"
+            required
+          />
         </div>
         <div class="form-group">
-          <label>阈值</label>
-          <input
+          <Input
             v-model.number="alertRuleForm.condition.threshold"
             type="number"
-            class="form-input"
+            label="阈值"
             placeholder="输入阈值"
+            required
           />
         </div>
         <div class="form-group">
-          <label>持续时间 (秒)</label>
-          <input
+          <Input
             v-model.number="alertRuleForm.condition.durationSeconds"
             type="number"
-            class="form-input"
+            label="持续时间 (秒)"
             placeholder="默认300秒"
           />
         </div>
         <div class="modal-actions">
-          <button @click="closeAlertRuleDialog" class="btn btn-secondary">
+          <Button variant="secondary" @click="closeAlertRuleDialog">
             取消
-          </button>
-          <button @click="saveAlertRule" class="btn btn-primary">
+          </Button>
+          <Button variant="primary" @click="saveAlertRule">
             保存
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -375,12 +386,11 @@
       <div class="modal-content" @click.stop>
         <h3>{{ editingDashboard ? '编辑仪表板' : '创建仪表板' }}</h3>
         <div class="form-group">
-          <label>仪表板名称</label>
-          <input
+          <Input
             v-model="dashboardForm.name"
-            type="text"
-            class="form-input"
+            label="仪表板名称"
             placeholder="输入仪表板名称"
+            required
           />
         </div>
         <div class="form-group">
@@ -392,30 +402,28 @@
           ></textarea>
         </div>
         <div class="form-group">
-          <label>刷新间隔 (秒)</label>
-          <input
+          <Input
             v-model.number="dashboardForm.refreshInterval"
             type="number"
-            class="form-input"
+            label="刷新间隔 (秒)"
             placeholder="默认60秒"
           />
         </div>
         <div class="form-group">
-          <label>时间范围 (分钟)</label>
-          <input
+          <Input
             v-model.number="dashboardForm.timeRange"
             type="number"
-            class="form-input"
+            label="时间范围 (分钟)"
             placeholder="默认60分钟"
           />
         </div>
         <div class="modal-actions">
-          <button @click="closeDashboardDialog" class="btn btn-secondary">
+          <Button variant="secondary" @click="closeDashboardDialog">
             取消
-          </button>
-          <button @click="saveDashboard" class="btn btn-primary">
+          </Button>
+          <Button variant="primary" @click="saveDashboard">
             保存
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -425,6 +433,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { monitoringService } from '@/services/api'
+import BarChart from '@/components/BarChart.vue'
+import LineChart from '@/components/LineChart.vue'
+import Button from '@/components/Button.vue'
+import Input from '@/components/Input.vue'
+import Select from '@/components/Select.vue'
 
 // 选项卡
 const tabs = [
@@ -444,6 +457,21 @@ const metricQuery = ref({
   endTime: ''
 })
 
+// 图表数据计算
+const metricBarChartData = computed(() => {
+  return Object.entries(systemMetrics.value).map(([name, metric]: [string, any]) => ({
+    label: name,
+    value: metric.value
+  }))
+})
+
+const metricLineChartData = computed(() => {
+  return metricHistory.value.map(record => ({
+    time: formatTime(record.timestamp),
+    value: record.value
+  }))
+})
+
 // 告警数据
 const activeAlerts = ref<any[]>([])
 const alertRules = ref<any[]>([])
@@ -456,6 +484,30 @@ const alertHistoryQuery = ref({
 
 // 仪表板数据
 const dashboards = ref<any[]>([])
+
+// 表单选项数据
+const alertLevelOptions = [
+  { label: '信息', value: 0 },
+  { label: '警告', value: 1 },
+  { label: '错误', value: 2 },
+  { label: '严重', value: 3 }
+]
+
+const operatorOptions = [
+  { label: '大于', value: 0 },
+  { label: '大于等于', value: 1 },
+  { label: '等于', value: 2 },
+  { label: '小于等于', value: 3 },
+  { label: '小于', value: 4 }
+]
+
+const alertLevelFilterOptions = [
+  { label: '所有级别', value: '' },
+  { label: '信息', value: '0' },
+  { label: '警告', value: '1' },
+  { label: '错误', value: '2' },
+  { label: '严重', value: '3' }
+]
 
 // 对话框状态
 const showAlertRuleDialog = ref(false)
@@ -824,6 +876,31 @@ onMounted(async () => {
 }
 
 /* 系统指标样式 */
+.charts-container {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.chart-wrapper {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.history-chart {
+  margin: 2rem 0;
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

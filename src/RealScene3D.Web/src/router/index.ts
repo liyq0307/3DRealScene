@@ -136,6 +136,45 @@ const routes = [
     name: 'Profile',
     component: () => import('../views/Profile.vue'),
     meta: { requiresAuth: true, title: '个人中心' }
+  },
+
+  /**
+   * 视频元数据管理路由
+   * 路径: /video-metadata
+   * 组件: VideoMetadata.vue (视频元数据管理组件)
+   * 用途: 管理系统中的视频资源元数据
+   */
+  {
+    path: '/video-metadata',
+    name: 'VideoMetadata',
+    component: () => import('../views/VideoMetadata.vue'),
+    meta: { requiresAuth: true, title: '视频元数据' }
+  },
+
+  /**
+   * BIM模型元数据管理路由
+   * 路径: /bim-model-metadata
+   * 组件: BimModelMetadata.vue (BIM模型元数据管理组件)
+   * 用途: 管理建筑信息模型(BIM)元数据
+   */
+  {
+    path: '/bim-model-metadata',
+    name: 'BimModelMetadata',
+    component: () => import('../views/BimModelMetadata.vue'),
+    meta: { requiresAuth: true, title: 'BIM模型元数据' }
+  },
+
+  /**
+   * 倾斜摄影元数据管理路由
+   * 路径: /tilt-photography-metadata
+   * 组件: TiltPhotographyMetadata.vue (倾斜摄影元数据管理组件)
+   * 用途: 管理倾斜摄影数据元数据
+   */
+  {
+    path: '/tilt-photography-metadata',
+    name: 'TiltPhotographyMetadata',
+    component: () => import('../views/TiltPhotographyMetadata.vue'),
+    meta: { requiresAuth: true, title: '倾斜摄影元数据' }
   }
 
   // ==================== 预留路由扩展空间 ====================

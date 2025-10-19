@@ -23,42 +23,22 @@ public class TiltPhotographyMetadataController : ControllerBase
     }
 
     /// <summary>
-    /// 获取所有倾斜摄影元数据
+    /// 统计倾斜摄影数据数量
     /// </summary>
-    [HttpGet]
-    public async Task<ActionResult<IEnumerable<TiltPhotographyMetadata>>> GetAll(CancellationToken cancellationToken)
+    [HttpGet("count")]
+    public async Task<ActionResult<long>> Count([FromQuery] Guid? sceneId, CancellationToken cancellationToken)
     {
         try
         {
-            var data = await _repository.GetAllAsync(cancellationToken);
-            return Ok(data);
+            var count = await _repository.CountAsync(
+                sceneId.HasValue ? t => t.SceneId == sceneId.Value : null,
+                cancellationToken);
+            return Ok(count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "获取倾斜摄影数据列表失败");
-            return StatusCode(500, "获取倾斜摄影数据列表失败");
-        }
-    }
-
-    /// <summary>
-    /// 根据 ID 获取倾斜摄影元数据
-    /// </summary>
-    [HttpGet("{id}")]
-    public async Task<ActionResult<TiltPhotographyMetadata>> GetById(string id, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var data = await _repository.GetByIdAsync(id, cancellationToken);
-            if (data == null)
-            {
-                return NotFound($"未找到 ID 为 {id} 的倾斜摄影数据");
-            }
-            return Ok(data);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取倾斜摄影数据失败: {Id}", id);
-            return StatusCode(500, "获取倾斜摄影数据失败");
+            _logger.LogError(ex, "统计倾斜摄影数据数量失败");
+            return StatusCode(500, new { error = "统计倾斜摄影数据数量失败", details = ex.Message });
         }
     }
 
@@ -76,7 +56,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "获取场景倾斜摄影数据失败: {SceneId}", sceneId);
-            return StatusCode(500, "获取场景倾斜摄影数据失败");
+            return StatusCode(500, new { error = "获取场景倾斜摄影数据失败", details = ex.Message });
         }
     }
 
@@ -94,7 +74,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "搜索倾斜摄影数据失败: {ProjectName}", projectName);
-            return StatusCode(500, "搜索倾斜摄影数据失败");
+            return StatusCode(500, new { error = "搜索倾斜摄影数据失败", details = ex.Message });
         }
     }
 
@@ -115,7 +95,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "根据日期范围查询倾斜摄影失败");
-            return StatusCode(500, "根据日期范围查询倾斜摄影失败");
+            return StatusCode(500, new { error = "根据日期范围查询倾斜摄影失败", details = ex.Message });
         }
     }
 
@@ -135,7 +115,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "根据覆盖面积查询倾斜摄影失败");
-            return StatusCode(500, "根据覆盖面积查询倾斜摄影失败");
+            return StatusCode(500, new { error = "根据覆盖面积查询倾斜摄影失败", details = ex.Message });
         }
     }
 
@@ -153,7 +133,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "根据格式查询倾斜摄影失败: {Format}", format);
-            return StatusCode(500, "根据格式查询倾斜摄影失败");
+            return StatusCode(500, new { error = "根据格式查询倾斜摄影失败", details = ex.Message });
         }
     }
 
@@ -176,7 +156,47 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "根据地理边界查询倾斜摄影失败");
-            return StatusCode(500, "根据地理边界查询倾斜摄影失败");
+            return StatusCode(500, new { error = "根据地理边界查询倾斜摄影失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 获取所有倾斜摄影元数据
+    /// </summary>
+    [HttpGet("all")]
+    public async Task<ActionResult<IEnumerable<TiltPhotographyMetadata>>> GetAll(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var data = await _repository.GetAllAsync(cancellationToken);
+            return Ok(data);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取倾斜摄影数据列表失败");
+            return StatusCode(500, new { error = "获取倾斜摄影数据列表失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 根据 ID 获取倾斜摄影元数据
+    /// </summary>
+    [HttpGet("{id}")]
+    public async Task<ActionResult<TiltPhotographyMetadata>> GetById(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var data = await _repository.GetByIdAsync(id, cancellationToken);
+            if (data == null)
+            {
+                return NotFound($"未找到 ID 为 {id} 的倾斜摄影数据");
+            }
+            return Ok(data);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取倾斜摄影数据失败: {Id}", id);
+            return StatusCode(500, new { error = "获取倾斜摄影数据失败", details = ex.Message });
         }
     }
 
@@ -194,7 +214,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "创建倾斜摄影元数据失败");
-            return StatusCode(500, "创建倾斜摄影元数据失败");
+            return StatusCode(500, new { error = "创建倾斜摄影元数据失败", details = ex.Message });
         }
     }
 
@@ -216,7 +236,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "更新倾斜摄影元数据失败: {Id}", id);
-            return StatusCode(500, "更新倾斜摄影元数据失败");
+            return StatusCode(500, new { error = "更新倾斜摄影元数据失败", details = ex.Message });
         }
     }
 
@@ -238,27 +258,7 @@ public class TiltPhotographyMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "删除倾斜摄影元数据失败: {Id}", id);
-            return StatusCode(500, "删除倾斜摄影元数据失败");
-        }
-    }
-
-    /// <summary>
-    /// 统计倾斜摄影数据数量
-    /// </summary>
-    [HttpGet("count")]
-    public async Task<ActionResult<long>> Count([FromQuery] Guid? sceneId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var count = await _repository.CountAsync(
-                sceneId.HasValue ? t => t.SceneId == sceneId.Value : null,
-                cancellationToken);
-            return Ok(count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "统计倾斜摄影数据数量失败");
-            return StatusCode(500, "统计倾斜摄影数据数量失败");
+            return StatusCode(500, new { error = "删除倾斜摄影元数据失败", details = ex.Message });
         }
     }
 }

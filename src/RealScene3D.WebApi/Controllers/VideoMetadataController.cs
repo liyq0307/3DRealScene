@@ -23,100 +23,6 @@ public class VideoMetadataController : ControllerBase
     }
 
     /// <summary>
-    /// 获取所有视频元数据
-    /// </summary>
-    [HttpGet]
-    public async Task<ActionResult<IEnumerable<VideoMetadata>>> GetAll(CancellationToken cancellationToken)
-    {
-        try
-        {
-            var videos = await _repository.GetAllAsync(cancellationToken);
-            return Ok(videos);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取视频元数据列表失败");
-            return StatusCode(500, "获取视频元数据列表失败");
-        }
-    }
-
-    /// <summary>
-    /// 根据 ID 获取视频元数据
-    /// </summary>
-    [HttpGet("{id}")]
-    public async Task<ActionResult<VideoMetadata>> GetById(string id, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var video = await _repository.GetByIdAsync(id, cancellationToken);
-            if (video == null)
-            {
-                return NotFound($"未找到 ID 为 {id} 的视频元数据");
-            }
-            return Ok(video);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取视频元数据失败: {Id}", id);
-            return StatusCode(500, "获取视频元数据失败");
-        }
-    }
-
-    /// <summary>
-    /// 根据场景 ID 获取视频列表
-    /// </summary>
-    [HttpGet("scene/{sceneId}")]
-    public async Task<ActionResult<IEnumerable<VideoMetadata>>> GetBySceneId(Guid sceneId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var videos = await _repository.GetAllBySceneIdAsync(sceneId, cancellationToken);
-            return Ok(videos);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取场景视频失败: {SceneId}", sceneId);
-            return StatusCode(500, "获取场景视频失败");
-        }
-    }
-
-    /// <summary>
-    /// 根据文件名搜索视频
-    /// </summary>
-    [HttpGet("search/{fileName}")]
-    public async Task<ActionResult<IEnumerable<VideoMetadata>>> SearchByFileName(string fileName, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var videos = await _repository.SearchByFileNameAsync(fileName, cancellationToken);
-            return Ok(videos);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "搜索视频失败: {FileName}", fileName);
-            return StatusCode(500, "搜索视频失败");
-        }
-    }
-
-    /// <summary>
-    /// 根据标签查询视频
-    /// </summary>
-    [HttpGet("tags")]
-    public async Task<ActionResult<IEnumerable<VideoMetadata>>> GetByTags([FromQuery] string[] tags, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var videos = await _repository.FindByTagsAsync(tags, cancellationToken);
-            return Ok(videos);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "根据标签查询视频失败");
-            return StatusCode(500, "根据标签查询视频失败");
-        }
-    }
-
-    /// <summary>
     /// 分页查询视频
     /// </summary>
     [HttpGet("paged")]
@@ -146,7 +52,121 @@ public class VideoMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "分页查询视频失败");
-            return StatusCode(500, "分页查询视频失败");
+            return StatusCode(500, new { error = "分页查询视频失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 统计视频数量
+    /// </summary>
+    [HttpGet("count")]
+    public async Task<ActionResult<long>> Count([FromQuery] Guid? sceneId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var count = await _repository.CountAsync(
+                sceneId.HasValue ? v => v.SceneId == sceneId.Value : null,
+                cancellationToken);
+            return Ok(count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "统计视频数量失败");
+            return StatusCode(500, new { error = "统计视频数量失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 根据场景 ID 获取视频列表
+    /// </summary>
+    [HttpGet("scene/{sceneId}")]
+    public async Task<ActionResult<IEnumerable<VideoMetadata>>> GetBySceneId(Guid sceneId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var videos = await _repository.GetAllBySceneIdAsync(sceneId, cancellationToken);
+            return Ok(videos);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取场景视频失败: {SceneId}", sceneId);
+            return StatusCode(500, new { error = "获取场景视频失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 根据文件名搜索视频
+    /// </summary>
+    [HttpGet("search/{fileName}")]
+    public async Task<ActionResult<IEnumerable<VideoMetadata>>> SearchByFileName(string fileName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var videos = await _repository.SearchByFileNameAsync(fileName, cancellationToken);
+            return Ok(videos);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "搜索视频失败: {FileName}", fileName);
+            return StatusCode(500, new { error = "搜索视频失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 根据标签查询视频
+    /// </summary>
+    [HttpGet("tags")]
+    public async Task<ActionResult<IEnumerable<VideoMetadata>>> GetByTags([FromQuery] string[] tags, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var videos = await _repository.FindByTagsAsync(tags, cancellationToken);
+            return Ok(videos);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "根据标签查询视频失败");
+            return StatusCode(500, new { error = "根据标签查询视频失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 获取所有视频元数据
+    /// </summary>
+    [HttpGet("all")]
+    public async Task<ActionResult<IEnumerable<VideoMetadata>>> GetAll(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var videos = await _repository.GetAllAsync(cancellationToken);
+            return Ok(videos);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取视频元数据列表失败");
+            return StatusCode(500, new { error = "获取视频元数据列表失败", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 根据 ID 获取视频元数据
+    /// </summary>
+    [HttpGet("{id}")]
+    public async Task<ActionResult<VideoMetadata>> GetById(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var video = await _repository.GetByIdAsync(id, cancellationToken);
+            if (video == null)
+            {
+                return NotFound($"未找到 ID 为 {id} 的视频元数据");
+            }
+            return Ok(video);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取视频元数据失败: {Id}", id);
+            return StatusCode(500, new { error = "获取视频元数据失败", details = ex.Message });
         }
     }
 
@@ -164,7 +184,7 @@ public class VideoMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "创建视频元数据失败");
-            return StatusCode(500, "创建视频元数据失败");
+            return StatusCode(500, new { error = "创建视频元数据失败", details = ex.Message });
         }
     }
 
@@ -186,7 +206,7 @@ public class VideoMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "更新视频元数据失败: {Id}", id);
-            return StatusCode(500, "更新视频元数据失败");
+            return StatusCode(500, new { error = "更新视频元数据失败", details = ex.Message });
         }
     }
 
@@ -208,27 +228,7 @@ public class VideoMetadataController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "删除视频元数据失败: {Id}", id);
-            return StatusCode(500, "删除视频元数据失败");
-        }
-    }
-
-    /// <summary>
-    /// 统计视频数量
-    /// </summary>
-    [HttpGet("count")]
-    public async Task<ActionResult<long>> Count([FromQuery] Guid? sceneId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var count = await _repository.CountAsync(
-                sceneId.HasValue ? v => v.SceneId == sceneId.Value : null,
-                cancellationToken);
-            return Ok(count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "统计视频数量失败");
-            return StatusCode(500, "统计视频数量失败");
+            return StatusCode(500, new { error = "删除视频元数据失败", details = ex.Message });
         }
     }
 }
