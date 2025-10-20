@@ -266,6 +266,61 @@ public class FilesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// 代理获取文件（用于避免CORS问题）
+    /// </summary>
+    [HttpGet("proxy/{bucket}/{*objectName}")]
+    [AllowAnonymous] // 允许匿名访问，因为是公开资源
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ProxyFile(string bucket, string objectName)
+    {
+        try
+        {
+            var exists = await _storageService.FileExistsAsync(bucket, objectName);
+            if (!exists)
+            {
+                return NotFound(new { message = "文件不存在" });
+            }
+
+            // 从MinIO获取文件流
+            var stream = await _storageService.DownloadFileAsync(bucket, objectName);
+
+            // 根据文件扩展名确定Content-Type
+            var contentType = GetContentType(objectName);
+
+            // 设置响应头以启用缓存
+            Response.Headers.CacheControl = "public, max-age=604800"; // 7天缓存
+
+            return File(stream, contentType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "代理文件失败: {Bucket}/{ObjectName}", bucket, objectName);
+            return StatusCode(500, new { message = "获取文件失败", error = ex.Message });
+        }
+    }
+
+    private string GetContentType(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".svg" => "image/svg+xml",
+            ".pdf" => "application/pdf",
+            ".mp4" => "video/mp4",
+            ".webm" => "video/webm",
+            ".json" => "application/json",
+            ".xml" => "application/xml",
+            _ => "application/octet-stream"
+        };
+    }
+
     private string DetermineBucket(string? requestedBucket, string fileName)
     {
         // 如果指定了存储桶，直接使用

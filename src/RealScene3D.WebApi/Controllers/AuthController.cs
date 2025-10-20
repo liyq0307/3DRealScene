@@ -11,7 +11,7 @@ namespace RealScene3D.WebApi.Controllers;
 /// 支持基于JWT的身份验证机制
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/auth")]  // 明确指定小写路由
 public class AuthController : ControllerBase
 {
     private readonly IUserService _userService;
@@ -21,7 +21,7 @@ public class AuthController : ControllerBase
     /// 构造函数 - 依赖注入用户服务和日志记录器
     /// </summary>
     /// <param name="userService">用户应用服务接口</param>
-    /// <param name="logger">日志记录器，用于记录认证操作和安全事件</param>
+    /// <param name="logger">日志记录器,用于记录认证操作和安全事件</param>
     public AuthController(IUserService userService, ILogger<AuthController> logger)
     {
         _userService = userService;

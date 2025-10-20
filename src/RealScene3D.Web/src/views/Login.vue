@@ -141,23 +141,6 @@
             {{ authLoading ? '注册中...' : '注册' }}
           </button>
         </form>
-
-        <!-- 社交登录 -->
-        <div class="social-login">
-          <div class="divider">
-            <span>或者使用</span>
-          </div>
-          <div class="social-buttons">
-            <button class="social-btn github">
-              <span class="icon">🐙</span>
-              GitHub
-            </button>
-            <button class="social-btn google">
-              <span class="icon">🔍</span>
-              Google
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -486,72 +469,6 @@ const handleRegister = async () => {
   width: 100%;
 }
 
-.social-login {
-  margin-top: 1.5rem;
-}
-
-.divider {
-  position: relative;
-  text-align: center;
-  margin: 1rem 0;
-}
-
-.divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: #e1e5e9;
-}
-
-.divider span {
-  position: relative;
-  background: white;
-  padding: 0 1rem;
-  color: #999;
-  font-size: 0.85rem;
-}
-
-.social-buttons {
-  display: flex;
-  gap: 1rem;
-}
-
-.social-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid #e1e5e9;
-  border-radius: 6px;
-  background: white;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.social-btn:hover {
-  background: #f8f9fa;
-  border-color: #667eea;
-}
-
-.social-btn.github {
-  color: #333;
-}
-
-.social-btn.google {
-  color: #4285f4;
-}
-
-.icon {
-  font-size: 1.1em;
-}
-
 /* 响应式优化 */
 @media (max-height: 700px) {
   .auth-page {
@@ -593,14 +510,6 @@ const handleRegister = async () => {
   .form-group {
     gap: 0.35rem;
   }
-
-  .social-login {
-    margin-top: 1rem;
-  }
-
-  .divider {
-    margin: 0.75rem 0;
-  }
 }
 
 @media (max-height: 600px) {
@@ -641,19 +550,6 @@ const handleRegister = async () => {
     padding: 0.625rem 1.25rem;
     font-size: 0.875rem;
   }
-
-  .social-login {
-    margin-top: 0.75rem;
-  }
-
-  .divider {
-    margin: 0.5rem 0;
-  }
-
-  .social-btn {
-    padding: 0.625rem;
-    font-size: 0.85rem;
-  }
 }
 
 @media (max-width: 480px) {
@@ -687,10 +583,6 @@ const handleRegister = async () => {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.5rem;
-  }
-
-  .social-buttons {
-    flex-direction: column;
   }
 }
 
@@ -771,24 +663,6 @@ const handleRegister = async () => {
 
   .btn {
     padding: 0.5rem 1rem;
-    font-size: 0.8rem;
-  }
-
-  .social-login {
-    margin-top: 0.5rem;
-  }
-
-  .divider {
-    margin: 0.375rem 0;
-  }
-
-  .divider span {
-    font-size: 0.75rem;
-    padding: 0 0.5rem;
-  }
-
-  .social-btn {
-    padding: 0.5rem;
     font-size: 0.8rem;
   }
 

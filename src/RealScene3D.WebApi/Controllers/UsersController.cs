@@ -205,11 +205,9 @@ public class UsersController : ControllerBase
                 stream,
                 avatar.ContentType);
 
-            // 生成预签名URL (有效期30天)
-            var avatarUrl = await _storageService.GetPresignedUrlAsync(
-                MinioBuckets.THUMBNAILS,
-                fileName,
-                30 * 24 * 3600); // 30天转换为秒
+            // 生成代理URL（通过后端API访问，避免CORS问题）
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var avatarUrl = $"{baseUrl}/api/files/proxy/{MinioBuckets.THUMBNAILS}/{fileName}";
 
             // TODO: 更新用户头像URL到数据库
             // await _userService.UpdateUserAvatarAsync(userId, avatarUrl);
