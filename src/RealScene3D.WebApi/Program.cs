@@ -16,6 +16,7 @@ using RealScene3D.Infrastructure.MongoDB;
 using RealScene3D.Infrastructure.MongoDB.Repositories;
 using RealScene3D.Infrastructure.Redis;
 using RealScene3D.Infrastructure.MinIO;
+using RealScene3D.Infrastructure.Services;
 using RealScene3D.Infrastructure.Repositories;
 using RealScene3D.Infrastructure.Workflow;
 using RealScene3D.Infrastructure.Authentication;
@@ -23,6 +24,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
+using RealScene3D.WebApi.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -67,6 +69,9 @@ builder.Services.AddSwaggerGen(c =>
             Array.Empty<string>()
         }
     });
+
+    // 配置文件上传支持
+    c.OperationFilter<FileUploadOperationFilter>();
 });
 
 // Configure CORS - 允许前端发送凭据（包括 Cookie）
@@ -306,6 +311,18 @@ builder.Services.AddSingleton<IMinioClient>(sp =>
 /// 自动处理分块上传、进度回调、错误重试等复杂逻辑
 /// </summary>
 builder.Services.AddScoped<IMinioStorageService, MinioStorageService>();
+
+/// <summary>
+/// 注册图片处理服务
+/// 提供缩略图生成、图片压缩、尺寸调整等功能
+/// </summary>
+builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>();
+
+/// <summary>
+/// 注册文件清理服务
+/// 用于清理旧的上传文件，避免存储空间浪费
+/// </summary>
+builder.Services.AddScoped<IFileCleanupService, FileCleanupService>();
 
 // ========== 依赖注入配置 ==========
 /// <summary>

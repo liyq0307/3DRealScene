@@ -1,6 +1,0 @@
-@RealScene3D.WebApi_HostAddress = http://localhost:5177
-
-GET {{RealScene3D.WebApi_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###

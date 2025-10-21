@@ -182,7 +182,7 @@ docker-compose -f docker-compose.storage.yml ps
 
 ```bash
 # 配置MinIO客户端别名
-docker exec realscene3d-minio mc alias set myminio http://localhost:9000 minioadmin minioadmin123
+docker exec realscene3d-minio mc alias set myminio http://localhost:9000 minioadmin minioadmin
 
 # 创建所有必需的存储桶
 docker exec realscene3d-minio mc mb myminio/tilt-photography
@@ -213,7 +213,7 @@ docker exec realscene3d-minio mc ls myminio
   "MinIO": {
     "Endpoint": "localhost:9000",
     "AccessKey": "minioadmin",
-    "SecretKey": "minioadmin123",
+    "SecretKey": "minioadmin",
     "UseSSL": false
   }
 }

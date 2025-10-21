@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using RealScene3D.Application.DTOs;
 using RealScene3D.Application.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
+using RealScene3D.Infrastructure.Services;
+using RealScene3D.Infrastructure.Utilities;
 using System.Security.Claims;
 
 namespace RealScene3D.WebApi.Controllers;
@@ -19,23 +21,33 @@ public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
     private readonly IMinioStorageService _storageService;
+    private readonly IImageProcessingService _imageProcessingService;
+    private readonly IFileCleanupService _fileCleanupService;
     private readonly ILogger<UsersController> _logger;
 
     private const long MaxAvatarSize = 5 * 1024 * 1024; // 5MB
+    private const int ThumbnailSize = 200; // 缩略图尺寸
+    private const int ThumbnailQuality = 85; // 缩略图质量
 
     /// <summary>
     /// 构造函数 - 依赖注入用户服务和日志记录器
     /// </summary>
     /// <param name="userService">用户应用服务接口，提供业务逻辑处理</param>
     /// <param name="storageService">MinIO存储服务</param>
+    /// <param name="imageProcessingService">图片处理服务</param>
+    /// <param name="fileCleanupService">文件清理服务</param>
     /// <param name="logger">日志记录器，用于记录操作日志和安全事件</param>
     public UsersController(
         IUserService userService,
         IMinioStorageService storageService,
+        IImageProcessingService imageProcessingService,
+        IFileCleanupService fileCleanupService,
         ILogger<UsersController> logger)
     {
         _userService = userService;
         _storageService = storageService;
+        _imageProcessingService = imageProcessingService;
+        _fileCleanupService = fileCleanupService;
         _logger = logger;
     }
 
@@ -162,71 +174,148 @@ public class UsersController : ControllerBase
     [HttpPost("avatar")]
     [Authorize]
     [RequestSizeLimit(MaxAvatarSize)]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(AvatarUploadResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar([FromForm] IFormFile avatar)
+    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar(IFormFile avatar)
     {
         try
         {
-            // 验证文件
-            if (avatar == null || avatar.Length == 0)
-            {
-                return BadRequest(new { message = "头像文件不能为空" });
-            }
-
-            if (avatar.Length > MaxAvatarSize)
-            {
-                return BadRequest(new { message = $"头像大小不能超过 {MaxAvatarSize / (1024 * 1024)} MB" });
-            }
-
-            // 验证文件类型
-            var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/webp" };
-            if (!allowedTypes.Contains(avatar.ContentType.ToLower()))
-            {
-                return BadRequest(new { message = "只支持 JPEG、PNG、WebP 格式的图片" });
-            }
-
-            // 获取当前用户ID
+            // 1. 获取当前用户ID
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
                 return Unauthorized(new { message = "用户未授权" });
             }
 
-            // 生成唯一文件名
-            var extension = Path.GetExtension(avatar.FileName);
-            var fileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}{extension}";
+            // 2. 验证文件大小
+            var sizeValidation = FileValidator.ValidateFileSize(avatar.Length, MaxAvatarSize);
+            if (!sizeValidation.IsValid)
+            {
+                return BadRequest(new { message = sizeValidation.ErrorMessage });
+            }
 
-            // 上传到MinIO
-            using var stream = avatar.OpenReadStream();
+            // 3. 验证文件格式
+            using var avatarStream = avatar.OpenReadStream();
+            var formatValidation = FileValidator.ValidateImage(avatarStream, avatar.FileName, avatar.ContentType);
+            if (!formatValidation.IsValid)
+            {
+                return BadRequest(new { message = formatValidation.ErrorMessage });
+            }
+
+            _logger.LogInformation("开始处理用户 {UserId} 的头像上传: {FileName}, 大小: {Size}",
+                userId, avatar.FileName, FileValidator.GetFileSizeString(avatar.Length));
+
+            // 4. 生成唯一文件名
+            var extension = Path.GetExtension(avatar.FileName);
+            var originalFileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}_original{extension}";
+            var thumbnailFileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}_thumb.jpg";
+
+            // 5. 生成缩略图
+            avatarStream.Position = 0;
+            Stream thumbnailStream;
+            try
+            {
+                thumbnailStream = await _imageProcessingService.GenerateThumbnailAsync(
+                    avatarStream,
+                    ThumbnailSize,
+                    ThumbnailQuality);
+
+                _logger.LogInformation("缩略图生成成功: 原始大小 {OriginalSize}, 缩略图大小 {ThumbnailSize}",
+                    FileValidator.GetFileSizeString(avatar.Length),
+                    FileValidator.GetFileSizeString(thumbnailStream.Length));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "生成缩略图失败，将使用原始图片");
+                // 如果缩略图生成失败，使用原始图片
+                avatarStream.Position = 0;
+                thumbnailStream = avatarStream;
+            }
+
+            // 6. 上传缩略图到MinIO
             var filePath = await _storageService.UploadFileAsync(
                 MinioBuckets.THUMBNAILS,
-                fileName,
-                stream,
-                avatar.ContentType);
+                thumbnailFileName,
+                thumbnailStream,
+                "image/jpeg");
 
-            // 生成代理URL（通过后端API访问，避免CORS问题）
+            // 7. 验证文件是否真的上传成功
+            var fileExists = await _storageService.FileExistsAsync(MinioBuckets.THUMBNAILS, thumbnailFileName);
+            if (!fileExists)
+            {
+                _logger.LogError("文件上传后验证失败: Bucket={Bucket}, FileName={FileName}",
+                    MinioBuckets.THUMBNAILS, thumbnailFileName);
+                return StatusCode(500, new { message = "文件上传验证失败，请稍后重试" });
+            }
+
+            _logger.LogInformation("文件上传成功并已验证: Bucket={Bucket}, FileName={FileName}, FilePath={FilePath}",
+                MinioBuckets.THUMBNAILS, thumbnailFileName, filePath);
+
+            // 8. 生成代理URL（通过后端API访问，避免CORS问题）
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
-            var avatarUrl = $"{baseUrl}/api/files/proxy/{MinioBuckets.THUMBNAILS}/{fileName}";
+            var avatarUrl = $"{baseUrl}/api/files/proxy/{MinioBuckets.THUMBNAILS}/{thumbnailFileName}";
 
-            // TODO: 更新用户头像URL到数据库
-            // await _userService.UpdateUserAvatarAsync(userId, avatarUrl);
+            _logger.LogInformation("生成的头像URL: {AvatarUrl}", avatarUrl);
 
-            // 记录操作日志
+            // 9. 获取用户当前的头像URL（用于清理）
+            var user = await _userService.GetUserEntityAsync(userId);
+            var oldAvatarUrl = user?.AvatarUrl;
+
+            // 10. 更新用户头像URL到数据库
+            var updateSuccess = await _userService.UpdateUserAvatarAsync(userId, avatarUrl, oldAvatarUrl);
+            if (!updateSuccess)
+            {
+                _logger.LogError("更新用户头像URL失败: UserId={UserId}", userId);
+                // 清理已上传的文件
+                await _storageService.DeleteFileAsync(MinioBuckets.THUMBNAILS, thumbnailFileName);
+                return StatusCode(500, new { message = "更新用户信息失败" });
+            }
+
+            // 11. 清理旧头像（异步执行，不阻塞响应）
+            if (!string.IsNullOrEmpty(oldAvatarUrl))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var deleted = await _fileCleanupService.DeleteFileFromUrlAsync(oldAvatarUrl);
+                        if (deleted)
+                        {
+                            _logger.LogInformation("旧头像已清理: {OldAvatarUrl}", oldAvatarUrl);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "清理旧头像失败（不影响主流程）: {OldAvatarUrl}", oldAvatarUrl);
+                    }
+                });
+            }
+
+            // 12. 记录操作日志
             await _userService.LogUserActionAsync(
                 userId,
                 "UpdateAvatar",
-                $"User uploaded new avatar: {fileName}",
+                $"User uploaded new avatar: {thumbnailFileName}",
                 HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown"
             );
 
-            _logger.LogInformation("用户 {UserId} 上传头像成功: {FileName}", userId, fileName);
+            _logger.LogInformation("用户 {UserId} 上传头像成功: {FileName}", userId, thumbnailFileName);
+
+            // 13. 清理临时流
+            if (thumbnailStream != avatarStream)
+            {
+                await thumbnailStream.DisposeAsync();
+            }
 
             return Ok(new AvatarUploadResponse
             {
                 Success = true,
                 AvatarUrl = avatarUrl,
-                FileName = fileName,
+                FileName = thumbnailFileName,
+                Bucket = MinioBuckets.THUMBNAILS,
+                FilePath = filePath,
+                FileSize = thumbnailStream.Length,
                 Message = "头像上传成功"
             });
         }
@@ -327,6 +416,9 @@ public class AvatarUploadResponse
     public bool Success { get; set; }
     public string AvatarUrl { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
+    public string Bucket { get; set; } = string.Empty;
+    public string FilePath { get; set; } = string.Empty;
+    public long FileSize { get; set; }
     public string Message { get; set; } = string.Empty;
 }
 

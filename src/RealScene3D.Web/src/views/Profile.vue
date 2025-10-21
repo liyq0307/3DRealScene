@@ -305,9 +305,10 @@ const handleAvatarFileUpload = async (file: File) => {
       console.log(`上传进度: ${percent}%`)
     })
 
-    // 更新用户头像URL
+    // 更新本地用户信息和存储
     if (userInfo.value && response.avatarUrl) {
       userInfo.value.avatar = response.avatarUrl
+      authStore.updateUserInfo({ avatar: response.avatarUrl })
     }
 
     success('头像上传成功')

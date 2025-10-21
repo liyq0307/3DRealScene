@@ -52,6 +52,13 @@ public class User : BaseEntity
     public DateTime? LastLoginAt { get; set; }
 
     /// <summary>
+    /// 用户头像URL，可选项
+    /// 存储用户头像文件的访问路径
+    /// 支持相对路径和绝对URL
+    /// </summary>
+    public string? AvatarUrl { get; set; }
+
+    /// <summary>
     /// 用户操作日志导航属性
     /// 与UserLog实体建立一对多关联关系
     /// 用于记录和追踪用户的操作历史，支持审计和安全分析

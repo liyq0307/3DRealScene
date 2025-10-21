@@ -88,6 +88,12 @@ public class UserDtos
         public bool IsActive { get; set; }
 
         /// <summary>
+        /// 用户头像URL，可选项
+        /// 存储用户头像文件的访问路径
+        /// </summary>
+        public string? AvatarUrl { get; set; }
+
+        /// <summary>
         /// 用户注册时间
         /// 记录用户的创建时间
         /// </summary>

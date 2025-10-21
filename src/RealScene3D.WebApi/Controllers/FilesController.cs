@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RealScene3D.Infrastructure.MinIO;
+using RealScene3D.Infrastructure.Utilities;
 using System.Security.Claims;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace RealScene3D.WebApi.Controllers;
 
@@ -29,35 +31,35 @@ public class FilesController : ControllerBase
     /// </summary>
     [HttpPost("upload")]
     [RequestSizeLimit(MaxFileSize)]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(FileUploadResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<FileUploadResponse>> Upload(
-        [FromForm] IFormFile file,
-        [FromForm] string? bucketName = null)
+        IFormFile file,
+        string? bucketName = null)
     {
         try
         {
-            // 验证文件
-            if (file == null || file.Length == 0)
+            // 1. 验证文件大小
+            var sizeValidation = FileValidator.ValidateFileSize(file.Length, MaxFileSize);
+            if (!sizeValidation.IsValid)
             {
-                return BadRequest(new { message = "文件不能为空" });
+                return BadRequest(new { message = sizeValidation.ErrorMessage });
             }
 
-            if (file.Length > MaxFileSize)
-            {
-                return BadRequest(new { message = $"文件大小不能超过 {MaxFileSize / (1024 * 1024)} MB" });
-            }
-
-            // 获取用户ID
+            // 2. 获取用户ID
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            // 自动选择存储桶
+            _logger.LogInformation("开始处理文件上传: {FileName}, 大小: {Size}, 用户: {UserId}",
+                file.FileName, FileValidator.GetFileSizeString(file.Length), userId ?? "Anonymous");
+
+            // 3. 自动选择存储桶
             var targetBucket = DetermineBucket(bucketName, file.FileName);
 
-            // 生成唯一文件名
+            // 4. 生成唯一文件名
             var fileName = GenerateUniqueFileName(file.FileName);
 
-            // 上传文件
+            // 5. 上传文件（自动重试）
             using var stream = file.OpenReadStream();
             var filePath = await _storageService.UploadFileAsync(
                 targetBucket,
@@ -65,17 +67,23 @@ public class FilesController : ControllerBase
                 stream,
                 file.ContentType);
 
-            // 生成预签名URL (有效期7天)
+            // 6. 验证文件上传成功
+            var fileExists = await _storageService.FileExistsAsync(targetBucket, fileName);
+            if (!fileExists)
+            {
+                _logger.LogError("文件上传后验证失败: Bucket={Bucket}, FileName={FileName}",
+                    targetBucket, fileName);
+                return StatusCode(500, new { message = "文件上传验证失败，请稍后重试" });
+            }
+
+            _logger.LogInformation("文件上传成功并已验证: Bucket={Bucket}, FileName={FileName}, FilePath={FilePath}",
+                targetBucket, fileName, filePath);
+
+            // 7. 生成预签名URL (有效期7天)
             var downloadUrl = await _storageService.GetPresignedUrlAsync(
                 targetBucket,
                 fileName,
                 7 * 24 * 3600); // 7天转换为秒
-
-            _logger.LogInformation(
-                "文件上传成功: {FileName} -> {FilePath}, 用户: {UserId}",
-                file.FileName,
-                filePath,
-                userId);
 
             return Ok(new FileUploadResponse
             {
@@ -103,14 +111,16 @@ public class FilesController : ControllerBase
     /// </summary>
     [HttpPost("upload/batch")]
     [RequestSizeLimit(MaxFileSize * 10)] // 最多10个文件
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(BatchFileUploadResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<BatchFileUploadResponse>> UploadBatch(
-        [FromForm] List<IFormFile> files,
-        [FromForm] string? bucketName = null)
+        List<IFormFile> files,
+        string? bucketName = null)
     {
         var results = new List<FileUploadResponse>();
         var errors = new List<string>();
 
+        // 1. 验证文件列表
         if (files == null || files.Count == 0)
         {
             return BadRequest(new { message = "未选择文件" });
@@ -122,26 +132,43 @@ public class FilesController : ControllerBase
         }
 
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var totalSize = files.Sum(f => f.Length);
 
+        _logger.LogInformation("开始批量上传: {Count} 个文件, 总大小: {TotalSize}, 用户: {UserId}",
+            files.Count, FileValidator.GetFileSizeString(totalSize), userId ?? "Anonymous");
+
+        // 2. 逐个处理文件
         foreach (var file in files)
         {
             try
             {
-                if (file.Length > MaxFileSize)
+                // 验证单个文件大小
+                var sizeValidation = FileValidator.ValidateFileSize(file.Length, MaxFileSize);
+                if (!sizeValidation.IsValid)
                 {
-                    errors.Add($"{file.FileName}: 文件大小超过限制");
+                    errors.Add($"{file.FileName}: {sizeValidation.ErrorMessage}");
                     continue;
                 }
 
                 var targetBucket = DetermineBucket(bucketName, file.FileName);
                 var fileName = GenerateUniqueFileName(file.FileName);
 
+                // 上传文件（自动重试）
                 using var stream = file.OpenReadStream();
                 var filePath = await _storageService.UploadFileAsync(
                     targetBucket,
                     fileName,
                     stream,
                     file.ContentType);
+
+                // 验证上传成功
+                var fileExists = await _storageService.FileExistsAsync(targetBucket, fileName);
+                if (!fileExists)
+                {
+                    _logger.LogWarning("批量上传中文件验证失败: {FileName}", fileName);
+                    errors.Add($"{file.FileName}: 上传验证失败");
+                    continue;
+                }
 
                 var downloadUrl = await _storageService.GetPresignedUrlAsync(
                     targetBucket,
@@ -161,6 +188,9 @@ public class FilesController : ControllerBase
                     UploadedAt = DateTime.UtcNow,
                     UploadedBy = userId
                 });
+
+                _logger.LogInformation("批量上传成功: {OriginalFileName} -> {FileName}",
+                    file.FileName, fileName);
             }
             catch (Exception ex)
             {
@@ -168,6 +198,9 @@ public class FilesController : ControllerBase
                 errors.Add($"{file.FileName}: {ex.Message}");
             }
         }
+
+        _logger.LogInformation("批量上传完成: 成功 {SuccessCount}/{TotalCount}, 失败 {FailedCount}",
+            results.Count, files.Count, errors.Count);
 
         return Ok(new BatchFileUploadResponse
         {
@@ -277,10 +310,13 @@ public class FilesController : ControllerBase
     {
         try
         {
+            _logger.LogInformation("正在代理访问文件: Bucket={Bucket}, ObjectName={ObjectName}", bucket, objectName);
+
             var exists = await _storageService.FileExistsAsync(bucket, objectName);
             if (!exists)
             {
-                return NotFound(new { message = "文件不存在" });
+                _logger.LogWarning("文件不存在: Bucket={Bucket}, ObjectName={ObjectName}", bucket, objectName);
+                return NotFound(new { message = "文件不存在", bucket, objectName });
             }
 
             // 从MinIO获取文件流
@@ -289,6 +325,9 @@ public class FilesController : ControllerBase
             // 根据文件扩展名确定Content-Type
             var contentType = GetContentType(objectName);
 
+            _logger.LogInformation("文件代理成功: Bucket={Bucket}, ObjectName={ObjectName}, ContentType={ContentType}",
+                bucket, objectName, contentType);
+
             // 设置响应头以启用缓存
             Response.Headers.CacheControl = "public, max-age=604800"; // 7天缓存
 
@@ -296,8 +335,8 @@ public class FilesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "代理文件失败: {Bucket}/{ObjectName}", bucket, objectName);
-            return StatusCode(500, new { message = "获取文件失败", error = ex.Message });
+            _logger.LogError(ex, "代理文件失败: Bucket={Bucket}, ObjectName={ObjectName}", bucket, objectName);
+            return StatusCode(500, new { message = "获取文件失败", error = ex.Message, bucket, objectName });
         }
     }
 

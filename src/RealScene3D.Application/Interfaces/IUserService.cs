@@ -37,6 +37,21 @@ public interface IUserService
     Task<IEnumerable<UserDtos.UserDto>> GetAllUsersAsync();
 
     /// <summary>
+    /// 根据ID获取用户实体
+    /// </summary>
+    /// <param name="id">用户唯一标识符</param>
+    /// <returns>用户实体，如果不存在则返回null</returns>
+    Task<Domain.Entities.User?> GetUserEntityAsync(Guid id);
+
+    /// <summary>
+    /// 更新用户头像URL
+    /// </summary>
+    /// <param name="userId">用户ID</param>
+    /// <param name="avatarUrl">头像URL</param>
+    /// <param name="oldAvatarUrl">旧的头像URL（用于清理）</param>
+    Task<bool> UpdateUserAvatarAsync(Guid userId, string avatarUrl, string? oldAvatarUrl = null);
+
+    /// <summary>
     /// 记录用户行为日志
     /// </summary>
     /// <param name="userId">用户ID</param>

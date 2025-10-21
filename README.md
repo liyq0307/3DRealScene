@@ -150,7 +150,7 @@ docker-compose -f docker-compose.storage.yml up -d
 sleep 30
 
 # 3. 创建MinIO存储桶（首次启动）
-docker exec realscene3d-minio mc alias set myminio http://localhost:9000 minioadmin minioadmin123
+docker exec realscene3d-minio mc alias set myminio http://localhost:9000 minioadmin minioadmin
 docker exec realscene3d-minio mc mb myminio/tilt-photography
 docker exec realscene3d-minio mc mb myminio/bim-models
 docker exec realscene3d-minio mc mb myminio/models-3d
@@ -1002,12 +1002,12 @@ await _redis.IncrementAsync("counter:scene:uuid:views");
 **访问 MinIO Console:**
 - URL: `http://localhost:9001`
 - 用户: `minioadmin`
-- 密码: `minioadmin123`
+- 密码: `minioadmin`
 
 **使用mc命令行:**
 ```bash
 # 配置
-mc alias set myminio http://localhost:9000 minioadmin minioadmin123
+mc alias set myminio http://localhost:9000 minioadmin minioadmin
 
 # 列出存储桶
 mc ls myminio

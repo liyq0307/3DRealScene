@@ -17,6 +17,7 @@
 
     <!-- MongoDB -->
     <PackageReference Include="MongoDB.Driver" Version="2.28.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
 
     <!-- Redis -->
     <PackageReference Include="StackExchange.Redis" Version="2.8.0" />
@@ -30,6 +31,8 @@
     <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
 
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="8.0.0" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -120,6 +120,38 @@ public class UserService : IUserService
         return users.Select(MapToDto);
     }
 
+    /// <summary>
+    /// 根据ID获取用户实体
+    /// </summary>
+    /// <param name="id">用户唯一标识符</param>
+    /// <returns>用户实体，如果不存在则返回null</returns>
+    public async Task<Domain.Entities.User?> GetUserEntityAsync(Guid id)
+    {
+        return await _userRepository.GetByIdAsync(id);
+    }
+
+    /// <summary>
+    /// 更新用户头像URL
+    /// </summary>
+    /// <param name="userId">用户ID</param>
+    /// <param name="avatarUrl">头像URL</param>
+    /// <param name="oldAvatarUrl">旧的头像URL（用于清理）</param>
+    public async Task<bool> UpdateUserAvatarAsync(Guid userId, string avatarUrl, string? oldAvatarUrl = null)
+    {
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+        {
+            return false;
+        }
+
+        // 保存旧的头像URL用于返回
+        oldAvatarUrl ??= user.AvatarUrl;
+
+        user.AvatarUrl = avatarUrl;
+        await _unitOfWork.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> LogUserActionAsync(Guid userId, string action, string details, string ipAddress)
     {
         var log = new UserLog
@@ -163,6 +195,7 @@ public class UserService : IUserService
             Email = user.Email,
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
+            AvatarUrl = user.AvatarUrl,
             CreatedAt = user.CreatedAt
         };
     }
