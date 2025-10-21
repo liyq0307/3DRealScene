@@ -13,7 +13,7 @@ using RealScene3D.Infrastructure.Data;
 namespace RealScene3D.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20251015084924_InitialCreate")]
+    [Migration("20251021032522_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -123,6 +123,8 @@ namespace RealScene3D.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedBy");
+
                     b.ToTable("AlertRules");
                 });
 
@@ -190,6 +192,8 @@ namespace RealScene3D.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
 
                     b.ToTable("Dashboards");
                 });
@@ -442,6 +446,9 @@ namespace RealScene3D.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AvatarUrl")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -669,10 +676,28 @@ namespace RealScene3D.Infrastructure.Migrations
                     b.HasOne("RealScene3D.Domain.Entities.AlertRule", "AlertRule")
                         .WithMany()
                         .HasForeignKey("AlertRuleId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("AlertRule");
+                });
+
+            modelBuilder.Entity("RealScene3D.Domain.Entities.AlertRule", b =>
+                {
+                    b.HasOne("RealScene3D.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RealScene3D.Domain.Entities.Dashboard", b =>
+                {
+                    b.HasOne("RealScene3D.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("RealScene3D.Domain.Entities.Scene3D", b =>
