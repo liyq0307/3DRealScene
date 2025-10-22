@@ -9,11 +9,11 @@
         <span v-else>重置相机</span>
       </button>
       <button class="btn" @click="toggleGrid" title="切换网格">
-        <span v-if="mode === 'enhanced'" class="icon">{{ gridHelper?.visible ? '📏' : '📐' }}</span>
+        <span v-if="mode === 'enhanced'" class="icon">{{ gridVisible ? '📏' : '📐' }}</span>
         <span v-else>切换网格</span>
       </button>
       <button v-if="showAxesControl" class="btn" @click="toggleAxes" title="切换坐标轴">
-        <span class="icon">{{ axesHelper?.visible ? '📊' : '📈' }}</span>
+        <span class="icon">{{ axesVisible ? '📊' : '📈' }}</span>
       </button>
       <button v-if="showWireframe" class="btn" @click="toggleWireframe" title="切换线框">
         <span class="icon">{{ wireframeMode ? '🔲' : '🔳' }}</span>
@@ -153,7 +153,7 @@
  * 创建时间：2025-10-13
  * 更新时间：2025-10-17（合并 EnhancedSceneViewer 功能）
  */
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, shallowRef } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -207,9 +207,12 @@ let animationId: number | null = null
 let ambientLight: THREE.AmbientLight | null = null
 let directionalLight: THREE.DirectionalLight | null = null
 
-// 辅助对象
-const gridHelper = ref<THREE.GridHelper | null>(null)
-const axesHelper = ref<THREE.AxesHelper | null>(null)
+// 辅助对象 - 不要用 ref() 包裹 Three.js 对象，否则 Vue 会代理它们导致 Three.js 无法访问内部属性
+let gridHelper: THREE.GridHelper | null = null
+let axesHelper: THREE.AxesHelper | null = null
+// 只追踪简单的可见性状态
+const gridVisible = ref(true)
+const axesVisible = ref(true)
 
 // ==================== 响应式状态 ====================
 
@@ -222,12 +225,12 @@ const loadingProgress = ref(0)
 // 光照参数
 const ambientIntensity = ref(0.6)
 const directionalIntensity = ref(0.8)
-const backgroundColor = ref('#1a1a1a')
+const backgroundColor = ref('#000011') // 深蓝色星空背景
 
-// 模型加载
+// 模型加载 - 使用 shallowRef 避免深度响应式代理 Three.js 对象
 const modelPath = ref('')
 const modelType = ref('gltf')
-const loadedModels = ref<Array<{ name: string; object: THREE.Object3D }>>([])
+const loadedModels = shallowRef<Array<{ name: string; object: THREE.Object3D }>>([])
 
 // 性能统计
 const fps = ref(60)
@@ -258,7 +261,7 @@ const initScene = () => {
 
   // 创建相机
   camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000)
-  camera.position.set(10, 10, 10)
+  camera.position.set(15, 8, 15) // 调整相机位置以更好地观看地球
   camera.lookAt(0, 0, 0)
 
   // 创建渲染器
@@ -291,35 +294,78 @@ const initScene = () => {
   scene.add(directionalLight)
 
   // 添加辅助对象
-  gridHelper.value = new THREE.GridHelper(20, 20, 0x444444, 0x222222)
-  scene.add(gridHelper.value)
+  gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x222222)
+  gridHelper.visible = gridVisible.value
+  scene.add(gridHelper)
 
-  axesHelper.value = new THREE.AxesHelper(5)
-  scene.add(axesHelper.value)
+  axesHelper = new THREE.AxesHelper(5)
+  axesHelper.visible = axesVisible.value
+  scene.add(axesHelper)
 
-  // 添加示例几何体
-  const geometry = new THREE.BoxGeometry(2, 2, 2)
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x667eea,
-    metalness: 0.3,
-    roughness: 0.4
+  // 添加星空背景
+  scene.background = new THREE.Color('#000011')
+
+  const starsGeometry = new THREE.BufferGeometry()
+  const starsMaterial = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.1,
+    transparent: true,
+    opacity: 0.8
   })
-  const cube = new THREE.Mesh(geometry, material)
-  cube.position.y = 1
-  cube.castShadow = true
-  cube.receiveShadow = true
-  scene.add(cube)
 
-  // 添加地面
-  const groundGeometry = new THREE.PlaneGeometry(50, 50)
-  const groundMaterial = new THREE.MeshStandardMaterial({
-    color: 0x333333,
-    roughness: 0.8
+  const starsVertices = []
+  for (let i = 0; i < 5000; i++) {
+    const x = (Math.random() - 0.5) * 200
+    const y = (Math.random() - 0.5) * 200
+    const z = (Math.random() - 0.5) * 200
+    starsVertices.push(x, y, z)
+  }
+
+  starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3))
+  const stars = new THREE.Points(starsGeometry, starsMaterial)
+  scene.add(stars)
+
+  // 添加3D地球（海洋）
+  const earthGeometry = new THREE.SphereGeometry(5, 64, 64)
+  const earthMaterial = new THREE.MeshStandardMaterial({
+    color: 0x2233ff,
+    emissive: 0x112244,
+    metalness: 0.2,
+    roughness: 0.6
   })
-  const ground = new THREE.Mesh(groundGeometry, groundMaterial)
-  ground.rotation.x = -Math.PI / 2
-  ground.receiveShadow = true
-  scene.add(ground)
+
+  const earth = new THREE.Mesh(earthGeometry, earthMaterial)
+  earth.castShadow = true
+  earth.receiveShadow = true
+  earth.name = 'earth' // 命名以便在动画中引用
+  scene.add(earth)
+
+  // 添加大陆（使用绿色区域模拟）
+  const continentGeometry = new THREE.SphereGeometry(5.05, 64, 64)
+  const continentMaterial = new THREE.MeshStandardMaterial({
+    color: 0x228B22,
+    emissive: 0x003300,
+    metalness: 0.1,
+    roughness: 0.8,
+    transparent: true,
+    opacity: 0.8
+  })
+  const continent = new THREE.Mesh(continentGeometry, continentMaterial)
+  continent.name = 'continent'
+  scene.add(continent)
+
+  // 添加云层
+  const cloudGeometry = new THREE.SphereGeometry(5.2, 64, 64)
+  const cloudMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.3,
+    metalness: 0,
+    roughness: 1
+  })
+  const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial)
+  clouds.name = 'clouds'
+  scene.add(clouds)
 
   // 窗口大小调整
   handleResizeFunc = handleResize
@@ -344,6 +390,23 @@ const animate = () => {
 
   if (controls) {
     controls.update()
+  }
+
+  // 地球自转动画
+  if (scene) {
+    const earth = scene.getObjectByName('earth')
+    const continent = scene.getObjectByName('continent')
+    const clouds = scene.getObjectByName('clouds')
+
+    if (earth) {
+      earth.rotation.y += 0.001
+    }
+    if (continent) {
+      continent.rotation.y += 0.001
+    }
+    if (clouds) {
+      clouds.rotation.y += 0.0015 // 云层旋转稍快
+    }
   }
 
   if (renderer && scene && camera) {
@@ -412,7 +475,7 @@ const handleResize = () => {
  */
 const resetCamera = () => {
   if (camera && controls) {
-    camera.position.set(10, 10, 10)
+    camera.position.set(15, 8, 15) // 重置到地球观看位置
     camera.lookAt(0, 0, 0)
     controls.target.set(0, 0, 0)
     controls.update()
@@ -423,8 +486,9 @@ const resetCamera = () => {
  * 切换网格
  */
 const toggleGrid = () => {
-  if (gridHelper.value) {
-    gridHelper.value.visible = !gridHelper.value.visible
+  if (gridHelper) {
+    gridVisible.value = !gridVisible.value
+    gridHelper.visible = gridVisible.value
   }
 }
 
@@ -432,8 +496,9 @@ const toggleGrid = () => {
  * 切换坐标轴
  */
 const toggleAxes = () => {
-  if (axesHelper.value) {
-    axesHelper.value.visible = !axesHelper.value.visible
+  if (axesHelper) {
+    axesVisible.value = !axesVisible.value
+    axesHelper.visible = axesVisible.value
   }
 }
 

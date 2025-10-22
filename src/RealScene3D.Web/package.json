@@ -10,14 +10,17 @@
   "dependencies": {
     "@panzoom/panzoom": "^4.6.0",
     "axios": "^1.6.0",
+    "cesium": "^1.134.1",
     "lodash-es": "^4.17.21",
     "pinia": "^2.1.0",
     "three": "^0.160.0",
+    "vite-plugin-cesium": "^1.2.23",
     "vue": "^3.4.0",
     "vue-draggable-plus": "^0.6.0",
     "vue-router": "^4.2.0"
   },
   "devDependencies": {
+    "@types/cesium": "^1.67.14",
     "@types/node": "^24.7.2",
     "@types/three": "^0.160.0",
     "@vitejs/plugin-vue": "^5.0.0",

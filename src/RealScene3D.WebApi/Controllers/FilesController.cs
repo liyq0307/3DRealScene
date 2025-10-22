@@ -345,17 +345,35 @@ public class FilesController : ControllerBase
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         return extension switch
         {
+            // 图片格式
             ".jpg" or ".jpeg" => "image/jpeg",
             ".png" => "image/png",
             ".webp" => "image/webp",
             ".gif" => "image/gif",
             ".bmp" => "image/bmp",
             ".svg" => "image/svg+xml",
+
+            // 文档格式
             ".pdf" => "application/pdf",
+
+            // 视频格式
             ".mp4" => "video/mp4",
             ".webm" => "video/webm",
+
+            // 数据格式
             ".json" => "application/json",
             ".xml" => "application/xml",
+
+            // 3D模型格式
+            ".gltf" => "model/gltf+json",
+            ".glb" => "model/gltf-binary",
+            ".obj" => "text/plain",  // OBJ是文本格式
+            ".mtl" => "text/plain",  // MTL材质文件
+            ".fbx" => "application/octet-stream",
+            ".dae" => "model/vnd.collada+xml",
+            ".3ds" => "application/octet-stream",
+            ".stl" => "application/octet-stream",
+
             _ => "application/octet-stream"
         };
     }

@@ -83,30 +83,42 @@
  * 3D模型加载器组件
  *
  * 功能特性:
- * - 支持多种3D格式(GLTF, GLB, OBJ, FBX)
+ * - 支持多种3D格式: GLTF, GLB, OBJ, FBX, DAE (Collada)
  * - 自动相机适配
  * - 轨道控制器
  * - 加载进度显示
  * - 动画播放控制
  * - 模型信息统计
+ * - 线框模式切换
+ * - 网格显示切换
+ *
+ * 格式说明:
+ * - GLTF/GLB: Web标准格式,支持材质、动画、PBR渲染
+ * - OBJ: 传统格式,自动添加默认材质
+ * - FBX: Autodesk格式,支持复杂动画和骨骼
+ * - DAE: Collada格式,支持场景层级和动画
  *
  * @author liyq
  * @date 2025-10-15
+ * @updated 2025-10-22 - 添加OBJ, FBX, DAE格式支持
  */
 
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-// import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
-// import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js'
 
 interface Props {
   modelUrl?: string
+  modelFile?: File  // 直接传递File对象
   showControls?: boolean
   showInfo?: boolean
   autoRotate?: boolean
   backgroundColor?: string
+  fileExtension?: string  // 用于blob URL的文件扩展名
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -235,13 +247,55 @@ const loadModel = async (url: string) => {
     }
 
     // 根据文件扩展名选择加载器
-    const ext = url.split('.').pop()?.toLowerCase()
+    // 从URL中提取文件扩展名，处理查询参数的情况
+    let ext = ''
+
+    // 处理blob URL - 使用传入的文件扩展名
+    if (url.startsWith('blob:')) {
+      if (props.fileExtension) {
+        ext = props.fileExtension.replace('.', '').toLowerCase()
+        console.log(`Blob URL detected, using provided extension: ${ext}`)
+      } else {
+        console.warn('Blob URL detected but no fileExtension provided, defaulting to GLB')
+        ext = 'glb'
+      }
+    } else {
+      // 移除查询参数和hash，只保留路径部分
+      const urlPath = url.split('?')[0].split('#')[0]
+      // 从路径中提取扩展名
+      const match = urlPath.match(/\.([^./]+)$/)
+      ext = match ? match[1].toLowerCase() : ''
+      console.log(`Extracted extension from URL: ${ext}`, { url, urlPath })
+    }
+
+    // 处理相对路径 - 转换为代理URL
+    let fullUrl = url
+    if (url.startsWith('/')) {
+      // 相对路径格式: /bucket/filename.ext
+      // 转换为代理URL: /api/files/proxy/bucket/filename.ext
+      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+      fullUrl = `${apiBaseUrl}/files/proxy${url}`
+      console.log(`Converting relative path to proxy URL: ${url} -> ${fullUrl}`)
+    }
+
     let model: THREE.Object3D
 
-    if (ext === 'gltf' || ext === 'glb') {
-      model = await loadGLTF(url)
-    } else {
-      throw new Error(`不支持的文件格式: ${ext}`)
+    switch (ext) {
+      case 'gltf':
+      case 'glb':
+        model = await loadGLTF(fullUrl)
+        break
+      case 'obj':
+        model = await loadOBJ(fullUrl)
+        break
+      case 'fbx':
+        model = await loadFBX(fullUrl)
+        break
+      case 'dae':
+        model = await loadCollada(fullUrl)
+        break
+      default:
+        throw new Error(`不支持的文件格式: ${ext}。支持的格式: GLTF, GLB, OBJ, FBX, DAE`)
     }
 
     // 添加到场景
@@ -270,6 +324,79 @@ const loadModel = async (url: string) => {
   }
 }
 
+// 从File对象加载模型
+const loadModelFromFile = async (file: File) => {
+  if (!file) return
+
+  loading.value = true
+  loadingProgress.value = 0
+  error.value = null
+
+  try {
+    // 移除旧模型
+    if (currentModel) {
+      scene.remove(currentModel)
+      currentModel = null
+    }
+
+    // 从文件名获取扩展名
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    console.log('Loading model from file:', file.name, 'Extension:', ext)
+
+    // 创建临时blob URL用于加载
+    const blobUrl = URL.createObjectURL(file)
+
+    let model: THREE.Object3D
+
+    try {
+      switch (ext) {
+        case 'gltf':
+        case 'glb':
+          model = await loadGLTF(blobUrl)
+          break
+        case 'obj':
+          model = await loadOBJ(blobUrl)
+          break
+        case 'fbx':
+          model = await loadFBX(blobUrl)
+          break
+        case 'dae':
+          model = await loadCollada(blobUrl)
+          break
+        default:
+          throw new Error(`不支持的文件格式: ${ext}。支持的格式: GLTF, GLB, OBJ, FBX, DAE`)
+      }
+    } finally {
+      // 加载完成后立即释放blob URL
+      URL.revokeObjectURL(blobUrl)
+    }
+
+    // 添加到场景
+    scene.add(model)
+    currentModel = model
+
+    // 自动调整相机
+    fitCameraToObject(model)
+
+    // 计算模型信息
+    calculateModelInfo(model)
+
+    // 检查动画
+    if (mixer) {
+      mixer.stopAllAction()
+      mixer = null
+    }
+
+    emit('loaded', model)
+    loading.value = false
+  } catch (err: any) {
+    console.error('从文件加载模型失败:', err)
+    error.value = err.message || '加载失败'
+    emit('error', err)
+    loading.value = false
+  }
+}
+
 // 加载GLTF模型
 const loadGLTF = (url: string): Promise<THREE.Object3D> => {
   return new Promise((resolve, reject) => {
@@ -290,9 +417,106 @@ const loadGLTF = (url: string): Promise<THREE.Object3D> => {
         resolve(gltf.scene)
       },
       (progress: { loaded: number; total: number }) => {
-        const percent = Math.round((progress.loaded / progress.total) * 100)
-        loadingProgress.value = percent
-        emit('progress', percent)
+        if (progress.total > 0) {
+          const percent = Math.round((progress.loaded / progress.total) * 100)
+          loadingProgress.value = percent
+          emit('progress', percent)
+        }
+      },
+      reject
+    )
+  })
+}
+
+// 加载OBJ模型
+const loadOBJ = (url: string): Promise<THREE.Object3D> => {
+  return new Promise((resolve, reject) => {
+    const loader = new OBJLoader()
+
+    loader.load(
+      url,
+      (object: THREE.Object3D) => {
+        // OBJ模型通常没有材质,添加默认材质
+        object.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh
+            if (!mesh.material) {
+              mesh.material = new THREE.MeshStandardMaterial({
+                color: 0xcccccc,
+                roughness: 0.5,
+                metalness: 0.5
+              })
+            }
+          }
+        })
+        resolve(object)
+      },
+      (progress: { loaded: number; total: number }) => {
+        if (progress.total > 0) {
+          const percent = Math.round((progress.loaded / progress.total) * 100)
+          loadingProgress.value = percent
+          emit('progress', percent)
+        }
+      },
+      reject
+    )
+  })
+}
+
+// 加载FBX模型
+const loadFBX = (url: string): Promise<THREE.Object3D> => {
+  return new Promise((resolve, reject) => {
+    const loader = new FBXLoader()
+
+    loader.load(
+      url,
+      (object: THREE.Object3D) => {
+        // 处理FBX动画
+        if ((object as any).animations && (object as any).animations.length > 0) {
+          mixer = new THREE.AnimationMixer(object)
+          ;(object as any).animations.forEach((clip: THREE.AnimationClip) => {
+            mixer!.clipAction(clip).play()
+          })
+          animationPlaying.value = true
+        }
+        resolve(object)
+      },
+      (progress: { loaded: number; total: number }) => {
+        if (progress.total > 0) {
+          const percent = Math.round((progress.loaded / progress.total) * 100)
+          loadingProgress.value = percent
+          emit('progress', percent)
+        }
+      },
+      reject
+    )
+  })
+}
+
+// 加载Collada (DAE)模型
+const loadCollada = (url: string): Promise<THREE.Object3D> => {
+  return new Promise((resolve, reject) => {
+    const loader = new ColladaLoader()
+
+    loader.load(
+      url,
+      (collada: any) => {
+        // 处理Collada动画
+        if (collada.animations && collada.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(collada.scene)
+          collada.animations.forEach((clip: THREE.AnimationClip) => {
+            mixer!.clipAction(clip).play()
+          })
+          animationPlaying.value = true
+        }
+        resolve(collada.scene)
+      },
+      (progress: { loaded: number; total: number }) => {
+        if (progress.total > 0) {
+          const percent = Math.round((progress.loaded / progress.total) * 100)
+          loadingProgress.value = percent
+          emit('progress', percent)
+        }
       },
       reject
     )
@@ -442,10 +666,20 @@ watch(() => props.modelUrl, (newUrl) => {
   }
 })
 
+// 监听File对象变化
+watch(() => props.modelFile, (newFile) => {
+  if (newFile) {
+    loadModelFromFile(newFile)
+  }
+})
+
 onMounted(() => {
   initScene()
 
-  if (props.modelUrl) {
+  // 优先使用File对象，其次使用URL
+  if (props.modelFile) {
+    loadModelFromFile(props.modelFile)
+  } else if (props.modelUrl) {
     loadModel(props.modelUrl)
   }
 })

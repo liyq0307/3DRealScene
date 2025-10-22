@@ -98,7 +98,7 @@
             </div>
             <div class="object-transform">
               <span class="transform-item" title="位置">
-                📍 ({{ obj.position.x.toFixed(1) }}, {{ obj.position.y.toFixed(1) }}, {{ obj.position.z.toFixed(1) }})
+                📍 {{ formatVector(obj.position) }}
               </span>
             </div>
           </div>
@@ -201,12 +201,62 @@
 
           <div class="form-group full-width">
             <label>模型路径</label>
+            <div class="model-path-selector">
+              <!-- 路径输入（只读显示） -->
+              <input
+                v-model="objectForm.modelPath"
+                type="text"
+                class="form-input"
+                placeholder="请选择本地文件或输入远程URL"
+                readonly
+                @click="objectForm.modelPath ? null : selectLocalFile()"
+                :title="localPreviewUrl ? localPreviewUrl : objectForm.modelPath"
+              />
+
+              <!-- 操作按钮组 -->
+              <div class="path-actions">
+                <button @click="selectLocalFile" class="btn-action" type="button" title="从本地选择文件">
+                  <span>📁</span>
+                  本地文件
+                </button>
+                <button @click="openUrlDialog" class="btn-action" type="button" title="输入远程URL">
+                  <span>🌐</span>
+                  远程URL
+                </button>
+                <button
+                  v-if="objectForm.modelPath"
+                  @click="previewCurrentModel"
+                  class="btn-action btn-preview"
+                  type="button"
+                  title="预览当前模型"
+                >
+                  <span>👁️</span>
+                  预览
+                </button>
+              </div>
+            </div>
+
+            <!-- 文件选择器（隐藏） -->
             <input
-              v-model="objectForm.modelPath"
-              type="text"
-              class="form-input"
-              placeholder="输入模型文件路径或URL"
+              ref="fileInputRef"
+              type="file"
+              accept=".gltf,.glb,.obj,.fbx,.dae,.3ds"
+              @change="handleFileSelect"
+              style="display: none"
             />
+
+            <!-- 已选择文件信息 -->
+            <div v-if="selectedFile" class="file-info">
+              <span class="file-icon">📄</span>
+              <div class="file-details">
+                <div class="file-name">{{ selectedFile.name }}</div>
+                <div class="file-meta">
+                  <span>{{ formatFileSize(selectedFile.size) }}</span>
+                  <span>{{ getFileExtension(selectedFile.name) }}</span>
+                </div>
+              </div>
+              <button @click="clearFile" class="btn-clear" type="button">✕</button>
+            </div>
           </div>
 
           <div class="form-section full-width">
@@ -311,6 +361,40 @@
       </div>
     </div>
 
+    <!-- URL输入对话框 -->
+    <Modal
+      v-model="showUrlDialog"
+      title="输入模型URL"
+      size="md"
+    >
+      <div class="url-dialog">
+        <div class="form-group">
+          <label>模型URL地址</label>
+          <input
+            v-model="urlInput"
+            type="url"
+            class="form-input"
+            placeholder="https://example.com/model.glb"
+            @keyup.enter="confirmUrl"
+          />
+          <div class="url-hints">
+            <p class="hint-title">支持的格式:</p>
+            <div class="format-tags">
+              <span class="tag">.gltf</span>
+              <span class="tag">.glb</span>
+              <span class="tag">.obj</span>
+              <span class="tag">.fbx</span>
+              <span class="tag">.dae</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <button @click="showUrlDialog = false" class="btn btn-secondary">取消</button>
+        <button @click="confirmUrl" :disabled="!urlInput" class="btn btn-primary">确认</button>
+      </template>
+    </Modal>
+
     <!-- 3D模型预览对话框 -->
     <Modal
       v-model="showPreviewDialog"
@@ -321,6 +405,7 @@
       <div style="height: 600px;">
         <ModelViewer
           :model-url="previewModelUrl"
+          :model-file="previewModelFile"
           :show-controls="true"
           :show-info="true"
           :auto-rotate="false"
@@ -332,12 +417,46 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { sceneService, sceneObjectService } from '@/services/api'
+import { sceneService, sceneObjectService, fileService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import Modal from '@/components/Modal.vue'
 import ModelViewer from '@/components/ModelViewer.vue'
+import { saveHandle, getHandle, deleteHandle } from '@/services/fileHandleStore'
 
 const { success: showSuccess, error: showError } = useMessage()
+
+/**
+ * 生成RFC 4122版本4 UUID
+ * 使用crypto.getRandomValues确保随机性，优先使用原生crypto.randomUUID()如果可用
+ *
+ * @returns {string} UUID字符串，格式如: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+ * @throws {Error} 当crypto API不可用时抛出错误
+ */
+function generateUUID(): string {
+  // 优先使用现代浏览器原生支持的crypto.randomUUID()
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  // 如果不支持原生API，回退到自定义实现
+  if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
+    throw new Error('crypto.getRandomValues is not available. UUID generation requires a secure context.');
+  }
+
+  // 预生成16个随机字节以提高性能
+  const randomBytes = new Uint8Array(16);
+  crypto.getRandomValues(randomBytes);
+
+  // 设置版本为4 (第6个字节的高4位设为0100，即4)
+  randomBytes[6] = (randomBytes[6] & 0x0f) | 0x40;
+
+  // 设置变体为RFC 4122 (第8个字节的高4位设为1000，即8、9、a或b)
+  randomBytes[8] = (randomBytes[8] & 0x3f) | 0x80;
+
+  // 转换为UUID格式的字符串
+  const hex = Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
 
 // 数据状态
 const scenes = ref<any[]>([])
@@ -351,8 +470,19 @@ const searchKeyword = ref('')
 const filterType = ref('')
 const showCreateDialog = ref(false)
 const showPreviewDialog = ref(false)
+const showUrlDialog = ref(false)  // URL输入对话框
 const editingObject = ref<any>(null)
 const previewModelUrl = ref('')
+const previewModelFile = ref<File | undefined>(undefined)  // 用于预览的File对象
+
+// 文件选择相关
+const fileInputRef = ref<HTMLInputElement>()
+const selectedFile = ref<File | null>(null)
+const selectedFileHandle = ref<any | null>(null)
+const urlInput = ref('')
+const localPreviewUrl = ref('')  // 存储本地文件的blob URL用于预览
+const selectedFileExtension = ref('')  // 存储文件扩展名
+//const realFilePath = ref('')  // 存储文件的真实路径
 
 // 表单数据
 const objectForm = ref({
@@ -423,6 +553,10 @@ const selectObject = (obj: any) => {
 }
 
 const openCreateDialog = () => {
+  if (!selectedSceneId.value) {
+    showError('请先选择一个场景再添加对象')
+    return
+  }
   editingObject.value = null
   objectForm.value = {
     name: '',
@@ -433,15 +567,31 @@ const openCreateDialog = () => {
     scale: { x: 1, y: 1, z: 1 },
     isVisible: true
   }
+  selectedFile.value = null
+  selectedFileHandle.value = null
+  selectedFileExtension.value = ''
+  // 释放之前的blob URL
+  if (localPreviewUrl.value) {
+    URL.revokeObjectURL(localPreviewUrl.value)
+    localPreviewUrl.value = ''
+  }
   showCreateDialog.value = true
 }
 
 const closeCreateDialog = () => {
   showCreateDialog.value = false
+  selectedFile.value = null
+  selectedFileHandle.value = null
+  selectedFileExtension.value = ''
+  // 释放blob URL
+  if (localPreviewUrl.value) {
+    URL.revokeObjectURL(localPreviewUrl.value)
+    localPreviewUrl.value = ''
+  }
 }
 
-const editObject = (obj: any) => {
-  editingObject.value = obj
+const editObject = async (obj: any) => {
+  editingObject.value = obj;
   objectForm.value = {
     name: obj.name,
     objectType: obj.objectType,
@@ -450,8 +600,40 @@ const editObject = (obj: any) => {
     rotation: { ...obj.rotation },
     scale: { ...obj.scale },
     isVisible: obj.isVisible
+  };
+
+  // Clear previous selections
+  selectedFile.value = null;
+  selectedFileHandle.value = null;
+
+  // If it's a local file handle, try to retrieve it
+  if (obj.modelPath && obj.modelPath.startsWith('local-file-handle://')) {
+    try {
+      const uuid = obj.modelPath.replace('local-file-handle://', '');
+      const handle = await getHandle<any>(uuid);
+      if (handle) {
+        // Verify permission first
+        if (await handle.queryPermission({ mode: 'read' }) === 'granted') {
+          selectedFileHandle.value = handle;
+          const file = await handle.getFile();
+          selectedFile.value = file;
+          // Update form path to be more descriptive for the user
+          objectForm.value.modelPath = `本地文件: ${file.name} (已授权)`;
+          showSuccess('已加载本地文件访问权限。');
+        } else {
+          showError('无法获取文件权限，请重新选择文件。');
+          objectForm.value.modelPath = `本地文件: ${handle.name} (需要授权)`;
+        }
+      } else {
+        showError('在本地找不到对应的文件句柄，请重新选择文件。');
+      }
+    } catch (err) {
+      console.error('Failed to retrieve file handle:', err);
+      showError('加载本地文件句柄失败，请重新选择文件。');
+    }
   }
-  showCreateDialog.value = true
+
+  showCreateDialog.value = true;
 }
 
 const saveObject = async () => {
@@ -461,10 +643,86 @@ const saveObject = async () => {
       return
     }
 
-    const data = {
-      ...objectForm.value,
-      sceneId: selectedSceneId.value
+    if (!selectedSceneId.value) {
+      showError('请先选择一个场景')
+      return
     }
+
+    let finalModelPath = objectForm.value.modelPath
+
+    // 如果选择了本地文件,询问用户是上传还是直接使用本地路径
+    if (selectedFile.value && objectForm.value.modelPath.startsWith('本地文件:')) {
+      const shouldUpload = confirm(
+        '您选择了本地文件。\n\n' +
+        '点击"确定"将文件上传到服务器(推荐)。\n' +
+        '点击"取消"在本地保存文件访问权限(仅限本机、部分浏览器支持)。'
+      );
+
+      if (shouldUpload) {
+        // 用户选择上传
+        try {
+          showSuccess('正在上传文件...')
+          const uploadResult = await fileService.uploadFile(
+            selectedFile.value,
+            'models',  // 使用models存储桶
+            (percent) => {
+              console.log(`上传进度: ${percent}%`)
+            }
+          )
+          // 使用downloadUrl而不是filePath,因为downloadUrl是可访问的完整URL
+          finalModelPath = uploadResult.downloadUrl || uploadResult.filePath
+          showSuccess('文件上传成功')
+        } catch (uploadError) {
+          console.error('文件上传失败:', uploadError)
+          showError('文件上传失败,请稍后重试')
+          return
+        }
+      } else {
+        // User chose to save handle locally
+        if (selectedFileHandle.value) {
+          try {
+            const uuid = generateUUID();
+            await saveHandle(uuid, selectedFileHandle.value);
+            finalModelPath = `local-file-handle://${uuid}`;
+            showSuccess('已在本地保存文件访问权限。');
+          } catch (handleError) {
+            console.error('Failed to save file handle:', handleError);
+            showError('保存本地文件句柄失败，将仅保存文件名。');
+            finalModelPath = objectForm.value.modelPath;
+          }
+        } else {
+          // Fallback for browsers without File System Access API
+          showError('您的浏览器不支持保存本地文件访问权限，仅保存文件名。');
+          finalModelPath = objectForm.value.modelPath;
+        }
+      }
+    }
+
+    // 转换数据格式以匹配后端DTO
+    const data = {
+      sceneId: selectedSceneId.value,
+      name: objectForm.value.name,
+      type: objectForm.value.objectType,  // 后端期望 Type,不是 objectType
+      position: [  // 后端期望数组格式 double[]
+        objectForm.value.position.x,
+        objectForm.value.position.y,
+        objectForm.value.position.z
+      ],
+      rotation: JSON.stringify(objectForm.value.rotation),  // 后端期望JSON字符串
+      scale: JSON.stringify(objectForm.value.scale),        // 后端期望JSON字符串
+      modelPath: finalModelPath || '',
+      materialData: '{}',  // 默认空材质数据
+      properties: '{}',    // 默认空属性数据
+      isVisible: objectForm.value.isVisible
+    }
+
+    // 调试日志
+    console.log('=== 保存场景对象数据 ===')
+    console.log('发送数据:', JSON.stringify(data, null, 2))
+    console.log('sceneId类型:', typeof data.sceneId, '值:', data.sceneId)
+    console.log('position类型:', Array.isArray(data.position), '值:', data.position)
+    console.log('rotation类型:', typeof data.rotation, '值:', data.rotation)
+    console.log('scale类型:', typeof data.scale, '值:', data.scale)
 
     if (editingObject.value) {
       // TODO: 实现更新对象API
@@ -483,19 +741,21 @@ const saveObject = async () => {
 
 const duplicateObject = async (obj: any) => {
   try {
+    // 转换数据格式以匹配后端DTO
     const data = {
-      ...obj,
+      sceneId: selectedSceneId.value,
       name: `${obj.name} (副本)`,
-      position: {
-        x: obj.position.x + 5,
-        y: obj.position.y,
-        z: obj.position.z
-      },
-      sceneId: selectedSceneId.value
+      type: obj.objectType || obj.type,  // 兼容不同的属性名
+      position: [  // 后端期望数组格式
+        obj.position.x + 5,  // X方向偏移5个单位
+        obj.position.y,
+        obj.position.z
+      ],
+      rotation: typeof obj.rotation === 'string' ? obj.rotation : JSON.stringify(obj.rotation),
+      scale: typeof obj.scale === 'string' ? obj.scale : JSON.stringify(obj.scale),
+      modelPath: obj.modelPath || obj.ModelPath,  // 兼容不同的属性名
+      isVisible: obj.isVisible ?? true
     }
-    delete data.id
-    delete data.createdAt
-    delete data.updatedAt
 
     await sceneObjectService.createObject(data)
     showSuccess('对象复制成功')
@@ -507,29 +767,233 @@ const duplicateObject = async (obj: any) => {
 }
 
 const deleteObject = async (id: string) => {
+  const objectToDelete = objects.value.find(obj => obj.id === id);
+  if (!objectToDelete) return;
+
   if (confirm('确定要删除此对象吗?')) {
     try {
-      await sceneObjectService.deleteObject(id)
-      showSuccess('对象删除成功')
-      await loadObjects()
+      // Check if it's a local handle and delete it from IndexedDB
+      if (objectToDelete.modelPath && objectToDelete.modelPath.startsWith('local-file-handle://')) {
+        try {
+          const uuid = objectToDelete.modelPath.replace('local-file-handle://', '');
+          await deleteHandle(uuid);
+          showSuccess('已从本地存储中移除文件权限。');
+        } catch (handleError) {
+          console.error('Failed to delete file handle:', handleError);
+          showError('从本地存储移除文件句柄失败。');
+        }
+      }
+
+      await sceneObjectService.deleteObject(id);
+      showSuccess('对象删除成功');
+      await loadObjects();
       if (selectedObject.value?.id === id) {
-        selectedObject.value = null
+        selectedObject.value = null;
       }
     } catch (error) {
-      console.error('删除对象失败:', error)
-      showError('删除对象失败')
+      console.error('删除对象失败:', error);
+      showError('删除对象失败');
     }
   }
 }
 
 // 预览3D模型
-const previewModel = (obj: any) => {
-  if (obj.modelPath) {
-    previewModelUrl.value = obj.modelPath
-    showPreviewDialog.value = true
-  } else {
-    showError('该对象没有关联的模型文件')
+const previewModel = async (obj: any) => {
+  if (!obj.modelPath) {
+    showError('该对象没有关联的模型文件');
+    return;
   }
+
+  // Handle new local file handles
+  if (obj.modelPath.startsWith('local-file-handle://')) {
+    try {
+      const uuid = obj.modelPath.replace('local-file-handle://', '');
+      const handle = await getHandle<any>(uuid);
+      if (handle && (await handle.queryPermission({ mode: 'read' }) === 'granted')) {
+        const file = await handle.getFile();
+        previewModelFile.value = file;
+        previewModelUrl.value = '';
+        showPreviewDialog.value = true;
+      } else {
+        showError('无法自动预览本地文件，请进入编辑模式重新选择文件。');
+      }
+    } catch (err) {
+      showError('加载本地文件句柄失败。');
+      console.error(err);
+    }
+  } 
+  // Handle legacy local file paths
+  else if (obj.modelPath.startsWith('本地文件:')) {
+    showError('无法直接预览，请进入编辑模式重新选择文件。');
+  } 
+  // Handle regular URLs
+  else {
+    previewModelUrl.value = obj.modelPath;
+    previewModelFile.value = undefined;
+    showPreviewDialog.value = true;
+  }
+}
+
+/**
+ * 选择本地文件
+ */
+const selectLocalFile = async () => {
+  // Check for File System Access API support
+  if ('showOpenFilePicker' in window && window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{
+          description: '3D Models',
+          accept: {
+            'model/gltf-binary': ['.glb'],
+            'model/gltf+json': ['.gltf'],
+            'model/obj': ['.obj'],
+            'application/octet-stream': ['.fbx', '.dae', '.3ds'], // Broader category for others
+          }
+        }],
+        multiple: false
+      });
+
+      selectedFileHandle.value = handle;
+      const file = await handle.getFile();
+      
+      const maxSize = 500 * 1024 * 1024;
+      if (file.size > maxSize) {
+        showError('文件大小超过500MB限制');
+        return;
+      }
+
+      selectedFile.value = file;
+      objectForm.value.modelPath = `本地文件: ${file.name}`;
+      showSuccess(`已选择文件: ${file.name}`);
+
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        console.error('File selection error:', err);
+        showError('选择文件时发生错误。');
+      }
+    }
+  } else {
+    showError('您的浏览器不支持持久化本地文件访问。将使用传统方式选择文件。');
+    fileInputRef.value?.click();
+  }
+}
+
+/**
+ * 处理文件选择
+ */
+const handleFileSelect = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+
+  // Clear handle if using legacy fallback
+  selectedFileHandle.value = null;
+
+  const maxSize = 500 * 1024 * 1024;
+  if (file.size > maxSize) {
+    showError('文件大小超过500MB限制');
+    return;
+  }
+
+  selectedFile.value = file;
+  objectForm.value.modelPath = `本地文件: ${file.name}`;
+  showSuccess(`已选择文件: ${file.name}`);
+};
+
+/**
+ * 打开URL输入对话框
+ */
+const openUrlDialog = () => {
+  urlInput.value = objectForm.value.modelPath || ''
+  showUrlDialog.value = true
+}
+
+/**
+ * 确认URL输入
+ */
+const confirmUrl = () => {
+  if (!urlInput.value) {
+    showError('请输入模型URL')
+    return
+  }
+
+  // 简单的URL验证
+  try {
+    new URL(urlInput.value)
+    objectForm.value.modelPath = urlInput.value
+    showUrlDialog.value = false
+
+    // 清除本地文件选择
+    selectedFile.value = null
+    selectedFileHandle.value = null
+    selectedFileExtension.value = ''
+    if (localPreviewUrl.value) {
+      URL.revokeObjectURL(localPreviewUrl.value)
+      localPreviewUrl.value = ''
+    }
+
+    showSuccess('已设置模型URL')
+  } catch (error) {
+    showError('无效的URL格式')
+  }
+}
+
+/**
+ * 清除文件选择
+ */
+const clearFile = () => {
+  selectedFile.value = null
+  selectedFileHandle.value = null
+  objectForm.value.modelPath = ''
+  selectedFileExtension.value = ''
+
+  // 释放blob URL
+  if (localPreviewUrl.value) {
+    URL.revokeObjectURL(localPreviewUrl.value)
+    localPreviewUrl.value = ''
+  }
+
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
+/**
+ * 预览当前选择的模型
+ */
+const previewCurrentModel = () => {
+  // 如果是本地文件,直接传递File对象
+  if (selectedFile.value) {
+    previewModelFile.value = selectedFile.value
+    previewModelUrl.value = ''  // 清除URL
+    showPreviewDialog.value = true
+  }
+  // 否则使用modelPath中的URL
+  else if (objectForm.value.modelPath && !objectForm.value.modelPath.startsWith('本地文件:') && !objectForm.value.modelPath.startsWith('blob:')) {
+    previewModelUrl.value = objectForm.value.modelPath
+    previewModelFile.value = undefined  // 清除File对象
+    showPreviewDialog.value = true
+  }
+  else {
+    showError('没有可预览的模型')
+  }
+}
+
+/**
+ * 格式化文件大小
+ */
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+/**
+ * 获取文件扩展名
+ */
+const getFileExtension = (filename: string): string => {
+  return '.' + filename.split('.').pop()?.toUpperCase()
 }
 
 // 工具方法
@@ -551,7 +1015,31 @@ const getShortPath = (path: string): string => {
 
 const formatVector = (vec: any): string => {
   if (!vec) return '-'
-  return `(${vec.x?.toFixed(2) || 0}, ${vec.y?.toFixed(2) || 0}, ${vec.z?.toFixed(2) || 0})`
+
+  // 处理数组格式 [x, y, z]
+  if (Array.isArray(vec)) {
+    if (vec.length >= 3) {
+      return `(${vec[0]?.toFixed(2) || 0}, ${vec[1]?.toFixed(2) || 0}, ${vec[2]?.toFixed(2) || 0})`
+    }
+    return '-'
+  }
+
+  // 处理对象格式 {x, y, z}
+  if (typeof vec === 'object') {
+    return `(${vec.x?.toFixed(2) || 0}, ${vec.y?.toFixed(2) || 0}, ${vec.z?.toFixed(2) || 0})`
+  }
+
+  // 处理JSON字符串格式
+  if (typeof vec === 'string') {
+    try {
+      const parsed = JSON.parse(vec)
+      return `(${parsed.x?.toFixed(2) || 0}, ${parsed.y?.toFixed(2) || 0}, ${parsed.z?.toFixed(2) || 0})`
+    } catch {
+      return '-'
+    }
+  }
+
+  return '-'
 }
 
 const formatDateTime = (dateStr: string): string => {
@@ -935,6 +1423,16 @@ onMounted(async () => {
   font-size: 0.9rem;
 }
 
+.form-input[readonly] {
+  background-color: #f8f9fa;
+  cursor: pointer;
+  color: #495057;
+}
+
+.form-input[readonly]:hover {
+  background-color: #e9ecef;
+}
+
 .form-select:focus,
 .form-input:focus {
   outline: none;
@@ -1056,5 +1554,139 @@ onMounted(async () => {
 
 .icon {
   font-size: 1.1em;
+}
+
+/* 模型路径选择器 */
+.model-path-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.model-path-selector .form-input {
+  flex: 1;
+}
+
+.path-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: #007acc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.btn-action:hover {
+  background: #005999;
+}
+
+.btn-action.btn-preview {
+  background: #28a745;
+}
+
+.btn-action.btn-preview:hover {
+  background: #218838;
+}
+
+.btn-action span {
+  font-size: 1rem;
+}
+
+/* 文件信息显示 */
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border: 1px solid #e1e5e9;
+  border-radius: 6px;
+}
+
+.file-icon {
+  font-size: 2rem;
+}
+
+.file-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.btn-clear {
+  padding: 0.25rem 0.5rem;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.btn-clear:hover {
+  background: #c82333;
+}
+
+/* URL对话框样式 */
+.url-dialog {
+  padding: 1rem 0;
+}
+
+.url-hints {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.hint-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.format-tags {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.format-tags .tag {
+  padding: 0.25rem 0.75rem;
+  background: #007acc;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 </style>

@@ -80,55 +80,65 @@
     />
 
     <!-- 场景详情对话框 -->
-    <div v-if="showDetailDialog" class="modal-overlay" @click="closeDetailDialog">
-      <div class="modal-content large" @click.stop>
-        <h3>场景详情</h3>
-        <div v-if="currentScene" class="scene-detail">
-          <div class="detail-section">
-            <h4>基本信息</h4>
-            <div class="detail-grid">
-              <div class="detail-item">
-                <span class="label">场景名称:</span>
-                <span class="value">{{ currentScene.name }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">场景描述:</span>
-                <span class="value">{{ currentScene.description }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">创建时间:</span>
-                <span class="value">{{ formatDateTime(currentScene.createdAt) }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">更新时间:</span>
-                <span class="value">{{ formatDateTime(currentScene.updatedAt) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-section" v-if="currentScene.boundaryGeoJson">
-            <h4>地理信息</h4>
-            <div class="detail-grid">
-              <div class="detail-item full-width">
-                <span class="label">边界GeoJSON:</span>
-                <span class="value">{{ currentScene.boundaryGeoJson }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3D查看器占位 -->
-          <div class="detail-section">
-            <h4>3D预览</h4>
-            <div class="scene-viewer-container">
-              <SceneViewer />
-            </div>
-          </div>
+    <div v-if="showDetailDialog" class="modal-overlay" @click.self="closeDetailDialog">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h3>场景详情</h3>
+          <button @click="closeDetailDialog" class="modal-close-btn" aria-label="关闭">
+            ✕
+          </button>
         </div>
 
-        <div class="modal-actions">
-          <button @click="closeDetailDialog" class="btn btn-secondary">
-            关闭
-          </button>
+        <div class="modal-body">
+          <div v-if="currentScene" class="scene-detail">
+            <div class="detail-section">
+              <h4>基本信息</h4>
+              <div class="detail-grid">
+                <div class="detail-item">
+                  <span class="label">场景名称:</span>
+                  <span class="value">{{ currentScene.name }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">场景描述:</span>
+                  <span class="value">{{ currentScene.description || '无' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">创建时间:</span>
+                  <span class="value">{{ formatDateTime(currentScene.createdAt) }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">更新时间:</span>
+                  <span class="value">{{ formatDateTime(currentScene.updatedAt) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-section" v-if="currentScene.boundaryGeoJson">
+              <h4>地理信息</h4>
+              <div class="detail-grid">
+                <div class="detail-item full-width">
+                  <span class="label">边界GeoJSON:</span>
+                  <span class="value">{{ currentScene.boundaryGeoJson }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3D查看器 -->
+            <div class="detail-section">
+              <h4>Cesium 3D地球</h4>
+              <div class="scene-viewer-wrapper">
+                <CesiumViewer
+                  v-if="showDetailDialog"
+                  :show-info="true"
+                  @ready="onCesiumReady"
+                  @error="onCesiumError"
+                />
+              </div>
+            </div>
+          </div>
+          <div v-else class="loading-state">
+            <p>加载场景详情中...</p>
+          </div>
         </div>
       </div>
     </div>
@@ -211,7 +221,7 @@ import { ref, computed, onMounted } from 'vue'
 import { sceneService } from '../services/api'
 import authStore from '@/stores/auth'
 import { useMessage } from '@/composables/useMessage'
-import SceneViewer from '@/components/SceneViewer.vue'
+import CesiumViewer from '@/components/CesiumViewer.vue'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Pagination from '@/components/Pagination.vue'
 import Modal from '@/components/Modal.vue'
@@ -309,11 +319,15 @@ const formatDateTime = (dateStr: string) => {
  * - 加载场景详情数据并显示在对话框中
  */
 const viewScene = async (id: string) => {
+  console.log('[Scenes] viewScene() called with id:', id)
   try {
+    console.log('[Scenes] Fetching scene details...')
     currentScene.value = await sceneService.getScene(id)
+    console.log('[Scenes] Scene details loaded:', currentScene.value)
     showDetailDialog.value = true
+    console.log('[Scenes] Dialog shown')
   } catch (error) {
-    console.error('加载场景详情失败:', error)
+    console.error('[Scenes] 加载场景详情失败:', error)
     showError('加载场景详情失败')
   }
 }
@@ -322,8 +336,10 @@ const viewScene = async (id: string) => {
  * 关闭详情对话框
  */
 const closeDetailDialog = () => {
+  console.log('[Scenes] closeDetailDialog() called')
   showDetailDialog.value = false
   currentScene.value = null
+  console.log('[Scenes] Dialog closed, showDetailDialog:', showDetailDialog.value)
 }
 
 /**
@@ -364,6 +380,22 @@ const handleSceneFileUpload = async (file: File) => {
     console.error('场景文件处理失败:', error)
     showError('场景文件处理失败')
   }
+}
+
+/**
+ * Cesium就绪回调
+ */
+const onCesiumReady = (viewer: any) => {
+  console.log('Cesium地球初始化成功', viewer)
+  showSuccess('Cesium 3D地球加载成功')
+}
+
+/**
+ * Cesium错误回调
+ */
+const onCesiumError = (error: Error) => {
+  console.error('Cesium初始化失败:', error)
+  showError('Cesium地球加载失败: ' + error.message)
 }
 
 /**
@@ -700,6 +732,72 @@ onMounted(() => {
   font-size: 1.1rem;
 }
 
+/* 场景详情样式 */
+.scene-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.detail-section h4 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.detail-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.detail-item .label {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.detail-item .value {
+  font-size: 0.95rem;
+  color: #333;
+  word-break: break-word;
+}
+
+/* 3D查看器容器 */
+.scene-viewer-wrapper {
+  position: relative;
+  width: 100%;
+  height: 500px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 3rem;
+  color: #999;
+}
+
+.loading-state p {
+  margin: 0;
+  font-size: 1rem;
+}
+
 /* 模态框样式 */
 .modal-overlay {
   position: fixed;
@@ -734,14 +832,61 @@ onMounted(() => {
   width: 850px;
 }
 
-.modal-content h3 {
-  margin: 0 0 1.5rem 0;
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #e1e5e9;
+  margin: -2rem -2rem 0 -2rem;
+}
+
+.modal-header h3 {
+  margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
   background: var(--gradient-primary-alt);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.modal-close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #f8f9fa;
+  color: #666;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.modal-close-btn:hover {
+  background: #ffebee;
+  color: #dc3545;
+  transform: rotate(90deg);
+}
+
+.modal-body {
+  padding: 2rem 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #e1e5e9;
+  margin: 0 -2rem -2rem -2rem;
+  background: #f8f9fa;
 }
 
 .scene-detail {
