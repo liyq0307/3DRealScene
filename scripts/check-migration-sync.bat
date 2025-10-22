@@ -48,7 +48,7 @@ REM 检查迁移文件的 Up 方法是否为空（说明没有变更）
 findstr /C:"protected override void Up(MigrationBuilder migrationBuilder)" "!migration_file!" > nul
 if %ERRORLEVEL% EQU 0 (
     REM 读取 Up 方法后的几行，检查是否只有空白和大括号
-    powershell -Command "$content = Get-Content '!migration_file!' -Raw; if ($content -match 'protected override void Up\(MigrationBuilder migrationBuilder\)\s*\{\s*\}') { exit 0 } else { exit 1 }"
+    powershell -ExecutionPolicy Bypass -Command "$content = Get-Content '!migration_file!' -Raw; if ($content -match 'protected override void Up\(MigrationBuilder migrationBuilder\)\s*\{\s*\}') { exit 0 } else { exit 1 }"
 
     if !ERRORLEVEL! EQU 0 (
         REM Up 方法为空，说明没有变更
