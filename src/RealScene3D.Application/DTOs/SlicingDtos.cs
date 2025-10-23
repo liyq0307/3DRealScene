@@ -72,11 +72,7 @@ public class SlicingDtos
         /// </summary>
         public SlicingConfig SlicingConfig { get; set; } = new();
 
-        /// <summary>
-        /// 切片任务当前状态
-        /// 如：待处理、处理中、已完成、失败等
-        /// </summary>
-        public SlicingTaskStatus Status { get; set; }
+        public string Status { get; set; }
 
         /// <summary>
         /// 切片进度百分比，0-100
@@ -161,7 +157,7 @@ public class SlicingDtos
         /// <summary>
         /// 当前任务状态
         /// </summary>
-        public SlicingTaskStatus Status { get; set; }
+        public string Status { get; set; }
     }
 
     /// <summary>

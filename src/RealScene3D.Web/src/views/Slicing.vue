@@ -457,7 +457,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { slicingService, fileService } from '@/services/api'
+import { slicingService } from '@/services/api'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Badge from '@/components/Badge.vue'
 import Pagination from '@/components/Pagination.vue'
@@ -783,12 +783,12 @@ const downloadSlice = async (taskId: string, level: number, x: number, y: number
 // 文件路径选择方法
 const selectModelPath = async () => {
   try {
-    if (!('showOpenFilePicker' in window)) {
+    if (!(window as any).showOpenFilePicker) {
       alert('您的浏览器不支持文件系统访问API，无法直接获取文件路径。请手动输入路径。');
       return;
     }
 
-    const [fileHandle] = await window.showOpenFilePicker({
+    const [fileHandle] = await (window as any).showOpenFilePicker({
       types: [{
         description: '3D Models',
         accept: {
@@ -808,7 +808,13 @@ const selectModelPath = async () => {
     // 将文件句柄存起来，以便后续可能的使用（例如，直接在前端进行预处理）
     await fileHandleStore.saveHandle(fileHandle.name, fileHandle);
 
-    alert(`已选择文件: ${fileHandle.name}。请确认路径对于服务器是可访问的。`);
+    // 尝试获取文件路径，显示给用户参考
+    const filePath = await fileHandleStore.getFilePath(fileHandle);
+    if (filePath) {
+      alert(`已选择文件: ${fileHandle.name}\n路径: ${filePath}\n请确认路径对于服务器是可访问的。`);
+    } else {
+      alert(`已选择文件: ${fileHandle.name}。\n无法获取完整路径，请确认服务器可以访问此文件。`);
+    }
 
   } catch (error) {
     console.error('选择文件失败:', error);
@@ -820,7 +826,7 @@ const selectModelPath = async () => {
 
 const selectOutputPath = async () => {
   // 尝试使用现代浏览器的 File System Access API
-  if ('showDirectoryPicker' in window) {
+  if ((window as any).showDirectoryPicker) {
     try {
       const dirHandle = await (window as any).showDirectoryPicker()
       if (dirHandle) {

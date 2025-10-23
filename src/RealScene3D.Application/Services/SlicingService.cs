@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RealScene3D.Application.DTOs;
 using RealScene3D.Application.Interfaces;
@@ -580,7 +581,9 @@ public class OctreeSlicingStrategy : ISlicingStrategy
         var nodes = new List<OctreeNode>();
         var rootNode = new OctreeNode
         {
-            X = 0, Y = 0, Z = 0,
+            X = 0,
+            Y = 0,
+            Z = 0,
             Size = config.TileSize * Math.Pow(2, config.MaxLevel - level),
             Level = level
         };
@@ -4429,6 +4432,7 @@ public class SlicingAppService : ISlicingAppService
     private readonly IMinioStorageService _minioService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<SlicingAppService> _logger;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     // 任务进度历史跟踪 - 用于趋势检测和精确时间估算
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, TaskProgressHistory> _progressHistoryCache = new();
@@ -4439,7 +4443,8 @@ public class SlicingAppService : ISlicingAppService
         ISlicingProcessor slicingProcessor,
         IMinioStorageService minioService,
         IUnitOfWork unitOfWork,
-        ILogger<SlicingAppService> logger)
+        ILogger<SlicingAppService> logger,
+        IServiceScopeFactory serviceScopeFactory)
     {
         _slicingTaskRepository = slicingTaskRepository;
         _sliceRepository = sliceRepository;
@@ -4447,6 +4452,7 @@ public class SlicingAppService : ISlicingAppService
         _minioService = minioService;
         _unitOfWork = unitOfWork;
         _logger = logger;
+        _serviceScopeFactory = serviceScopeFactory;
     }
 
     /// <summary>
@@ -4539,11 +4545,17 @@ public class SlicingAppService : ISlicingAppService
 
             // 异步启动切片处理 - 火与遗忘模式，避免阻塞HTTP响应
             // 注意：这里使用Task.Run而非直接调用，避免在ASP.NET线程池中执行长时间任务
+            // 使用IServiceScopeFactory创建新的scope，避免DbContext被释放的问题
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await _slicingProcessor.ProcessSlicingTaskAsync(taskId, CancellationToken.None);
+                    // 创建新的scope以获取独立的服务实例
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var processor = scope.ServiceProvider.GetRequiredService<ISlicingProcessor>();
+                        await processor.ProcessSlicingTaskAsync(taskId, CancellationToken.None);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -4628,7 +4640,7 @@ public class SlicingAppService : ISlicingAppService
                 TaskId = task.Id,
                 Progress = task.Progress,
                 CurrentStage = GetCurrentStage(task.Status),
-                Status = task.Status,
+                Status = task.Status.ToString().ToLowerInvariant(),
                 ProcessedTiles = await GetProcessedTilesCount(taskId),
                 TotalTiles = await GetTotalTilesCount(taskId),
                 EstimatedTimeRemaining = CalculateEstimatedTimeRemaining(task)
@@ -4816,149 +4828,149 @@ public class SlicingAppService : ISlicingAppService
             _logger.LogError(ex, "下载切片文件失败：任务{TaskId}, 级别{Level}, 坐标({X}, {Y}, {Z})", taskId, level, x, y, z);
             throw;
         }
-        }
-    
-        /// <summary>
-        /// 执行视锥剔除 - 渲染优化算法实现
-        /// 算法：基于视口参数剔除不可见的切片，减少渲染负载
-        /// 使用包围盒与视锥的相交测试，快速剔除不在视野范围内的切片
-        /// 时间复杂度：O(n)，其中n为切片数量，适合实时渲染需求
-        /// </summary>
-        /// <param name="viewport">视口参数，包含相机位置、视角、裁剪面等关键信息，必须有效</param>
-        /// <param name="allSlices">所有待测试的切片元数据集合，支持空集合（返回空结果）</param>
-        /// <returns>可见切片元数据集合，仅包含在视锥范围内的切片，按距离排序以便优先加载</returns>
-        /// <exception cref="ArgumentNullException">当输入参数为null时抛出</exception>
-        /// <exception cref="ArgumentException">当视口参数无效时抛出，如视野角度为负数、裁剪面距离无效等</exception>
-        /// <exception cref="JsonException">当切片包围盒JSON解析失败时抛出</exception>
-        public Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PerformFrustumCullingAsync(ViewportInfo viewport, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices)
+    }
+
+    /// <summary>
+    /// 执行视锥剔除 - 渲染优化算法实现
+    /// 算法：基于视口参数剔除不可见的切片，减少渲染负载
+    /// 使用包围盒与视锥的相交测试，快速剔除不在视野范围内的切片
+    /// 时间复杂度：O(n)，其中n为切片数量，适合实时渲染需求
+    /// </summary>
+    /// <param name="viewport">视口参数，包含相机位置、视角、裁剪面等关键信息，必须有效</param>
+    /// <param name="allSlices">所有待测试的切片元数据集合，支持空集合（返回空结果）</param>
+    /// <returns>可见切片元数据集合，仅包含在视锥范围内的切片，按距离排序以便优先加载</returns>
+    /// <exception cref="ArgumentNullException">当输入参数为null时抛出</exception>
+    /// <exception cref="ArgumentException">当视口参数无效时抛出，如视野角度为负数、裁剪面距离无效等</exception>
+    /// <exception cref="JsonException">当切片包围盒JSON解析失败时抛出</exception>
+    public Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PerformFrustumCullingAsync(ViewportInfo viewport, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices)
+    {
+        // 边界情况检查：验证输入参数的有效性
+        if (viewport == null)
+            throw new ArgumentNullException(nameof(viewport), "视口参数不能为空");
+
+        if (allSlices == null)
+            throw new ArgumentNullException(nameof(allSlices), "切片集合不能为空");
+
+        if (viewport.FieldOfView <= 0 || viewport.FieldOfView > Math.PI)
+            throw new ArgumentException("视野角度必须在0到π弧度之间", nameof(viewport.FieldOfView));
+
+        if (viewport.NearPlane < 0 || viewport.FarPlane <= viewport.NearPlane)
+            throw new ArgumentException("裁剪面距离设置无效", nameof(viewport.NearPlane));
+
+        var visibleSlices = new List<SlicingDtos.SliceMetadataDto>();
+
+        foreach (var slice in allSlices)
         {
-            // 边界情况检查：验证输入参数的有效性
-            if (viewport == null)
-                throw new ArgumentNullException(nameof(viewport), "视口参数不能为空");
-
-            if (allSlices == null)
-                throw new ArgumentNullException(nameof(allSlices), "切片集合不能为空");
-
-            if (viewport.FieldOfView <= 0 || viewport.FieldOfView > Math.PI)
-                throw new ArgumentException("视野角度必须在0到π弧度之间", nameof(viewport.FieldOfView));
-
-            if (viewport.NearPlane < 0 || viewport.FarPlane <= viewport.NearPlane)
-                throw new ArgumentException("裁剪面距离设置无效", nameof(viewport.NearPlane));
-
-            var visibleSlices = new List<SlicingDtos.SliceMetadataDto>();
-
-            foreach (var slice in allSlices)
+            try
             {
+                // 健壮性检查：跳过无效切片数据
+                if (slice == null) continue;
+
+                // 解析切片包围盒 - 处理可能格式错误的JSON
+                var boundingBoxJson = slice.BoundingBox ?? "{}";
+                if (string.IsNullOrWhiteSpace(boundingBoxJson))
+                {
+                    _logger.LogDebug("切片包围盒为空，跳过：坐标({X}, {Y}, {Z})", slice.X, slice.Y, slice.Z);
+                    continue;
+                }
+
+                Dictionary<string, double>? boundingBox;
                 try
                 {
-                    // 健壮性检查：跳过无效切片数据
-                    if (slice == null) continue;
-
-                    // 解析切片包围盒 - 处理可能格式错误的JSON
-                    var boundingBoxJson = slice.BoundingBox ?? "{}";
-                    if (string.IsNullOrWhiteSpace(boundingBoxJson))
-                    {
-                        _logger.LogDebug("切片包围盒为空，跳过：坐标({X}, {Y}, {Z})", slice.X, slice.Y, slice.Z);
-                        continue;
-                    }
-
-                    Dictionary<string, double>? boundingBox;
-                    try
-                    {
-                        boundingBox = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(boundingBoxJson);
-                    }
-                    catch (JsonException ex)
-                    {
-                        _logger.LogWarning(ex, "切片包围盒JSON格式无效：坐标({X}, {Y}, {Z}), BoundingBox: {BoundingBox}",
-                            slice.X, slice.Y, slice.Z, slice.BoundingBox);
-                        continue; // 跳过格式错误的切片，继续处理下一个
-                    }
-
-                    if (boundingBox == null)
-                    {
-                        _logger.LogDebug("切片包围盒解析结果为空，跳过：坐标({X}, {Y}, {Z})", slice.X, slice.Y, slice.Z);
-                        continue;
-                    }
-
-                    // 边界情况处理：处理缺失的包围盒坐标，默认使用原点
-                    var sliceCenter = new Vector3D
-                    {
-                        X = (boundingBox.GetValueOrDefault("minX", 0) + boundingBox.GetValueOrDefault("maxX", 0)) / 2,
-                        Y = (boundingBox.GetValueOrDefault("minY", 0) + boundingBox.GetValueOrDefault("maxY", 0)) / 2,
-                        Z = (boundingBox.GetValueOrDefault("minZ", 0) + boundingBox.GetValueOrDefault("maxZ", 0)) / 2
-                    };
-
-                    // 距离计算和可见性判断 - 核心视锥剔除算法
-                    var distance = CalculateDistance(viewport.CameraPosition, sliceCenter);
-
-                    // 动态距离阈值：考虑LOD级别和相机参数
-                    // 注意：这里简化为固定衰减因子，后续可根据实际情况调整算法
-                    var maxDistance = viewport.FarPlane * Math.Pow(0.8, 0); // 简化处理，不使用Level
-
-                    if (distance <= maxDistance && distance >= viewport.NearPlane)
-                    {
-                        visibleSlices.Add(slice);
-                    }
+                    boundingBox = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(boundingBoxJson);
                 }
-                catch (Exception ex)
+                catch (JsonException ex)
                 {
-                    // 单个切片处理失败不应影响整个剔除过程
-                    _logger.LogWarning(ex, "处理单个切片时发生错误，跳过：坐标({X}, {Y}, {Z})", slice?.X ?? 0, slice?.Y ?? 0, slice?.Z ?? 0);
-                    // 继续处理下一个切片，确保算法的健壮性
+                    _logger.LogWarning(ex, "切片包围盒JSON格式无效：坐标({X}, {Y}, {Z}), BoundingBox: {BoundingBox}",
+                        slice.X, slice.Y, slice.Z, slice.BoundingBox);
+                    continue; // 跳过格式错误的切片，继续处理下一个
+                }
+
+                if (boundingBox == null)
+                {
+                    _logger.LogDebug("切片包围盒解析结果为空，跳过：坐标({X}, {Y}, {Z})", slice.X, slice.Y, slice.Z);
+                    continue;
+                }
+
+                // 边界情况处理：处理缺失的包围盒坐标，默认使用原点
+                var sliceCenter = new Vector3D
+                {
+                    X = (boundingBox.GetValueOrDefault("minX", 0) + boundingBox.GetValueOrDefault("maxX", 0)) / 2,
+                    Y = (boundingBox.GetValueOrDefault("minY", 0) + boundingBox.GetValueOrDefault("maxY", 0)) / 2,
+                    Z = (boundingBox.GetValueOrDefault("minZ", 0) + boundingBox.GetValueOrDefault("maxZ", 0)) / 2
+                };
+
+                // 距离计算和可见性判断 - 核心视锥剔除算法
+                var distance = CalculateDistance(viewport.CameraPosition, sliceCenter);
+
+                // 动态距离阈值：考虑LOD级别和相机参数
+                // 注意：这里简化为固定衰减因子，后续可根据实际情况调整算法
+                var maxDistance = viewport.FarPlane * Math.Pow(0.8, 0); // 简化处理，不使用Level
+
+                if (distance <= maxDistance && distance >= viewport.NearPlane)
+                {
+                    visibleSlices.Add(slice);
                 }
             }
-
-            // 性能监控：记录剔除结果统计信息
-            var totalCount = allSlices.Count();
-            var visibleCount = visibleSlices.Count;
-            var cullingRatio = totalCount > 0 ? (double)(totalCount - visibleCount) / totalCount * 100 : 0;
-
-            _logger.LogDebug("视锥剔除完成：总切片{Total}, 可见切片{Visible}, 剔除率{CullingRatio:F2}%",
-                totalCount, visibleCount, cullingRatio);
-
-            return Task.FromResult<IEnumerable<SlicingDtos.SliceMetadataDto>>(visibleSlices);
-        }
-    
-        /// <summary>
-        /// 预测加载算法 - 预加载优化算法实现
-        /// 算法：基于用户视点移动趋势预测需要加载的切片
-        /// </summary>
-        /// <param name="currentViewport">当前视口</param>
-        /// <param name="movementVector">移动向量</param>
-        /// <param name="allSlices">所有切片元数据</param>
-        /// <returns>预测加载的切片集合</returns>
-        public async Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3D movementVector, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices)
-        {
-            // 预测下一个视口位置
-            var predictedPosition = currentViewport.CameraPosition + movementVector * 2.0; // 预测2秒后的位置
-
-            var predictedViewport = new ViewportInfo
+            catch (Exception ex)
             {
-                CameraPosition = predictedPosition,
-                CameraDirection = currentViewport.CameraDirection,
-                FieldOfView = currentViewport.FieldOfView,
-                NearPlane = currentViewport.NearPlane,
-                FarPlane = currentViewport.FarPlane
-            };
-    
-            // 使用视锥剔除算法获取预测可见切片
-            return await PerformFrustumCullingAsync(predictedViewport, allSlices);
+                // 单个切片处理失败不应影响整个剔除过程
+                _logger.LogWarning(ex, "处理单个切片时发生错误，跳过：坐标({X}, {Y}, {Z})", slice?.X ?? 0, slice?.Y ?? 0, slice?.Z ?? 0);
+                // 继续处理下一个切片，确保算法的健壮性
+            }
         }
-    
-        /// <summary>
-        /// 计算两点间距离 - 空间几何算法
-        /// </summary>
-        /// <param name="point1">点1</param>
-        /// <param name="point2">点2</param>
-        /// <returns>欧几里得距离</returns>
-        private double CalculateDistance(Vector3D point1, Vector3D point2)
+
+        // 性能监控：记录剔除结果统计信息
+        var totalCount = allSlices.Count();
+        var visibleCount = visibleSlices.Count;
+        var cullingRatio = totalCount > 0 ? (double)(totalCount - visibleCount) / totalCount * 100 : 0;
+
+        _logger.LogDebug("视锥剔除完成：总切片{Total}, 可见切片{Visible}, 剔除率{CullingRatio:F2}%",
+            totalCount, visibleCount, cullingRatio);
+
+        return Task.FromResult<IEnumerable<SlicingDtos.SliceMetadataDto>>(visibleSlices);
+    }
+
+    /// <summary>
+    /// 预测加载算法 - 预加载优化算法实现
+    /// 算法：基于用户视点移动趋势预测需要加载的切片
+    /// </summary>
+    /// <param name="currentViewport">当前视口</param>
+    /// <param name="movementVector">移动向量</param>
+    /// <param name="allSlices">所有切片元数据</param>
+    /// <returns>预测加载的切片集合</returns>
+    public async Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3D movementVector, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices)
+    {
+        // 预测下一个视口位置
+        var predictedPosition = currentViewport.CameraPosition + movementVector * 2.0; // 预测2秒后的位置
+
+        var predictedViewport = new ViewportInfo
         {
-            var dx = point2.X - point1.X;
-            var dy = point2.Y - point1.Y;
-            var dz = point2.Z - point1.Z;
-    
-            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
-        }
+            CameraPosition = predictedPosition,
+            CameraDirection = currentViewport.CameraDirection,
+            FieldOfView = currentViewport.FieldOfView,
+            NearPlane = currentViewport.NearPlane,
+            FarPlane = currentViewport.FarPlane
+        };
+
+        // 使用视锥剔除算法获取预测可见切片
+        return await PerformFrustumCullingAsync(predictedViewport, allSlices);
+    }
+
+    /// <summary>
+    /// 计算两点间距离 - 空间几何算法
+    /// </summary>
+    /// <param name="point1">点1</param>
+    /// <param name="point2">点2</param>
+    /// <returns>欧几里得距离</returns>
+    private double CalculateDistance(Vector3D point1, Vector3D point2)
+    {
+        var dx = point2.X - point1.X;
+        var dy = point2.Y - point1.Y;
+        var dz = point2.Z - point1.Z;
+
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
 
     public async Task<IEnumerable<SlicingDtos.SliceDto>> GetSlicesBatchAsync(Guid taskId, int level, IEnumerable<(int x, int y, int z)> coordinates)
     {
@@ -5075,7 +5087,7 @@ public class SlicingAppService : ISlicingAppService
             SourceModelPath = task.SourceModelPath,
             ModelType = task.ModelType,
             SlicingConfig = ParseSlicingConfig(task.SlicingConfig),
-            Status = task.Status,
+            Status = task.Status.ToString().ToLowerInvariant(),
             Progress = task.Progress,
             OutputPath = task.OutputPath,
             ErrorMessage = task.ErrorMessage,

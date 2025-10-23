@@ -287,6 +287,75 @@ export class FileHandleStore {
   }
 
   /**
+   * 获取句柄及其路径信息的工具方法
+   * 返回包含句柄和路径的对象
+   */
+  async getHandleWithPath(key: string): Promise<{ handle: FileSystemFileHandle; path: string | null } | undefined> {
+    try {
+      const handle = await this.getHandle(key);
+      if (!handle) {
+        return undefined;
+      }
+
+      const path = await this.getFilePath(handle);
+      return { handle, path };
+    } catch (error) {
+      this.logger.error('Failed to get handle with path', { key, error });
+      return undefined;
+    }
+  }
+
+  /**
+   * 获取文件句柄对应的文件路径
+   * 注意：File System Access API 目前不支持直接获取文件的完整路径
+   * 此方法尝试通过多种方式获取路径信息
+   */
+  async getFilePath(handle: FileSystemFileHandle): Promise<string | null> {
+    try {
+      // 方法1：尝试获取webkitRelativePath（Safari支持）
+      if ('webkitRelativePath' in handle && (handle as any).webkitRelativePath) {
+        return (handle as any).webkitRelativePath as string;
+      }
+
+      // 方法2：检查是否为FileSystemFileHandle的扩展属性
+      const handleAny = handle as any;
+      if (handleAny.path) {
+        return handleAny.path;
+      }
+
+      // 方法3：尝试通过getFile()获取文件对象，然后检查webkitRelativePath
+      try {
+        const file = await handle.getFile();
+        if ((file as any).webkitRelativePath) {
+          return (file as any).webkitRelativePath as string;
+        }
+      } catch (fileError) {
+        this.logger.warn('Failed to get file for path extraction', { error: fileError });
+      }
+
+      // 方法4：检查handle的原型链和属性
+      const proto = Object.getPrototypeOf(handle);
+      if (proto && proto.constructor && proto.constructor.name) {
+        this.logger.info('Handle prototype info', {
+          name: proto.constructor.name,
+          properties: Object.getOwnPropertyNames(proto)
+        });
+      }
+
+      // 如果都没有找到路径，返回null
+      this.logger.warn('Unable to retrieve file path from handle', {
+        name: handle.name,
+        kind: handle.kind
+      });
+      return null;
+
+    } catch (error) {
+      this.logger.error('Error while trying to get file path', { error });
+      return null;
+    }
+  }
+
+  /**
    * 清理资源
    */
   async close(): Promise<void> {
