@@ -97,11 +97,8 @@ interface Props {
   hasSelection?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  canUndo: false,
-  canRedo: false,
-  hasSelection: false
-})
+const props = defineProps<Props>()
+const { canUndo = false, canRedo = false, hasSelection = false } = props
 
 // Emits定义
 const emit = defineEmits<{

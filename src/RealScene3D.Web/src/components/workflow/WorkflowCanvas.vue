@@ -216,7 +216,7 @@ const handleCanvasMouseMove = (event: MouseEvent) => {
   }
 }
 
-const handleCanvasMouseUp = (event: MouseEvent) => {
+const handleCanvasMouseUp = () => {
   // 结束拖拽
   if (dragState.value.isDragging) {
     dragState.value.isDragging = false

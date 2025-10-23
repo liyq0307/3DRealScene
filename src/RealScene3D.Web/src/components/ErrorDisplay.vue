@@ -23,7 +23,7 @@ interface ErrorProps {
   retry?: boolean
 }
 
-const props = withDefaults(defineProps<ErrorProps>(), {
+withDefaults(defineProps<ErrorProps>(), {
   type: 'error',
   title: '',
   retry: false

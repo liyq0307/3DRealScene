@@ -421,12 +421,15 @@ import { sceneService, sceneObjectService, fileService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import Modal from '@/components/Modal.vue'
 import ModelViewer from '@/components/ModelViewer.vue'
-import { saveHandle, getHandle, deleteHandle } from '@/services/fileHandleStore'
+import { FileHandleStore } from '@/services/fileHandleStore'
 
 const { success: showSuccess, error: showError } = useMessage()
 
+// 创建FileHandleStore实例
+const fileHandleStore = new FileHandleStore()
+
 /**
- * 生成RFC 4122版本4 UUID
+ * 生成UUID
  * 使用crypto.getRandomValues确保随机性，优先使用原生crypto.randomUUID()如果可用
  *
  * @returns {string} UUID字符串，格式如: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
@@ -602,22 +605,22 @@ const editObject = async (obj: any) => {
     isVisible: obj.isVisible
   };
 
-  // Clear previous selections
+  // 清除之前的选择
   selectedFile.value = null;
   selectedFileHandle.value = null;
 
-  // If it's a local file handle, try to retrieve it
+  // 如果是本地文件句柄，尝试检索
   if (obj.modelPath && obj.modelPath.startsWith('local-file-handle://')) {
     try {
       const uuid = obj.modelPath.replace('local-file-handle://', '');
-      const handle = await getHandle<any>(uuid);
+      const handle = await fileHandleStore.getHandle<any>(uuid);
       if (handle) {
-        // Verify permission first
+        // 首先验证权限
         if (await handle.queryPermission({ mode: 'read' }) === 'granted') {
           selectedFileHandle.value = handle;
           const file = await handle.getFile();
           selectedFile.value = file;
-          // Update form path to be more descriptive for the user
+          // 更新表单路径以便用户更好地理解
           objectForm.value.modelPath = `本地文件: ${file.name} (已授权)`;
           showSuccess('已加载本地文件访问权限。');
         } else {
@@ -628,7 +631,7 @@ const editObject = async (obj: any) => {
         showError('在本地找不到对应的文件句柄，请重新选择文件。');
       }
     } catch (err) {
-      console.error('Failed to retrieve file handle:', err);
+      console.error('检索文件句柄失败:', err);
       showError('加载本地文件句柄失败，请重新选择文件。');
     }
   }
@@ -678,20 +681,20 @@ const saveObject = async () => {
           return
         }
       } else {
-        // User chose to save handle locally
+        // 用户选择在本地保存句柄
         if (selectedFileHandle.value) {
           try {
             const uuid = generateUUID();
-            await saveHandle(uuid, selectedFileHandle.value);
+            await fileHandleStore.saveHandle(uuid, selectedFileHandle.value);
             finalModelPath = `local-file-handle://${uuid}`;
             showSuccess('已在本地保存文件访问权限。');
           } catch (handleError) {
-            console.error('Failed to save file handle:', handleError);
+            console.error('保存文件句柄失败:', handleError);
             showError('保存本地文件句柄失败，将仅保存文件名。');
             finalModelPath = objectForm.value.modelPath;
           }
         } else {
-          // Fallback for browsers without File System Access API
+          // 对于不支持文件系统访问API的浏览器，回退处理
           showError('您的浏览器不支持保存本地文件访问权限，仅保存文件名。');
           finalModelPath = objectForm.value.modelPath;
         }
@@ -772,14 +775,14 @@ const deleteObject = async (id: string) => {
 
   if (confirm('确定要删除此对象吗?')) {
     try {
-      // Check if it's a local handle and delete it from IndexedDB
+      // 检查是否为本地句柄并从IndexedDB中删除
       if (objectToDelete.modelPath && objectToDelete.modelPath.startsWith('local-file-handle://')) {
         try {
           const uuid = objectToDelete.modelPath.replace('local-file-handle://', '');
-          await deleteHandle(uuid);
+          await fileHandleStore.deleteHandle(uuid);
           showSuccess('已从本地存储中移除文件权限。');
         } catch (handleError) {
-          console.error('Failed to delete file handle:', handleError);
+          console.error('删除文件句柄失败:', handleError);
           showError('从本地存储移除文件句柄失败。');
         }
       }
@@ -804,11 +807,11 @@ const previewModel = async (obj: any) => {
     return;
   }
 
-  // Handle new local file handles
+  // 处理新的本地文件句柄
   if (obj.modelPath.startsWith('local-file-handle://')) {
     try {
       const uuid = obj.modelPath.replace('local-file-handle://', '');
-      const handle = await getHandle<any>(uuid);
+      const handle = await fileHandleStore.getHandle<any>(uuid);
       if (handle && (await handle.queryPermission({ mode: 'read' }) === 'granted')) {
         const file = await handle.getFile();
         previewModelFile.value = file;
@@ -822,11 +825,11 @@ const previewModel = async (obj: any) => {
       console.error(err);
     }
   } 
-  // Handle legacy local file paths
+  // 处理遗留的本地文件路径
   else if (obj.modelPath.startsWith('本地文件:')) {
     showError('无法直接预览，请进入编辑模式重新选择文件。');
   } 
-  // Handle regular URLs
+  // 处理常规URL
   else {
     previewModelUrl.value = obj.modelPath;
     previewModelFile.value = undefined;
@@ -838,7 +841,7 @@ const previewModel = async (obj: any) => {
  * 选择本地文件
  */
 const selectLocalFile = async () => {
-  // Check for File System Access API support
+  // 检查文件系统访问API支持
   if ('showOpenFilePicker' in window && window.showOpenFilePicker) {
     try {
       const [handle] = await window.showOpenFilePicker({
@@ -887,7 +890,7 @@ const handleFileSelect = async (event: Event) => {
   const file = target.files?.[0];
   if (!file) return;
 
-  // Clear handle if using legacy fallback
+  // 如果使用遗留回退，清除句柄
   selectedFileHandle.value = null;
 
   const maxSize = 500 * 1024 * 1024;
@@ -963,7 +966,7 @@ const clearFile = () => {
  * 预览当前选择的模型
  */
 const previewCurrentModel = () => {
-  // 如果是本地文件,直接传递File对象
+  // 如果是本地文件，直接传递File对象
   if (selectedFile.value) {
     previewModelFile.value = selectedFile.value
     previewModelUrl.value = ''  // 清除URL
@@ -1047,9 +1050,9 @@ const formatDateTime = (dateStr: string): string => {
   return new Date(dateStr).toLocaleString('zh-CN')
 }
 
-// 生命周期
+// 生命周期钩子
 onMounted(async () => {
-  console.log('[SceneObjects] Component mounted, loading scenes...')
+  console.log('[SceneObjects] 组件已挂载，开始加载场景...')
   await loadScenes()
 })
 </script>

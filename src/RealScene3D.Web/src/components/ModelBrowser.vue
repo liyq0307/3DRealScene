@@ -98,7 +98,6 @@
  * 创建时间: 2025-10-22
  */
 import { ref, computed, onMounted } from 'vue'
-import { fileService } from '@/services/api'
 
 // ==================== Props & Emits ====================
 

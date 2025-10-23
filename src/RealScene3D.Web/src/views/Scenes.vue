@@ -224,7 +224,6 @@ import { useMessage } from '@/composables/useMessage'
 import CesiumViewer from '@/components/CesiumViewer.vue'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Pagination from '@/components/Pagination.vue'
-import Modal from '@/components/Modal.vue'
 import FileUpload from '@/components/FileUpload.vue'
 
 const { success: showSuccess, error: showError } = useMessage()
@@ -256,7 +255,6 @@ const sceneForm = ref({
 
 // 搜索和筛选状态
 const searchText = ref('')
-const filters = ref({})
 const currentPage = ref(1)
 const pageSize = ref(20)
 

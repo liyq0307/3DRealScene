@@ -30,20 +30,20 @@ public class ApplicationDbContext : DbContext
     {
     }
 
-    public DbSet<User> Users { get; set; }
-    public DbSet<UserLog> UserLogs { get; set; }
-    public DbSet<Scene3D> Scenes { get; set; }
-    public DbSet<SceneObject> SceneObjects { get; set; }
-    public DbSet<WorkflowEntity> Workflows { get; set; }
-    public DbSet<WorkflowInstanceEntity> WorkflowInstances { get; set; }
-    public DbSet<WorkflowExecutionHistoryEntity> WorkflowExecutionHistories { get; set; }
-    public DbSet<SlicingTaskEntity> SlicingTasks { get; set; }
-    public DbSet<SliceEntity> Slices { get; set; }
-    public DbSet<SystemMetricEntity> SystemMetrics { get; set; }
-    public DbSet<BusinessMetricEntity> BusinessMetrics { get; set; }
-    public DbSet<AlertRuleEntity> AlertRules { get; set; }
-    public DbSet<AlertEventEntity> AlertEvents { get; set; }
-    public DbSet<DashboardEntity> Dashboards { get; set; }
+    public DbSet<User> Users { get; set; } = null!;
+    public DbSet<UserLog> UserLogs { get; set; } = null!;
+    public DbSet<Scene3D> Scenes { get; set; } = null!;
+    public DbSet<SceneObject> SceneObjects { get; set; } = null!;
+    public DbSet<WorkflowEntity> Workflows { get; set; } = null!;
+    public DbSet<WorkflowInstanceEntity> WorkflowInstances { get; set; } = null!;
+    public DbSet<WorkflowExecutionHistoryEntity> WorkflowExecutionHistories { get; set; } = null!;
+    public DbSet<SlicingTaskEntity> SlicingTasks { get; set; } = null!;
+    public DbSet<SliceEntity> Slices { get; set; } = null!;
+    public DbSet<SystemMetricEntity> SystemMetrics { get; set; } = null!;
+    public DbSet<BusinessMetricEntity> BusinessMetrics { get; set; } = null!;
+    public DbSet<AlertRuleEntity> AlertRules { get; set; } = null!;
+    public DbSet<AlertEventEntity> AlertEvents { get; set; } = null!;
+    public DbSet<DashboardEntity> Dashboards { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

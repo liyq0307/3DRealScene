@@ -72,7 +72,6 @@ const pathData = computed(() => {
 
   // 计算贝塞尔曲线控制点
   const dx = targetPos.x - sourcePos.x
-  const dy = targetPos.y - sourcePos.y
 
   // 根据连接方向调整控制点
   const cp1x = sourcePos.x + Math.abs(dx) * 0.5
@@ -99,7 +98,7 @@ const deleteButtonPosition = computed(() => {
 const getNodePortPosition = (node: WorkflowNode, portType: 'input' | 'output', portName?: string): Position => {
   const baseX = node.position.x
   const baseY = node.position.y
-  const nodeHeight = 80 // 假设节点高度
+  // 假设节点高度
   const portOffset = 20 // 端口间距
 
   if (portType === 'output') {

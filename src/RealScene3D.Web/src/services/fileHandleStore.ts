@@ -329,32 +329,5 @@ export class FileHandleStore {
   }
 }
 
-// 为向后兼容性保留的函数式接口
-const storeInstance = new FileHandleStore();
-
-/**
- * 将 FileSystemFileHandle 保存到 IndexedDB。
- * @deprecated 使用 FileHandleStore 类代替
- */
-export async function saveHandle(key: string, handle: FileSystemFileHandle): Promise<void> {
-  return storeInstance.saveHandle(key, handle);
-}
-
-/**
- * 从 IndexedDB 检索 FileSystemFileHandle。
- * @deprecated 使用 FileHandleStore 类代替
- */
-export async function getHandle<T extends FileSystemFileHandle = FileSystemFileHandle>(key: string): Promise<T | undefined> {
-  return storeInstance.getHandle<T>(key);
-}
-
-/**
- * 从 IndexedDB 删除 FileSystemFileHandle。
- * @deprecated 使用 FileHandleStore 类代替
- */
-export async function deleteHandle(key: string): Promise<void> {
-  return storeInstance.deleteHandle(key);
-}
-
 // 导出默认实例
 export default new FileHandleStore();

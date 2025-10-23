@@ -38,7 +38,7 @@ import { ref, computed } from 'vue'
 
 interface InputProps {
   modelValue: string | number
-  type?: 'text' | 'password' | 'email' | 'number' | 'tel' | 'url'
+  type?: 'text' | 'password' | 'email' | 'number' | 'tel' | 'url' | 'datetime-local'
   label?: string
   placeholder?: string
   disabled?: boolean
@@ -237,5 +237,7 @@ const handleClear = () => {
 
 .input-field[type='number'] {
   -moz-appearance: textfield;
+  -webkit-appearance: textfield;
+  appearance: textfield;
 }
 </style>

@@ -104,7 +104,7 @@
     </div>
 
     <!-- 错误提示 -->
-    <ErrorDisplay v-if="error" :error="error" @retry="loadData" />
+    <ErrorDisplay v-if="error" :message="error" :onRetry="loadData" />
 
     <!-- 倾斜摄影列表 -->
     <div v-if="!loading && !error" class="data-grid">
@@ -168,7 +168,7 @@
     </div>
 
     <!-- 创建/编辑对话框 -->
-    <Modal v-if="showCreateDialog || showEditDialog" @close="closeDialog">
+    <Modal :model-value="showCreateDialog || showEditDialog" @close="closeDialog">
       <template #header>
         <h2>{{ editingData ? '编辑倾斜摄影数据' : '添加倾斜摄影数据' }}</h2>
       </template>

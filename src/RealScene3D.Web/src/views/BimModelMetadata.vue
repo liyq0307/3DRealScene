@@ -67,7 +67,7 @@
     </div>
 
     <!-- 错误提示 -->
-    <ErrorDisplay v-if="error" :error="error" @retry="loadModels" />
+    <ErrorDisplay v-if="error" :message="error" :onRetry="loadModels" />
 
     <!-- BIM模型列表 -->
     <div v-if="!loading && !error" class="models-grid">
@@ -143,7 +143,7 @@
     </div>
 
     <!-- 创建/编辑对话框 -->
-    <Modal v-if="showCreateDialog || showEditDialog" @close="closeDialog">
+    <Modal :model-value="showCreateDialog || showEditDialog" @close="closeDialog">
       <template #header>
         <h2>{{ editingModel ? '编辑BIM模型' : '添加BIM模型' }}</h2>
       </template>

@@ -74,7 +74,7 @@
     </div>
 
     <!-- 错误提示 -->
-    <ErrorDisplay v-if="error" :error="error" @retry="loadVideos" />
+    <ErrorDisplay v-if="error" :message="error" :onRetry="loadVideos" />
 
     <!-- 视频列表 -->
     <div v-if="!loading && !error" class="videos-grid">
@@ -130,15 +130,14 @@
     <Pagination
       v-if="!loading && videos.length > 0"
       :current-page="currentPage"
-      :total-pages="totalPages"
       :page-size="pageSize"
-      :total-count="totalCount"
-      @page-change="handlePageChange"
-      @page-size-change="handlePageSizeChange"
+      :total="totalCount"
+      @update:currentPage="handlePageChange"
+      @update:pageSize="handlePageSizeChange"
     />
 
     <!-- 创建/编辑对话框 -->
-    <Modal v-if="showCreateDialog || showEditDialog" @close="closeDialog">
+    <Modal :model-value="showCreateDialog || showEditDialog" @close="closeDialog">
       <template #header>
         <h2>{{ editingVideo ? '编辑视频元数据' : '添加视频元数据' }}</h2>
       </template>
@@ -264,7 +263,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { videoMetadataService, sceneService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
@@ -308,7 +307,8 @@ const formData = ref({
 })
 
 // 计算属性
-const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
+// 注意：totalPages现在在Pagination组件内部计算，不再需要这里定义
+// const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
 
 // 加载视频列表
 const loadVideos = async () => {
