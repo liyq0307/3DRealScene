@@ -597,12 +597,19 @@ const editObject = async (obj: any) => {
   editingObject.value = obj;
   objectForm.value = {
     name: obj.name,
-    objectType: obj.objectType,
+    objectType: obj.objectType || obj.type,  // 兼容不同字段名
     modelPath: obj.modelPath || '',
-    position: { ...obj.position },
-    rotation: { ...obj.rotation },
-    scale: { ...obj.scale },
-    isVisible: obj.isVisible
+    position: obj.position ? (Array.isArray(obj.position)
+      ? { x: obj.position[0] || 0, y: obj.position[1] || 0, z: obj.position[2] || 0 }
+      : { ...obj.position })
+      : { x: 0, y: 0, z: 0 },
+    rotation: typeof obj.rotation === 'string'
+      ? JSON.parse(obj.rotation || '{"x":0,"y":0,"z":0}')
+      : { ...obj.rotation },
+    scale: typeof obj.scale === 'string'
+      ? JSON.parse(obj.scale || '{"x":1,"y":1,"z":1}')
+      : { ...obj.scale },
+    isVisible: obj.isVisible ?? true
   };
 
   // 清除之前的选择
@@ -615,12 +622,17 @@ const editObject = async (obj: any) => {
       const uuid = obj.modelPath.replace('local-file-handle://', '');
       const handle = await fileHandleStore.getHandle<any>(uuid);
       if (handle) {
-        // 首先验证权限
-        if (await handle.queryPermission({ mode: 'read' }) === 'granted') {
+        // 尝试验证权限，如果失败则请求权限
+        let permission = await handle.queryPermission({ mode: 'read' });
+        if (permission !== 'granted') {
+          // 尝试请求权限
+          permission = await handle.requestPermission({ mode: 'read' });
+        }
+
+        if (permission === 'granted') {
           selectedFileHandle.value = handle;
           const file = await handle.getFile();
           selectedFile.value = file;
-          // 更新表单路径以便用户更好地理解
           objectForm.value.modelPath = `本地文件: ${file.name} (已授权)`;
           showSuccess('已加载本地文件访问权限。');
         } else {
@@ -646,14 +658,14 @@ const saveObject = async () => {
       return
     }
 
-    if (!selectedSceneId.value) {
+    if (!editingObject.value && !selectedSceneId.value) {
       showError('请先选择一个场景')
       return
     }
 
     let finalModelPath = objectForm.value.modelPath
 
-    // 如果选择了本地文件,询问用户是上传还是直接使用本地路径
+    // 如果选择了新的本地文件，询问用户是上传还是直接使用本地路径
     if (selectedFile.value && objectForm.value.modelPath.startsWith('本地文件:')) {
       const shouldUpload = confirm(
         '您选择了本地文件。\n\n' +
@@ -684,7 +696,9 @@ const saveObject = async () => {
         // 用户选择在本地保存句柄
         if (selectedFileHandle.value) {
           try {
-            const uuid = generateUUID();
+            const uuid = editingObject.value?.modelPath?.startsWith('local-file-handle://')
+              ? editingObject.value.modelPath.replace('local-file-handle://', '')
+              : generateUUID();
             await fileHandleStore.saveHandle(uuid, selectedFileHandle.value);
             finalModelPath = `local-file-handle://${uuid}`;
             showSuccess('已在本地保存文件访问权限。');
@@ -699,13 +713,15 @@ const saveObject = async () => {
           finalModelPath = objectForm.value.modelPath;
         }
       }
+    } else if (editingObject.value && objectForm.value.modelPath.startsWith('local-file-handle://')) {
+      // 编辑模式且路径未改变，保持原有路径
+      finalModelPath = objectForm.value.modelPath.replace(' (已授权)', '').replace(' (需要授权)', '');
     }
 
     // 转换数据格式以匹配后端DTO
-    const data = {
-      sceneId: selectedSceneId.value,
+    const data: any = {
       name: objectForm.value.name,
-      type: objectForm.value.objectType,  // 后端期望 Type,不是 objectType
+      type: objectForm.value.objectType,  // 后端期望 Type
       position: [  // 后端期望数组格式 double[]
         objectForm.value.position.x,
         objectForm.value.position.y,
@@ -716,26 +732,30 @@ const saveObject = async () => {
       modelPath: finalModelPath || '',
       materialData: '{}',  // 默认空材质数据
       properties: '{}',    // 默认空属性数据
-      isVisible: objectForm.value.isVisible
+    }
+
+    // 如果是创建操作，添加sceneId
+    if (!editingObject.value) {
+      data.sceneId = selectedSceneId.value;
     }
 
     // 调试日志
     console.log('=== 保存场景对象数据 ===')
+    console.log('操作类型:', editingObject.value ? '更新' : '创建')
     console.log('发送数据:', JSON.stringify(data, null, 2))
-    console.log('sceneId类型:', typeof data.sceneId, '值:', data.sceneId)
-    console.log('position类型:', Array.isArray(data.position), '值:', data.position)
-    console.log('rotation类型:', typeof data.rotation, '值:', data.rotation)
-    console.log('scale类型:', typeof data.scale, '值:', data.scale)
 
     if (editingObject.value) {
-      // TODO: 实现更新对象API
-      showError('更新对象功能待实现')
+      // 更新对象
+      await sceneObjectService.updateObject(editingObject.value.id, data)
+      showSuccess('对象更新成功')
     } else {
+      // 创建对象
       await sceneObjectService.createObject(data)
       showSuccess('对象创建成功')
-      await loadObjects()
-      closeCreateDialog()
     }
+
+    await loadObjects()
+    closeCreateDialog()
   } catch (error) {
     console.error('保存对象失败:', error)
     showError('保存对象失败')

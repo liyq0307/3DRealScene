@@ -224,6 +224,53 @@ public class SceneDtos
     }
 
     /// <summary>
+    /// 场景对象更新请求DTO
+    /// 用于接收客户端更新场景对象的请求数据
+    /// </summary>
+    public class UpdateSceneObjectRequest
+    {
+        /// <summary>
+        /// 对象名称，可选项
+        /// </summary>
+        public string? Name { get; set; }
+
+        /// <summary>
+        /// 对象类型，可选项
+        /// </summary>
+        public string? Type { get; set; }
+
+        /// <summary>
+        /// 对象3D位置坐标，可选项
+        /// </summary>
+        public double[]? Position { get; set; }
+
+        /// <summary>
+        /// 对象旋转信息JSON格式，可选项
+        /// </summary>
+        public string? Rotation { get; set; }
+
+        /// <summary>
+        /// 对象缩放信息JSON格式，可选项
+        /// </summary>
+        public string? Scale { get; set; }
+
+        /// <summary>
+        /// 3D模型文件路径，可选项
+        /// </summary>
+        public string? ModelPath { get; set; }
+
+        /// <summary>
+        /// 材质数据JSON格式，可选项
+        /// </summary>
+        public string? MaterialData { get; set; }
+
+        /// <summary>
+        /// 对象属性数据JSON格式，可选项
+        /// </summary>
+        public string? Properties { get; set; }
+    }
+
+    /// <summary>
     /// 场景对象响应DTO
     /// 用于向前端返回场景中3D对象的完整信息
     /// </summary>

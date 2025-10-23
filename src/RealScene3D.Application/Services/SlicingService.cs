@@ -4485,6 +4485,37 @@ public class SlicingAppService : ISlicingAppService
             var sourceFileExists = await _minioService.FileExistsAsync("models", request.SourceModelPath);
             if (!sourceFileExists)
             {
+                // Fallback to local file system check
+                var localPath = request.SourceModelPath;
+                if (Path.IsPathRooted(localPath))
+                {
+                    sourceFileExists = File.Exists(localPath);
+                }
+                else
+                {
+                    var basePaths = new[]
+                    {
+                        Directory.GetCurrentDirectory(),
+                        Path.Combine(Directory.GetCurrentDirectory(), "models"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "data"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "..", "models"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "..", "data")
+                    };
+
+                    foreach (var basePath in basePaths)
+                    {
+                        var fullPath = Path.Combine(basePath, localPath);
+                        if (File.Exists(fullPath))
+                        {
+                            sourceFileExists = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!sourceFileExists)
+            {
                 _logger.LogWarning("源模型文件不存在：{SourceModelPath}, 用户：{UserId}", request.SourceModelPath, userId);
                 throw new InvalidOperationException($"源模型文件不存在：{request.SourceModelPath}");
             }

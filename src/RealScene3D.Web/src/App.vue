@@ -53,7 +53,10 @@
       <div class="user-section">
         <template v-if="isAuthenticated">
           <router-link to="/profile" class="user-info">
-            <span class="user-avatar">👤</span>
+            <div class="user-avatar">
+              <img v-if="currentUser?.avatarUrl" :src="currentUser.avatarUrl" alt="头像" />
+              <span v-else>👤</span>
+            </div>
             <span class="username">{{ currentUser?.username || '用户' }}</span>
           </router-link>
           <button @click="handleLogout" class="btn-logout">退出</button>
@@ -399,6 +402,19 @@ const handleLogout = async () => {
   border-radius: var(--border-radius-full);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
   transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-avatar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .user-info:hover .user-avatar {

@@ -30,6 +30,14 @@ public interface ISceneObjectService
     Task<IEnumerable<SceneDtos.SceneObjectDto>> GetSceneObjectsAsync(Guid sceneId);
 
     /// <summary>
+    /// 更新场景对象
+    /// </summary>
+    /// <param name="id">场景对象唯一标识符</param>
+    /// <param name="request">场景对象更新请求，包含要更新的属性</param>
+    /// <returns>更新成功的场景对象完整信息，如果不存在则返回null</returns>
+    Task<SceneDtos.SceneObjectDto?> UpdateObjectAsync(Guid id, SceneDtos.UpdateSceneObjectRequest request);
+
+    /// <summary>
     /// 删除场景对象
     /// </summary>
     /// <param name="id">要删除的场景对象ID</param>

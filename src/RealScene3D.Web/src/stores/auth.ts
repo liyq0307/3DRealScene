@@ -15,7 +15,7 @@ export interface UserInfo {
   username: string
   email: string
   role?: string
-  avatar?: string
+  avatarUrl?: string  // 修改为与后端一致的字段名
 }
 
 /**

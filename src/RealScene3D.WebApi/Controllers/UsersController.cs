@@ -177,70 +177,98 @@ public class UsersController : ControllerBase
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(AvatarUploadResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar(IFormFile avatar)
+    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar([FromForm] IFormFile avatar)
     {
         try
         {
-            // 1. 获取当前用户ID
+            // 1. 验证文件是否存在
+            if (avatar == null || avatar.Length == 0)
+            {
+                return BadRequest(new { message = "请选择要上传的头像文件" });
+            }
+
+            // 2. 获取当前用户ID
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
                 return Unauthorized(new { message = "用户未授权" });
             }
 
-            // 2. 验证文件大小
+            // 3. 验证文件大小
             var sizeValidation = FileValidator.ValidateFileSize(avatar.Length, MaxAvatarSize);
             if (!sizeValidation.IsValid)
             {
                 return BadRequest(new { message = sizeValidation.ErrorMessage });
             }
 
-            // 3. 验证文件格式
-            using var avatarStream = avatar.OpenReadStream();
-            var formatValidation = FileValidator.ValidateImage(avatarStream, avatar.FileName, avatar.ContentType);
-            if (!formatValidation.IsValid)
-            {
-                return BadRequest(new { message = formatValidation.ErrorMessage });
-            }
+            // 4. 验证文件格式并生成缩略图
+            Stream? thumbnailStream = null;
+            long thumbnailSize = 0;
+            string filePath;
+            string thumbnailFileName;
 
-            _logger.LogInformation("开始处理用户 {UserId} 的头像上传: {FileName}, 大小: {Size}",
-                userId, avatar.FileName, FileValidator.GetFileSizeString(avatar.Length));
-
-            // 4. 生成唯一文件名
-            var extension = Path.GetExtension(avatar.FileName);
-            var originalFileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}_original{extension}";
-            var thumbnailFileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}_thumb.jpg";
-
-            // 5. 生成缩略图
-            avatarStream.Position = 0;
-            Stream thumbnailStream;
             try
             {
-                thumbnailStream = await _imageProcessingService.GenerateThumbnailAsync(
-                    avatarStream,
-                    ThumbnailSize,
-                    ThumbnailQuality);
+                using var avatarStream = avatar.OpenReadStream();
+                var formatValidation = FileValidator.ValidateImage(avatarStream, avatar.FileName, avatar.ContentType);
+                if (!formatValidation.IsValid)
+                {
+                    return BadRequest(new { message = formatValidation.ErrorMessage });
+                }
 
-                _logger.LogInformation("缩略图生成成功: 原始大小 {OriginalSize}, 缩略图大小 {ThumbnailSize}",
-                    FileValidator.GetFileSizeString(avatar.Length),
-                    FileValidator.GetFileSizeString(thumbnailStream.Length));
+                _logger.LogInformation("开始处理用户 {UserId} 的头像上传: {FileName}, 大小: {Size}",
+                    userId, avatar.FileName, FileValidator.GetFileSizeString(avatar.Length));
+
+                // 5. 生成唯一文件名
+                var extension = Path.GetExtension(avatar.FileName);
+                var originalFileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}_original{extension}";
+                thumbnailFileName = $"avatar_{userId}_{DateTime.UtcNow:yyyyMMddHHmmss}_thumb.jpg";
+
+                // 6. 生成缩略图
+                avatarStream.Position = 0;
+                try
+                {
+                    thumbnailStream = await _imageProcessingService.GenerateThumbnailAsync(
+                        avatarStream,
+                        ThumbnailSize,
+                        ThumbnailQuality);
+
+                    thumbnailSize = thumbnailStream.Length;
+                    _logger.LogInformation("缩略图生成成功: 原始大小 {OriginalSize}, 缩略图大小 {ThumbnailSize}",
+                        FileValidator.GetFileSizeString(avatar.Length),
+                        FileValidator.GetFileSizeString(thumbnailSize));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "生成缩略图失败，将使用原始图片");
+                    // 如果缩略图生成失败，复制原始图片到新的流
+                    avatarStream.Position = 0;
+                    var ms = new MemoryStream();
+                    await avatarStream.CopyToAsync(ms);
+                    ms.Position = 0;
+                    thumbnailStream = ms;
+                    thumbnailSize = ms.Length;
+                }
+
+                // 7. 上传缩略图到MinIO
+                filePath = await _storageService.UploadFileAsync(
+                    MinioBuckets.THUMBNAILS,
+                    thumbnailFileName,
+                    thumbnailStream,
+                    "image/jpeg");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "生成缩略图失败，将使用原始图片");
-                // 如果缩略图生成失败，使用原始图片
-                avatarStream.Position = 0;
-                thumbnailStream = avatarStream;
+                _logger.LogError(ex, "处理头像上传时发生错误");
+                // 清理可能创建的流
+                if (thumbnailStream != null)
+                {
+                    await thumbnailStream.DisposeAsync();
+                }
+                throw;
             }
 
-            // 6. 上传缩略图到MinIO
-            var filePath = await _storageService.UploadFileAsync(
-                MinioBuckets.THUMBNAILS,
-                thumbnailFileName,
-                thumbnailStream,
-                "image/jpeg");
-
-            // 7. 验证文件是否真的上传成功
+            // 8. 验证文件是否真的上传成功
             var fileExists = await _storageService.FileExistsAsync(MinioBuckets.THUMBNAILS, thumbnailFileName);
             if (!fileExists)
             {
@@ -252,17 +280,17 @@ public class UsersController : ControllerBase
             _logger.LogInformation("文件上传成功并已验证: Bucket={Bucket}, FileName={FileName}, FilePath={FilePath}",
                 MinioBuckets.THUMBNAILS, thumbnailFileName, filePath);
 
-            // 8. 生成代理URL（通过后端API访问，避免CORS问题）
+            // 9. 生成代理URL（通过后端API访问，避免CORS问题）
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
             var avatarUrl = $"{baseUrl}/api/files/proxy/{MinioBuckets.THUMBNAILS}/{thumbnailFileName}";
 
             _logger.LogInformation("生成的头像URL: {AvatarUrl}", avatarUrl);
 
-            // 9. 获取用户当前的头像URL（用于清理）
+            // 10. 获取用户当前的头像URL（用于清理）
             var user = await _userService.GetUserEntityAsync(userId);
             var oldAvatarUrl = user?.AvatarUrl;
 
-            // 10. 更新用户头像URL到数据库
+            // 11. 更新用户头像URL到数据库
             var updateSuccess = await _userService.UpdateUserAvatarAsync(userId, avatarUrl, oldAvatarUrl);
             if (!updateSuccess)
             {
@@ -272,7 +300,7 @@ public class UsersController : ControllerBase
                 return StatusCode(500, new { message = "更新用户信息失败" });
             }
 
-            // 11. 清理旧头像（异步执行，不阻塞响应）
+            // 12. 清理旧头像（异步执行，不阻塞响应）
             if (!string.IsNullOrEmpty(oldAvatarUrl))
             {
                 _ = Task.Run(async () =>
@@ -292,7 +320,7 @@ public class UsersController : ControllerBase
                 });
             }
 
-            // 12. 记录操作日志
+            // 13. 记录操作日志
             await _userService.LogUserActionAsync(
                 userId,
                 "UpdateAvatar",
@@ -302,8 +330,8 @@ public class UsersController : ControllerBase
 
             _logger.LogInformation("用户 {UserId} 上传头像成功: {FileName}", userId, thumbnailFileName);
 
-            // 13. 清理临时流
-            if (thumbnailStream != avatarStream)
+            // 14. 清理临时流
+            if (thumbnailStream != null)
             {
                 await thumbnailStream.DisposeAsync();
             }
@@ -315,7 +343,7 @@ public class UsersController : ControllerBase
                 FileName = thumbnailFileName,
                 Bucket = MinioBuckets.THUMBNAILS,
                 FilePath = filePath,
-                FileSize = thumbnailStream.Length,
+                FileSize = thumbnailSize,
                 Message = "头像上传成功"
             });
         }

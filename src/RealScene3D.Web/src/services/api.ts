@@ -198,6 +198,17 @@ export const sceneObjectService = {
   },
 
   /**
+   * 更新场景对象
+   * @param id 对象ID
+   * @param data 对象更新数据，包含要更新的属性
+   * @returns Promise<SceneObjectDto> 更新成功的对象信息
+   */
+  async updateObject(id: string, data: any) {
+    const response = await api.put(`/sceneobjects/${id}`, data)
+    return response.data
+  },
+
+  /**
    * 删除指定的场景对象
    * @param id 对象ID
    */

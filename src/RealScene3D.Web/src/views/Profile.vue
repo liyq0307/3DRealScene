@@ -16,7 +16,7 @@
           <!-- 头像区域 -->
           <div class="avatar-section">
             <div class="avatar">
-              <img v-if="userInfo?.avatar" :src="userInfo.avatar" alt="头像" />
+              <img v-if="userInfo?.avatarUrl" :src="userInfo.avatarUrl" alt="头像" />
               <div v-else class="avatar-placeholder">
                 {{ userInfo?.username?.charAt(0).toUpperCase() || 'U' }}
               </div>
@@ -307,8 +307,8 @@ const handleAvatarFileUpload = async (file: File) => {
 
     // 更新本地用户信息和存储
     if (userInfo.value && response.avatarUrl) {
-      userInfo.value.avatar = response.avatarUrl
-      authStore.updateUserInfo({ avatar: response.avatarUrl })
+      userInfo.value.avatarUrl = response.avatarUrl
+      authStore.updateUserInfo({ avatarUrl: response.avatarUrl })
     }
 
     success('头像上传成功')

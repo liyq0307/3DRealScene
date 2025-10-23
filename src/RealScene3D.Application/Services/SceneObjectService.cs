@@ -88,10 +88,72 @@ public class SceneObjectService : ISceneObjectService
     public async Task<IEnumerable<SceneDtos.SceneObjectDto>> GetSceneObjectsAsync(Guid sceneId)
     {
         var objects = await _context.SceneObjects
-            .Where(o => o.SceneId == sceneId)
+            .Where(o => o.SceneId == sceneId && !o.IsDeleted)
             .ToListAsync();
 
         return objects.Select(MapToDto);
+    }
+
+    /// <summary>
+    /// 更新场景对象
+    /// </summary>
+    /// <param name="id">场景对象唯一标识符</param>
+    /// <param name="request">场景对象更新请求，包含要更新的属性</param>
+    /// <returns>更新成功的场景对象完整信息，如果不存在则返回null</returns>
+    public async Task<SceneDtos.SceneObjectDto?> UpdateObjectAsync(Guid id, SceneDtos.UpdateSceneObjectRequest request)
+    {
+        var sceneObject = await _objectRepository.GetByIdAsync(id);
+        if (sceneObject == null)
+        {
+            return null;
+        }
+
+        // 更新对象属性（仅更新提供的字段）
+        if (request.Name != null)
+        {
+            sceneObject.Name = request.Name;
+        }
+
+        if (request.Type != null)
+        {
+            sceneObject.Type = request.Type;
+        }
+
+        if (request.Position != null && request.Position.Length >= 3)
+        {
+            sceneObject.Position = _geometryFactory.CreatePoint(
+                new CoordinateZ(request.Position[0], request.Position[1], request.Position[2]));
+        }
+
+        if (request.Rotation != null)
+        {
+            sceneObject.Rotation = request.Rotation;
+        }
+
+        if (request.Scale != null)
+        {
+            sceneObject.Scale = request.Scale;
+        }
+
+        if (request.ModelPath != null)
+        {
+            sceneObject.ModelPath = request.ModelPath;
+        }
+
+        if (request.MaterialData != null)
+        {
+            sceneObject.MaterialData = request.MaterialData;
+        }
+
+        if (request.Properties != null)
+        {
+            sceneObject.Properties = request.Properties;
+        }
+
+        sceneObject.UpdatedAt = DateTime.UtcNow;
+        await _unitOfWork.SaveChangesAsync();
+
+        return MapToDto(sceneObject);
     }
 
     /// <summary>

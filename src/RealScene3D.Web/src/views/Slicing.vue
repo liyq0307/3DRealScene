@@ -238,22 +238,32 @@
 
           <div class="form-group">
             <label>模型路径 *</label>
-            <input
-              v-model="taskForm.modelPath"
-              type="text"
-              class="form-input"
-              placeholder="输入模型文件路径"
-            />
+            <div class="input-with-button">
+              <input
+                v-model="taskForm.modelPath"
+                type="text"
+                class="form-input"
+                placeholder="输入模型文件路径"
+              />
+              <button @click="selectModelPath" type="button" class="btn btn-secondary">
+                浏览
+              </button>
+            </div>
           </div>
 
           <div class="form-group">
             <label>输出路径</label>
-            <input
-              v-model="taskForm.outputPath"
-              type="text"
-              class="form-input"
-              placeholder="切片数据输出路径"
-            />
+            <div class="input-with-button">
+              <input
+                v-model="taskForm.outputPath"
+                type="text"
+                class="form-input"
+                placeholder="切片数据输出路径"
+              />
+              <button @click="selectOutputPath" type="button" class="btn btn-secondary">
+                浏览
+              </button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -340,6 +350,8 @@
         </div>
       </div>
     </div>
+
+
 
     <!-- 任务详情对话框 -->
     <div v-if="showTaskDetailDialog" class="modal-overlay" @click="closeTaskDetailDialog">
@@ -445,11 +457,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { slicingService } from '@/services/api'
+import { slicingService, fileService } from '@/services/api'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Badge from '@/components/Badge.vue'
 import Pagination from '@/components/Pagination.vue'
+
 import type { Filter } from '@/components/SearchFilter.vue'
+import fileHandleStore from '@/services/fileHandleStore'
 
 // 选项卡
 const tabs = [
@@ -495,6 +509,7 @@ const strategies = ref<any[]>([])
 // 对话框状态
 const showCreateTaskDialog = ref(false)
 const showTaskDetailDialog = ref(false)
+
 const currentTask = ref<any>(null)
 const taskProgress = ref<any>(null)
 
@@ -684,7 +699,23 @@ const createTask = async () => {
       return
     }
 
-    await slicingService.createSlicingTask(taskForm.value, '00000000-0000-0000-0000-000000000001')
+    // 将前端表单数据映射到后端期望的格式
+    const requestData = {
+      name: taskForm.value.name,
+      sourceModelPath: taskForm.value.modelPath,
+      modelType: 'General3DModel', // 默认模型类型
+      slicingConfig: {
+        strategy: taskForm.value.slicingStrategy,
+        maxLevel: taskForm.value.lodLevels,
+        tileSize: taskForm.value.tileSize,
+        outputFormat: 'b3dm',
+        compressOutput: taskForm.value.enableCompression,
+        geometricErrorThreshold: 1.0,
+        textureQuality: 0.8
+      }
+    }
+
+    await slicingService.createSlicingTask(requestData, '00000000-0000-0000-0000-000000000001')
     await loadTasks()
     closeCreateTaskDialog()
   } catch (error) {
@@ -746,6 +777,105 @@ const downloadSlice = async (taskId: string, level: number, x: number, y: number
     await slicingService.downloadSlice(taskId, level, x, y, z)
   } catch (error) {
     console.error('下载切片失败:', error)
+  }
+}
+
+// 文件路径选择方法
+const selectModelPath = async () => {
+  try {
+    if (!('showOpenFilePicker' in window)) {
+      alert('您的浏览器不支持文件系统访问API，无法直接获取文件路径。请手动输入路径。');
+      return;
+    }
+
+    const [fileHandle] = await window.showOpenFilePicker({
+      types: [{
+        description: '3D Models',
+        accept: {
+          'model/gltf-binary': ['.glb'],
+          'model/gltf+json': ['.gltf'],
+          'text/plain': ['.obj'],
+          'application/octet-stream': ['.fbx', '.dae', '.3ds', '.stl'],
+        }
+      }],
+    });
+
+    // 浏览器出于安全原因，不允许直接访问文件的完整路径。
+    // 我们将使用文件名作为标识，并假设服务器可以在预设的目录中找到这个文件。
+    // 您也可以手动修改为服务器可访问的完整路径。
+    taskForm.value.modelPath = fileHandle.name;
+
+    // 将文件句柄存起来，以便后续可能的使用（例如，直接在前端进行预处理）
+    await fileHandleStore.saveHandle(fileHandle.name, fileHandle);
+
+    alert(`已选择文件: ${fileHandle.name}。请确认路径对于服务器是可访问的。`);
+
+  } catch (error) {
+    console.error('选择文件失败:', error);
+    if ((error as DOMException).name !== 'AbortError') {
+      alert('选择文件失败。这可能是因为您的浏览器不支持，或者您没有授予访问权限。');
+    }
+  }
+}
+
+const selectOutputPath = async () => {
+  // 尝试使用现代浏览器的 File System Access API
+  if ('showDirectoryPicker' in window) {
+    try {
+      const dirHandle = await (window as any).showDirectoryPicker()
+      if (dirHandle) {
+        // 尝试获取完整路径，如果不可用则使用名称
+        taskForm.value.outputPath = dirHandle.name
+        // 存储目录句柄以便后续使用
+        console.log('选择的目录:', dirHandle.name)
+        // 提示用户输入完整路径（因为浏览器安全限制无法直接获取完整路径）
+        const fullPath = prompt('请输入完整的输出目录路径:', dirHandle.name)
+        if (fullPath) {
+          taskForm.value.outputPath = fullPath
+        }
+      }
+    } catch (error) {
+      // 用户取消选择或浏览器不支持
+      console.log('目录选择已取消或不支持')
+    }
+  } else {
+    // 降级方案：直接让用户输入目录路径
+    // 浏览器出于安全考虑无法直接访问文件系统路径
+    // 使用 webkitdirectory 也只能获取相对路径
+    const inputPath = prompt('请输入输出目录的完整路径:\n例如: C:\\Output\\Slicing 或 /home/user/output/slicing')
+    if (inputPath) {
+      taskForm.value.outputPath = inputPath.trim()
+    } else {
+      // 如果用户取消，尝试使用 webkitdirectory 作为备选
+      const input = document.createElement('input')
+      input.type = 'file'
+      // @ts-ignore - webkitdirectory 是非标准属性
+      input.webkitdirectory = true
+      // @ts-ignore - directory 是非标准属性
+      input.directory = true
+      input.onchange = (e: Event) => {
+        const target = e.target as HTMLInputElement
+        const files = target.files
+        if (files && files.length > 0) {
+          // 从第一个文件的路径中提取目录路径
+          const file = files[0]
+          // @ts-ignore - webkitRelativePath 是非标准属性
+          const relativePath = file.webkitRelativePath || ''
+          if (relativePath) {
+            const pathParts = relativePath.split('/')
+            // 提示用户输入完整路径
+            const fullPath = prompt('浏览器无法直接获取完整路径，请输入完整的输出目录路径:', pathParts[0])
+            if (fullPath) {
+              taskForm.value.outputPath = fullPath
+            } else {
+              // 如果用户没有输入，至少保存目录名
+              taskForm.value.outputPath = pathParts[0]
+            }
+          }
+        }
+      }
+      input.click()
+    }
   }
 }
 
@@ -1231,6 +1361,20 @@ onMounted(async () => {
 }
 
 /* 表单样式 */
+.input-with-button {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input-with-button .form-input {
+  flex: 1;
+}
+
+.input-with-button .btn {
+  white-space: nowrap;
+  padding: 0.5rem 1rem;
+}
+
 .form-input,
 .form-select,
 .form-textarea {

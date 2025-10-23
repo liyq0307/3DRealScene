@@ -101,6 +101,34 @@ public class SceneObjectsController : ControllerBase
     }
 
     /// <summary>
+    /// 更新场景对象
+    /// </summary>
+    [HttpPut("{id}")]
+    /// <summary>
+    /// 更新现有场景对象的属性
+    /// </summary>
+    /// <param name="id">场景对象唯一标识符</param>
+    /// <param name="request">对象更新请求，包含新的位置、旋转、缩放、模型路径等信息</param>
+    /// <returns>更新成功的对象信息</returns>
+    public async Task<ActionResult<SceneDtos.SceneObjectDto>> UpdateObject(Guid id, [FromBody] SceneDtos.UpdateSceneObjectRequest request)
+    {
+        try
+        {
+            var obj = await _objectService.UpdateObjectAsync(id, request);
+            if (obj == null)
+            {
+                return NotFound(new { message = "Object not found" });
+            }
+            return Ok(obj);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating object {ObjectId}", id);
+            return StatusCode(500, new { message = "An error occurred while updating the object" });
+        }
+    }
+
+    /// <summary>
     /// 删除场景对象
     /// </summary>
     [HttpDelete("{id}")]
