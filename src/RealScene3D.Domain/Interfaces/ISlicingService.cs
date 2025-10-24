@@ -200,6 +200,26 @@ public class SlicingConfig
     /// 建议值：根据CPU核心数和内存大小调整，通常为CPU核心数的1-2倍
     /// </summary>
     public int ParallelProcessingCount { get; set; } = 4;
+
+    /// <summary>
+    /// 切片文件存储位置类型
+    /// </summary>
+    public StorageLocationType StorageLocation { get; set; } = StorageLocationType.MinIO;
+}
+
+/// <summary>
+/// 存储位置类型枚举
+/// </summary>
+public enum StorageLocationType
+{
+    /// <summary>
+    /// MinIO对象存储
+    /// </summary>
+    MinIO = 0,
+    /// <summary>
+    /// 本地文件系统
+    /// </summary>
+    LocalFileSystem = 1
 }
 
 /// <summary>

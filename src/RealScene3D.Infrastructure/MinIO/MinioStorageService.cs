@@ -9,7 +9,7 @@ namespace RealScene3D.Infrastructure.MinIO;
 /// </summary>
 public interface IMinioStorageService
 {
-    Task<string> UploadFileAsync(string bucketName, string objectName, Stream data, string contentType);
+    Task<string> UploadFileAsync(string bucketName, string objectName, Stream data, string contentType, CancellationToken cancellationToken = default);
     Task<Stream> DownloadFileAsync(string bucketName, string objectName);
     Task<bool> DeleteFileAsync(string bucketName, string objectName);
     Task<bool> FileExistsAsync(string bucketName, string objectName);
@@ -52,7 +52,7 @@ public class MinioStorageService : IMinioStorageService
         }
     }
 
-    public async Task<string> UploadFileAsync(string bucketName, string objectName, Stream data, string contentType)
+    public async Task<string> UploadFileAsync(string bucketName, string objectName, Stream data, string contentType, CancellationToken cancellationToken = default)
     {
         await EnsureBucketExistsAsync(bucketName);
 
@@ -74,7 +74,7 @@ public class MinioStorageService : IMinioStorageService
                     .WithObjectSize(data.Length)
                     .WithContentType(contentType);
 
-                await _minioClient.PutObjectAsync(putObjectArgs);
+                await _minioClient.PutObjectAsync(putObjectArgs, cancellationToken);
 
                 _logger.LogInformation("文件上传成功: {Bucket}/{ObjectName}, 尝试次数: {Attempt}",
                     bucketName, objectName, attempt + 1);
@@ -88,7 +88,7 @@ public class MinioStorageService : IMinioStorageService
                     "文件上传失败，重试 {Attempt}/{MaxRetries}，{Delay}ms 后重试: {Bucket}/{ObjectName}",
                     attempt + 1, MaxRetries, delayMs, bucketName, objectName);
 
-                await Task.Delay(delayMs);
+                await Task.Delay(delayMs, cancellationToken);
             }
             catch (Exception ex)
             {

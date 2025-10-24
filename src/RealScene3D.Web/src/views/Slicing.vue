@@ -61,19 +61,23 @@
             <div class="task-info">
               <div class="info-item">
                 <span class="label">模型路径:</span>
-                <span class="value">{{ task.modelPath }}</span>
+                <span class="value">{{ task.sourceModelPath }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">输出路径:</span>
+                <span class="value">{{ task.outputPath }}</span>
               </div>
               <div class="info-item">
                 <span class="label">切片策略:</span>
-                <span class="value">{{ getStrategyName(task.slicingStrategy) }}</span>
+                <span class="value">{{ getStrategyName(task.slicingConfig?.strategy) }}</span>
               </div>
               <div class="info-item">
                 <span class="label">LOD层级:</span>
-                <span class="value">{{ task.lodLevels }}</span>
+                <span class="value">{{ task.slicingConfig?.maxLevel }}</span>
               </div>
               <div class="info-item">
                 <span class="label">切片大小:</span>
-                <span class="value">{{ task.tileSize }}m</span>
+                <span class="value">{{ task.slicingConfig?.tileSize }}m</span>
               </div>
             </div>
 
@@ -374,7 +378,7 @@
               </div>
               <div class="detail-item">
                 <span class="label">模型路径:</span>
-                <span class="value">{{ currentTask.modelPath }}</span>
+                <span class="value">{{ currentTask.sourceModelPath }}</span>
               </div>
               <div class="detail-item">
                 <span class="label">输出路径:</span>
@@ -382,15 +386,15 @@
               </div>
               <div class="detail-item">
                 <span class="label">切片策略:</span>
-                <span class="value">{{ getStrategyName(currentTask.slicingStrategy) }}</span>
+                <span class="value">{{ getStrategyName(currentTask.slicingConfig?.strategy) }}</span>
               </div>
               <div class="detail-item">
                 <span class="label">LOD层级:</span>
-                <span class="value">{{ currentTask.lodLevels }}</span>
+                <span class="value">{{ currentTask.slicingConfig?.maxLevel }}</span>
               </div>
               <div class="detail-item">
                 <span class="label">切片大小:</span>
-                <span class="value">{{ currentTask.tileSize }}m</span>
+                <span class="value">{{ currentTask.slicingConfig?.tileSize }}m</span>
               </div>
               <div class="detail-item">
                 <span class="label">创建时间:</span>
@@ -422,15 +426,15 @@
             <h4>统计信息</h4>
             <div class="stats-grid">
               <div class="stat-item">
-                <div class="stat-value">{{ currentTask.totalTileCount || 0 }}</div>
+                <div class="stat-value">{{ totalSliceCount || 0 }}</div>
                 <div class="stat-label">总切片数</div>
               </div>
               <div class="stat-item">
-                <div class="stat-value">{{ formatFileSize(currentTask.totalDataSize || 0) }}</div>
+                <div class="stat-value">{{ formatFileSize(totalDataSize || 0) }}</div>
                 <div class="stat-label">数据大小</div>
               </div>
               <div class="stat-item">
-                <div class="stat-value">{{ currentTask.processedTileCount || 0 }}</div>
+                <div class="stat-value">{{ processedSliceCount || 0 }}</div>
                 <div class="stat-label">已处理</div>
               </div>
               <div class="stat-item">
@@ -461,6 +465,10 @@ import { slicingService } from '@/services/api'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Badge from '@/components/Badge.vue'
 import Pagination from '@/components/Pagination.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+const userId = authStore.currentUser.value?.id || '00000000-0000-0000-0000-000000000001'
 
 import type { Filter } from '@/components/SearchFilter.vue'
 import fileHandleStore from '@/services/fileHandleStore'
@@ -512,6 +520,9 @@ const showTaskDetailDialog = ref(false)
 
 const currentTask = ref<any>(null)
 const taskProgress = ref<any>(null)
+const totalDataSize = ref<number>(0)
+const totalSliceCount = ref<number>(0)
+const processedSliceCount = ref<number>(0)
 
 // 任务表单
 const taskForm = ref({
@@ -540,7 +551,7 @@ const filteredTasks = computed(() => {
     const keyword = searchKeyword.value.toLowerCase()
     result = result.filter(t =>
       t.name.toLowerCase().includes(keyword) ||
-      t.modelPath.toLowerCase().includes(keyword)
+      t.sourceModelPath.toLowerCase().includes(keyword)
     )
   }
 
@@ -640,7 +651,7 @@ const getStrategyFeatures = (name: string) => {
 const loadTasks = async () => {
   try {
     // 使用默认GUID作为用户ID
-    tasks.value = await slicingService.getUserSlicingTasks('00000000-0000-0000-0000-000000000001')
+    tasks.value = await slicingService.getUserSlicingTasks(userId)
   } catch (error) {
     console.error('加载切片任务失败:', error)
   }
@@ -704,6 +715,7 @@ const createTask = async () => {
       name: taskForm.value.name,
       sourceModelPath: taskForm.value.modelPath,
       modelType: 'General3DModel', // 默认模型类型
+      outputPath: taskForm.value.outputPath, // 添加输出路径
       slicingConfig: {
         strategy: taskForm.value.slicingStrategy,
         maxLevel: taskForm.value.lodLevels,
@@ -715,7 +727,7 @@ const createTask = async () => {
       }
     }
 
-    await slicingService.createSlicingTask(requestData, '00000000-0000-0000-0000-000000000001')
+    await slicingService.createSlicingTask(requestData, userId)
     await loadTasks()
     closeCreateTaskDialog()
   } catch (error) {
@@ -732,9 +744,147 @@ const viewTaskDetail = async (taskId: string) => {
     } else {
       taskProgress.value = null
     }
+    
+    // 计算总切片数
+    await calculateTotalSliceCount(taskId, currentTask.value.status)
+    
+    // 计算已处理切片数
+    await calculateProcessedSliceCount(currentTask.value.status)
+    
+    // 计算总数据大小
+    await calculateTotalDataSize(taskId, currentTask.value.status)
+    
     showTaskDetailDialog.value = true
   } catch (error) {
     console.error('加载任务详情失败:', error)
+  }
+}
+
+/**
+  * 计算已处理切片数量
+  * 根据任务状态从不同来源获取已处理数量
+  * @param status 任务状态
+  */
+const calculateProcessedSliceCount = (status: string) => {
+  try {
+    // 定义状态处理策略映射
+    const statusStrategies = {
+      processing: () => taskProgress.value?.processedTiles || 0,
+      completed: () => totalSliceCount.value || 0,
+      failed: () => taskProgress.value?.processedTiles || 0,
+      pending: () => 0,
+      cancelled: () => taskProgress.value?.processedTiles || 0
+    }
+
+    // 获取对应状态的处理策略，默认使用进度信息
+    const strategy = statusStrategies[status as keyof typeof statusStrategies] || (() => taskProgress.value?.processedTiles || 0)
+
+    processedSliceCount.value = strategy()
+
+    // 验证计算结果的合理性
+    if (processedSliceCount.value < 0) {
+      console.warn(`计算得到负数已处理切片数: ${processedSliceCount.value}，重置为0`)
+      processedSliceCount.value = 0
+    }
+
+    // 对于已完成状态，确保已处理数不超过总切片数
+    if (status === 'completed' && totalSliceCount.value && processedSliceCount.value > totalSliceCount.value) {
+      console.warn(`已完成任务的已处理数(${processedSliceCount.value})超过总切片数(${totalSliceCount.value})，使用总切片数`)
+      processedSliceCount.value = totalSliceCount.value
+    }
+
+  } catch (error) {
+    console.warn('计算已处理切片数失败:', error)
+    // 错误情况下重置为安全默认值
+    processedSliceCount.value = 0
+  }
+}
+
+// 计算总切片数
+const calculateTotalSliceCount = async (taskId: string, status: string) => {
+  totalSliceCount.value = 0
+  
+  try {
+    if (status === 'completed' || status === 'failed') {
+      // 对于已完成或已失败的任务，通过获取各层级切片元数据来统计总数
+      let totalCount = 0
+      let level = 0
+      let hasSlices = true
+      
+      while (hasSlices && level <= (currentTask.value?.slicingConfig?.maxLevel || 10)) {
+        try {
+          const slices = await slicingService.getSliceMetadata(taskId, level)
+          if (slices && slices.length > 0) {
+            totalCount += slices.length
+          } else {
+            // 如果当前层级没有切片，检查是否还有更多层级
+            // 如果连续几个层级都没有切片，我们可以提前结束
+            // 但为了安全，我们检查到最大层级
+            hasSlices = level < (currentTask.value?.slicingConfig?.maxLevel || 10)
+          }
+          level++
+        } catch (error) {
+          // 如果获取特定层级失败，尝试下一个层级
+          level++
+          if (level > (currentTask.value?.slicingConfig?.maxLevel || 10)) {
+            hasSlices = false
+          }
+        }
+      }
+      
+      totalSliceCount.value = totalCount
+    } else if (status === 'processing' && taskProgress.value) {
+      // 对于处理中的任务，使用进度信息中的总瓦片数
+      totalSliceCount.value = taskProgress.value.totalTiles || 0
+    } else {
+      // 对于其他状态，使用任务中的总切片数（如果存在）
+      totalSliceCount.value = currentTask.value?.totalSlices || 0
+    }
+  } catch (error) {
+    console.warn('计算总切片数失败:', error)
+    // 如果计算失败，尝试使用任务中的数据
+    totalSliceCount.value = currentTask.value?.totalSlices || 0
+  }
+}
+
+// 计算总数据大小
+const calculateTotalDataSize = async (taskId: string, status: string) => {
+  totalDataSize.value = 0
+  
+  // 只对已完成或已失败的任务计算数据大小
+  if (status === 'completed' || status === 'failed') {
+    try {
+      // 获取所有层级的切片元数据并计算总大小
+      // 从第0层开始尝试获取数据
+      let totalSize = 0
+      let level = 0
+      let hasSlices = true
+      
+      while (hasSlices && level <= (currentTask.value?.slicingConfig?.maxLevel || 10)) {
+        try {
+          const slices = await slicingService.getSliceMetadata(taskId, level)
+          if (slices && slices.length > 0) {
+            slices.forEach((slice: any) => {
+              totalSize += slice.fileSize || 0
+            })
+          } else {
+            // 如果当前层级没有切片，检查是否还有更多层级
+            hasSlices = false
+          }
+          level++
+        } catch (error) {
+          // 如果获取特定层级失败，尝试下一个层级或停止
+          hasSlices = false
+          break
+        }
+      }
+      
+      totalDataSize.value = totalSize
+    } catch (error) {
+      console.warn('计算任务数据大小失败:', error)
+      // 如果计算失败，尝试使用任务中的其他数据
+      totalDataSize.value = 0
+    }
   }
 }
 
@@ -742,12 +892,15 @@ const closeTaskDetailDialog = () => {
   showTaskDetailDialog.value = false
   currentTask.value = null
   taskProgress.value = null
+  totalDataSize.value = 0
+  totalSliceCount.value = 0
+  processedSliceCount.value = 0
 }
 
 const cancelTask = async (taskId: string) => {
   if (confirm('确定要取消此任务吗?')) {
     try {
-      await slicingService.cancelSlicingTask(taskId, '00000000-0000-0000-0000-000000000001')
+      await slicingService.cancelSlicingTask(taskId, userId)
       await loadTasks()
     } catch (error) {
       console.error('取消任务失败:', error)
@@ -758,7 +911,7 @@ const cancelTask = async (taskId: string) => {
 const deleteTask = async (taskId: string) => {
   if (confirm('确定要删除此任务吗? 这将删除所有切片数据。')) {
     try {
-      await slicingService.deleteSlicingTask(taskId, '00000000-0000-0000-0000-000000000001')
+      await slicingService.deleteSlicingTask(taskId, userId)
       await loadTasks()
     } catch (error) {
       console.error('删除任务失败:', error)

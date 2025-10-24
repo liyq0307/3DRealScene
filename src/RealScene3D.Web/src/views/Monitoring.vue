@@ -433,6 +433,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { monitoringService } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+const userId = authStore.currentUser.value?.id || '00000000-0000-0000-0000-000000000001'
 import BarChart from '@/components/BarChart.vue'
 import LineChart from '@/components/LineChart.vue'
 import Button from '@/components/Button.vue'
@@ -599,7 +603,7 @@ const loadAlertRules = async () => {
 const loadDashboards = async () => {
   try {
     // 假设用户ID为默认GUID
-    dashboards.value = await monitoringService.getDashboards('00000000-0000-0000-0000-000000000001')
+    dashboards.value = await monitoringService.getDashboards(userId)
   } catch (error) {
     console.error('加载仪表板失败:', error)
   }
@@ -650,7 +654,7 @@ const queryAlertHistory = async () => {
 // 告警操作
 const acknowledgeAlert = async (alertId: string) => {
   try {
-    await monitoringService.acknowledgeAlert(alertId, '00000000-0000-0000-0000-000000000001')
+    await monitoringService.acknowledgeAlert(alertId, userId)
     await loadActiveAlerts()
   } catch (error) {
     console.error('确认告警失败:', error)
@@ -659,7 +663,7 @@ const acknowledgeAlert = async (alertId: string) => {
 
 const resolveAlert = async (alertId: string) => {
   try {
-    await monitoringService.resolveAlert(alertId, '00000000-0000-0000-0000-000000000001')
+    await monitoringService.resolveAlert(alertId, userId)
     await loadActiveAlerts()
   } catch (error) {
     console.error('解决告警失败:', error)
@@ -692,9 +696,9 @@ const closeAlertRuleDialog = () => {
 const saveAlertRule = async () => {
   try {
     if (editingAlertRule.value) {
-      await monitoringService.updateAlertRule(editingAlertRule.value, alertRuleForm.value, '00000000-0000-0000-0000-000000000001')
+      await monitoringService.updateAlertRule(editingAlertRule.value, alertRuleForm.value, userId)
     } else {
-      await monitoringService.createAlertRule(alertRuleForm.value, '00000000-0000-0000-0000-000000000001')
+      await monitoringService.createAlertRule(alertRuleForm.value, userId)
     }
     await loadAlertRules()
     closeAlertRuleDialog()
@@ -721,7 +725,7 @@ const editAlertRule = async (ruleId: string) => {
 const deleteAlertRule = async (ruleId: string) => {
   if (confirm('确定要删除此告警规则吗?')) {
     try {
-      await monitoringService.deleteAlertRule(ruleId, '00000000-0000-0000-0000-000000000001')
+      await monitoringService.deleteAlertRule(ruleId, userId)
       await loadAlertRules()
     } catch (error) {
       console.error('删除告警规则失败:', error)
@@ -750,9 +754,9 @@ const closeDashboardDialog = () => {
 const saveDashboard = async () => {
   try {
     if (editingDashboard.value) {
-      await monitoringService.updateDashboard(editingDashboard.value, dashboardForm.value, '00000000-0000-0000-0000-000000000001')
+      await monitoringService.updateDashboard(editingDashboard.value, dashboardForm.value, userId)
     } else {
-      await monitoringService.createDashboard(dashboardForm.value, '00000000-0000-0000-0000-000000000001')
+      await monitoringService.createDashboard(dashboardForm.value, userId)
     }
     await loadDashboards()
     closeDashboardDialog()
@@ -785,7 +789,7 @@ const editDashboard = async (dashboardId: string) => {
 const deleteDashboard = async (dashboardId: string) => {
   if (confirm('确定要删除此仪表板吗?')) {
     try {
-      await monitoringService.deleteDashboard(dashboardId, '00000000-0000-0000-0000-000000000001')
+      await monitoringService.deleteDashboard(dashboardId, userId)
       await loadDashboards()
     } catch (error) {
       console.error('删除仪表板失败:', error)

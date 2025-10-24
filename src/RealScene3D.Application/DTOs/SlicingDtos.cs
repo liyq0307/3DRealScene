@@ -39,6 +39,12 @@ public class SlicingDtos
         /// 包含切片粒度、输出格式、坐标系等配置信息
         /// </summary>
         public SlicingConfig SlicingConfig { get; set; } = new();
+
+        /// <summary>
+        /// 切片输出目录路径，可选项
+        /// 指定切片结果文件的存储目录路径，如果未提供则自动生成
+        /// </summary>
+        public string? OutputPath { get; set; }
     }
 
     /// <summary>
@@ -72,7 +78,11 @@ public class SlicingDtos
         /// </summary>
         public SlicingConfig SlicingConfig { get; set; } = new();
 
-        public string Status { get; set; }
+        /// <summary>
+        /// 切片任务当前状态
+        /// 如：Pending、Processing、Completed、Failed等
+        /// </summary>
+        public string Status { get; set; } = string.Empty;
 
         /// <summary>
         /// 切片进度百分比，0-100
@@ -157,7 +167,7 @@ public class SlicingDtos
         /// <summary>
         /// 当前任务状态
         /// </summary>
-        public string Status { get; set; }
+        public string Status { get; set; } = string.Empty;
     }
 
     /// <summary>

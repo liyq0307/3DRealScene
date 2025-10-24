@@ -252,9 +252,11 @@ public class GridSlicingStrategy : ISlicingStrategy
     /// <returns>生成的切片文件路径</returns>
     private string GenerateSliceFilePath(SlicingTask task, int level, int x, int y, int z, string format)
     {
+        // 空值检查：确保OutputPath不为null
+        var outputPath = task.OutputPath ?? "default_output";
         // 标准化路径格式：{OutputPath}/{Level}/{X}_{Y}_{Z}.{Format}
         var fileName = $"{x}_{y}_{z}.{format.ToLowerInvariant()}";
-        return $"{task.OutputPath}/{level}/{fileName}";
+        return Path.Combine(outputPath, level.ToString(), fileName);
     }
 
     /// <summary>
@@ -508,6 +510,8 @@ public class OctreeSlicingStrategy : ISlicingStrategy
         {
             if (cancellationToken.IsCancellationRequested) break;
 
+            // 空值检查：确保OutputPath不为null
+            var outputPath = task.OutputPath ?? "default_output";
             var slice = new Slice
             {
                 SlicingTaskId = task.Id,
@@ -515,7 +519,7 @@ public class OctreeSlicingStrategy : ISlicingStrategy
                 X = node.X,
                 Y = node.Y,
                 Z = node.Z,
-                FilePath = $"{task.OutputPath}/{level}/{node.X}_{node.Y}_{node.Z}.{config.OutputFormat.ToLower()}",
+                FilePath = $"{outputPath}/{level}/{node.X}_{node.Y}_{node.Z}.{config.OutputFormat.ToLower()}",
                 BoundingBox = GenerateOctreeBoundingBox(node, config.TileSize),
                 FileSize = CalculateOctreeFileSize(node, config.OutputFormat)
             };
@@ -754,6 +758,8 @@ public class KdTreeSlicingStrategy : ISlicingStrategy
         {
             if (cancellationToken.IsCancellationRequested) break;
 
+            // 空值检查：确保OutputPath不为null
+            var outputPath = task.OutputPath ?? "default_output";
             var slice = new Slice
             {
                 SlicingTaskId = task.Id,
@@ -761,7 +767,7 @@ public class KdTreeSlicingStrategy : ISlicingStrategy
                 X = node.X,
                 Y = node.Y,
                 Z = node.Z,
-                FilePath = $"{task.OutputPath}/{level}/{node.X}_{node.Y}_{node.Z}.{config.OutputFormat.ToLower()}",
+                FilePath = $"{outputPath}/{level}/{node.X}_{node.Y}_{node.Z}.{config.OutputFormat.ToLower()}",
                 BoundingBox = GenerateKdTreeBoundingBox(node, config.TileSize),
                 FileSize = CalculateKdTreeFileSize(node, config.OutputFormat)
             };
@@ -1118,6 +1124,8 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
         {
             if (cancellationToken.IsCancellationRequested) break;
 
+            // 空值检查：确保OutputPath不为null
+            var outputPath = task.OutputPath ?? "default_output";
             var slice = new Slice
             {
                 SlicingTaskId = task.Id,
@@ -1125,7 +1133,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
                 X = region.X,
                 Y = region.Y,
                 Z = region.Z,
-                FilePath = $"{task.OutputPath}/{level}/{region.X}_{region.Y}_{region.Z}.{config.OutputFormat.ToLower()}",
+                FilePath = $"{outputPath}/{level}/{region.X}_{region.Y}_{region.Z}.{config.OutputFormat.ToLower()}",
                 BoundingBox = GenerateAdaptiveBoundingBox(region, config.TileSize),
                 FileSize = CalculateAdaptiveFileSize(region, config.OutputFormat)
             };
@@ -4533,9 +4541,38 @@ public class SlicingAppService : ISlicingAppService
                 SourceModelPath = request.SourceModelPath,
                 ModelType = request.ModelType,
                 SlicingConfig = System.Text.Json.JsonSerializer.Serialize(request.SlicingConfig),
+                OutputPath = string.IsNullOrEmpty(request.OutputPath) 
+                    ? $"task_{Guid.NewGuid()}" // 自动生成唯一输出路径
+                    : request.OutputPath.Trim(),
                 CreatedBy = userId,
                 Status = SlicingTaskStatus.Created
             };
+
+            // 根据OutputPath判断存储类型
+            var slicingConfig = System.Text.Json.JsonSerializer.Deserialize<SlicingConfig>(task.SlicingConfig);
+            if (slicingConfig != null)
+            {
+                if (!string.IsNullOrEmpty(request.OutputPath) && Path.IsPathRooted(request.OutputPath))
+                {
+                    slicingConfig.StorageLocation = StorageLocationType.LocalFileSystem;
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, request.OutputPath);
+                }
+                else
+                {
+                    slicingConfig.StorageLocation = StorageLocationType.MinIO;
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, request.OutputPath);
+                }
+                task.SlicingConfig = System.Text.Json.JsonSerializer.Serialize(slicingConfig);
+
+                if (slicingConfig.StorageLocation == StorageLocationType.LocalFileSystem)
+                {
+                    // 确保本地输出目录存在
+                    Directory.CreateDirectory(task.OutputPath);
+                    _logger.LogInformation("本地切片输出目录已创建或已存在：{OutputPath}", task.OutputPath);
+                }
+            }
+
+            _logger.LogInformation("切片任务 {TaskId} 的最终存储位置类型为 {StorageLocation}.", task.Id, slicingConfig?.StorageLocation);
 
             // 持久化切片任务 - 原子性操作确保数据一致性
             await _slicingTaskRepository.AddAsync(task);
@@ -4554,6 +4591,7 @@ public class SlicingAppService : ISlicingAppService
                     using (var scope = _serviceScopeFactory.CreateScope())
                     {
                         var processor = scope.ServiceProvider.GetRequiredService<ISlicingProcessor>();
+
                         await processor.ProcessSlicingTaskAsync(taskId, CancellationToken.None);
                     }
                 }
@@ -4686,18 +4724,115 @@ public class SlicingAppService : ISlicingAppService
                 return false;
             }
 
-            // 删除切片文件
-            if (!string.IsNullOrEmpty(task.OutputPath))
+            // 获取切片配置
+            var config = ParseSlicingConfig(task.SlicingConfig);
+
+            // 删除关联的所有切片文件
+            var allSlices = await _sliceRepository.GetAllAsync();
+            var taskSlices = allSlices.Where(s => s.SlicingTaskId == taskId).ToList();
+            
+            foreach (var slice in taskSlices)
             {
-                await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/tileset.json");
-                await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/index.json");
+                if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+                {
+                    _logger.LogDebug("尝试删除本地切片文件：{FilePath}", slice.FilePath);
+                    if (File.Exists(slice.FilePath))
+                    {
+                        _logger.LogDebug("本地切片文件存在：{FilePath}", slice.FilePath);
+                        try
+                        {
+                            File.Delete(slice.FilePath);
+                            _logger.LogDebug("本地切片文件已删除：{FilePath}", slice.FilePath);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "删除本地切片文件失败：{FilePath}", slice.FilePath);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("本地切片文件不存在，无法删除：{FilePath}", slice.FilePath);
+                    }
+                }
+                else
+                {
+                    await _minioService.DeleteFileAsync("slices", slice.FilePath);
+                    _logger.LogDebug("MinIO切片文件已删除：{FilePath}", slice.FilePath);
+                }
             }
 
-            // 删除数据库记录
+            // 删除切片索引文件和tileset.json
+            if (!string.IsNullOrEmpty(task.OutputPath))
+            {
+                if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+                {
+                    var indexPath = Path.Combine(task.OutputPath, "index.json");
+                    if (File.Exists(indexPath))
+                    {
+                        File.Delete(indexPath);
+                        _logger.LogDebug("本地切片索引文件已删除：{FilePath}", indexPath);
+                    }
+                    var tilesetPath = Path.Combine(task.OutputPath, "tileset.json");
+                    if (File.Exists(tilesetPath))
+                    {
+                        File.Delete(tilesetPath);
+                        _logger.LogDebug("本地tileset.json文件已删除：{FilePath}", tilesetPath);
+                    }
+                    // 删除增量更新索引文件
+                    var incrementalIndexPath = Path.Combine(task.OutputPath, "incremental_index.json");
+                    if (File.Exists(incrementalIndexPath))
+                    {
+                        File.Delete(incrementalIndexPath);
+                        _logger.LogDebug("本地增量更新索引文件已删除：{FilePath}", incrementalIndexPath);
+                    }
+                    // 尝试删除输出目录，如果为空
+                    if (Directory.Exists(task.OutputPath))
+                    {
+                        // 递归删除所有空子目录
+                        foreach (var dir in Directory.EnumerateDirectories(task.OutputPath, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+                        {
+                            try
+                            {
+                                if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                                {
+                                    Directory.Delete(dir);
+                                    _logger.LogDebug("本地空目录已删除：{DirectoryPath}", dir);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "删除本地空目录失败：{DirectoryPath}", dir);
+                            }
+                        }
+
+                        // 最后尝试删除根输出目录，如果为空
+                        if (!Directory.EnumerateFileSystemEntries(task.OutputPath).Any())
+                        {
+                            Directory.Delete(task.OutputPath);
+                            _logger.LogDebug("本地切片输出根目录已删除：{OutputPath}", task.OutputPath);
+                        }
+                    }
+                }
+                else
+                {
+                    await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/tileset.json");
+                    await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/index.json");
+                    // 删除增量更新索引文件
+                    await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/incremental_index.json");
+                }
+            }
+
+            // 删除数据库中的切片记录
+            foreach (var slice in taskSlices)
+            {
+                await _sliceRepository.DeleteAsync(slice);
+            }
+
+            // 删除数据库中的任务记录
             await _slicingTaskRepository.DeleteAsync(task);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation("切片任务已删除：{TaskId}, 用户：{UserId}", taskId, userId);
+            _logger.LogInformation("切片任务已删除：{TaskId}, 用户：{UserId}, 删除了{SliceCount}个关联切片", taskId, userId, taskSlices.Count);
             return true;
         }
         catch (Exception ex)
@@ -5621,15 +5756,15 @@ public class SlicingProcessor : ISlicingProcessor
         }
 
         // 生成切片索引文件
-        await GenerateSliceIndexAsync(task, config);
+        await GenerateSliceIndexAsync(task, config, cancellationToken);
 
         // 生成tileset.json用于Cesium加载
-        await GenerateTilesetJsonAsync(task, config);
+        await GenerateTilesetJsonAsync(task, config, cancellationToken);
 
         // 生成增量更新索引（如果需要）
         if (config.EnableIncrementalUpdates)
         {
-            await GenerateIncrementalUpdateIndexAsync(task, config);
+            await GenerateIncrementalUpdateIndexAsync(task, config, cancellationToken);
         }
 
         _logger.LogInformation("切片处理完成：任务{TaskId}", task.Id);
@@ -5677,7 +5812,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="config">切片配置</param>
-    private async Task GenerateSliceIndexAsync(SlicingTask task, SlicingConfig config)
+    private async Task GenerateSliceIndexAsync(SlicingTask task, SlicingConfig config, CancellationToken cancellationToken)
     {
         // 空间索引算法：生成切片索引文件，便于快速查找和访问
         var allSlices = await _sliceRepository.GetAllAsync();
@@ -5703,14 +5838,30 @@ public class SlicingProcessor : ISlicingProcessor
             }).ToList()
         };
 
-        var indexPath = $"{task.OutputPath}/index.json";
         var indexContent = JsonSerializer.Serialize(index, new JsonSerializerOptions
         {
             WriteIndented = true
         });
 
-        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent));
-        await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json");
+        var indexPath = $"{task.OutputPath}/index.json";
+
+        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+        {
+            var fullPath = Path.Combine(task.OutputPath!, "index.json");
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            await File.WriteAllTextAsync(fullPath, indexContent, cancellationToken);
+            _logger.LogDebug("切片索引文件已保存到本地：{FilePath}", fullPath);
+        }
+        else
+        {
+            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent));
+            await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
+            _logger.LogDebug("切片索引文件已上传到MinIO：{FilePath}", indexPath);
+        }
     }
 
     /// <summary>
@@ -5719,7 +5870,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="config">切片配置</param>
-    private async Task GenerateTilesetJsonAsync(SlicingTask task, SlicingConfig config)
+    private async Task GenerateTilesetJsonAsync(SlicingTask task, SlicingConfig config, CancellationToken cancellationToken)
     {
         // 3D Tiles标准格式生成算法：生成Cesium兼容的tileset.json文件
         var tileset = new
@@ -5742,14 +5893,30 @@ public class SlicingProcessor : ISlicingProcessor
             }
         };
 
-        var tilesetPath = $"{task.OutputPath}/tileset.json";
         var tilesetContent = JsonSerializer.Serialize(tileset, new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         });
 
-        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(tilesetContent));
-        await _minioService.UploadFileAsync("slices", tilesetPath, stream, "application/json");
+        var tilesetPath = $"{task.OutputPath}/tileset.json";
+
+        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+        {
+            var fullPath = Path.Combine(task.OutputPath!, "tileset.json");
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            await File.WriteAllTextAsync(fullPath, tilesetContent, cancellationToken);
+            _logger.LogDebug("Tileset JSON文件已保存到本地：{FilePath}", fullPath);
+        }
+        else
+        {
+            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(tilesetContent));
+            await _minioService.UploadFileAsync("slices", tilesetPath, stream, "application/json", cancellationToken);
+            _logger.LogDebug("Tileset JSON文件已上传到MinIO：{FilePath}", tilesetPath);
+        }
     }
 
     private string CalculateTotalBoundingBox(List<Slice> slices)
@@ -6347,13 +6514,26 @@ public class SlicingProcessor : ISlicingProcessor
             fileContent = await CompressSliceContentAsync(fileContent, config.CompressionLevel);
         }
 
-        // 上传到对象存储
-        using (var stream = new MemoryStream(fileContent))
+        // 根据存储位置类型保存文件
+        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
         {
-            await _minioService.UploadFileAsync("slices", slice.FilePath, stream, GetContentType(config.OutputFormat));
+            var directory = Path.GetDirectoryName(slice.FilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            await File.WriteAllBytesAsync(slice.FilePath, fileContent, cancellationToken);
+            _logger.LogDebug("切片文件已保存到本地：{FilePath}, 大小：{FileSize}", slice.FilePath, fileContent.Length);
         }
-
-        _logger.LogDebug("切片文件已生成：{FilePath}, 大小：{FileSize}", slice.FilePath, fileContent.Length);
+        else // 默认为MinIO
+        {
+            // 上传到对象存储
+            using (var stream = new MemoryStream(fileContent))
+            {
+                await _minioService.UploadFileAsync("slices", slice.FilePath, stream, GetContentType(config.OutputFormat));
+            }
+            _logger.LogDebug("切片文件已上传到MinIO：{FilePath}, 大小：{FileSize}", slice.FilePath, fileContent.Length);
+        }
     }
 
     /// <summary>
@@ -7096,41 +7276,64 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="config">切片配置</param>
-    private async Task GenerateIncrementalUpdateIndexAsync(SlicingTask task, SlicingConfig config)
+    private async Task GenerateIncrementalUpdateIndexAsync(SlicingTask task, SlicingConfig config, CancellationToken cancellationToken)
     {
         // 增量更新索引生成算法
         var allSlices = await _sliceRepository.GetAllAsync();
         var slices = allSlices.Where(s => s.SlicingTaskId == task.Id).ToList();
 
-        var updateIndex = new
-        {
-            TaskId = task.Id,
-            Version = DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
-            LastModified = DateTime.UtcNow,
-            SliceCount = slices.Count,
-            Slices = slices.Select(s => new
-            {
-                s.Id,
-                s.Level,
-                s.X,
-                s.Y,
-                s.Z,
-                s.FilePath,
-                Hash = CalculateSliceHash(s), // 计算切片哈希用于增量比较
-                LastModified = s.CreatedAt
-            }).ToList(),
-            Strategy = config.Strategy.ToString(),
-            TileSize = config.TileSize
-        };
-
-        var indexPath = $"{task.OutputPath}/incremental_index.json";
+                    var sliceData = new List<object>();
+                    foreach (var s in slices)
+                    {
+                        sliceData.Add(new
+                        {
+                            s.Id,
+                            s.Level,
+                            s.X,
+                            s.Y,
+                            s.Z,
+                            s.FilePath,
+                            Hash = await CalculateSliceHash(s), // 计算切片哈希用于增量比较
+                            LastModified = s.CreatedAt
+                        });
+                    }
+        
+                    var updateIndex = new
+                    {
+                        TaskId = task.Id,
+                        Version = DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
+                        LastModified = DateTime.UtcNow,
+                        SliceCount = slices.Count,
+                        Slices = sliceData,
+                        Strategy = config.Strategy.ToString(),
+                        TileSize = config.TileSize
+                    };
         var indexContent = System.Text.Json.JsonSerializer.Serialize(updateIndex, new JsonSerializerOptions
         {
             WriteIndented = true
         });
 
-        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent));
-        await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json");
+        var indexPath = $"{task.OutputPath}/incremental_index.json";
+
+        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+        {
+            var fullPath = Path.Combine(task.OutputPath!, "incremental_index.json");
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            await File.WriteAllTextAsync(fullPath, indexContent, cancellationToken);
+            _logger.LogDebug("增量更新索引文件已保存到本地：{FilePath}", fullPath);
+        }
+        else
+        {
+            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent));
+            await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
+            _logger.LogDebug("增量更新索引文件已上传到MinIO：{FilePath}", indexPath);
+        }
+
+        _logger.LogInformation("增量更新索引已生成：{IndexPath}", indexPath);
 
         _logger.LogInformation("增量更新索引已生成：{IndexPath}", indexPath);
     }
@@ -7146,7 +7349,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     /// <param name="slice">切片数据</param>
     /// <returns>哈希值字符串</returns>
-    private string CalculateSliceHash(Slice slice)
+    private async Task<string> CalculateSliceHash(Slice slice)
     {
         try
         {
@@ -7163,16 +7366,38 @@ public class SlicingProcessor : ISlicingProcessor
                 byte[]? fileContentHash = null;
                 try
                 {
-                    // 从MinIO读取文件内容
-                    var fileStream = _minioService.DownloadFileAsync("slices", slice.FilePath)
-                        .GetAwaiter().GetResult();
+                    var task = await _slicingTaskRepository.GetByIdAsync(slice.SlicingTaskId);
+                    if (task == null) throw new InvalidOperationException($"切片任务 {slice.SlicingTaskId} 未找到");
 
-                    if (fileStream != null)
+                    var config = ParseSlicingConfig(task.SlicingConfig);
+
+                    if (config.StorageLocation == StorageLocationType.LocalFileSystem)
                     {
-                        using (fileStream)
+                        if (File.Exists(slice.FilePath))
                         {
-                            // 计算文件内容的哈希
-                            fileContentHash = sha256.ComputeHash(fileStream);
+                            using (var fileStream = File.OpenRead(slice.FilePath))
+                            {
+                                fileContentHash = sha256.ComputeHash(fileStream);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("本地切片文件不存在，无法计算哈希：{FilePath}", slice.FilePath);
+                        }
+                    }
+                    else // MinIO
+                    {
+                        // 从MinIO读取文件内容
+                        var fileStream = _minioService.DownloadFileAsync("slices", slice.FilePath)
+                            .GetAwaiter().GetResult();
+
+                        if (fileStream != null)
+                        {
+                            using (fileStream)
+                            {
+                                // 计算文件内容的哈希
+                                fileContentHash = sha256.ComputeHash(fileStream);
+                            }
                         }
                     }
                 }
@@ -7180,6 +7405,7 @@ public class SlicingProcessor : ISlicingProcessor
                 {
                     // 文件读取失败时记录警告，但不影响哈希计算
                     // 仅使用元数据计算哈希
+                    _logger.LogWarning(ex, "读取切片文件失败，将仅使用元数据计算哈希：{FilePath}", slice.FilePath);
                     _logger.LogWarning(ex, "读取切片文件失败，将仅使用元数据计算哈希：{FilePath}", slice.FilePath);
                 }
 

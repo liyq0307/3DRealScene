@@ -447,7 +447,7 @@ _ = Task.Run(async () =>
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
 
-    logger.LogInformation("=== 开始初始化异构融合存储系统 ===");
+    logger.LogInformation("=== 开始初始化存储系统 ===");
     logger.LogInformation("系统架构：前端Vue.js + 后端ASP.NET Core WebAPI + 异构存储层");
     logger.LogInformation("支持存储：PostgreSQL/PostGIS、MongoDB、Redis、MinIO");
 
