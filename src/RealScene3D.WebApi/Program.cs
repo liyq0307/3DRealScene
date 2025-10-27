@@ -74,7 +74,7 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<FileUploadOperationFilter>();
 });
 
-// Configure CORS - 允许前端发送凭据（包括 Cookie）
+// 配置CORS - 允许前端发送凭据（包括 Cookie）
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -130,7 +130,7 @@ builder.Services.AddAuthorization();
 
 // ========== 数据存储层配置 ==========
 /// <summary>
-/// 配置异构融合存储系统，支持多种数据库和存储服务
+/// 配置存储系统，支持多种数据库和存储服务
 /// 采用多级容错策略：PostgreSQL/PostGIS -> SQL Server -> 内存数据库
 /// 确保系统在各种部署环境下都能正常运行，提供最佳的用户体验
 /// </summary>
@@ -411,7 +411,7 @@ builder.Services.AddScoped<IMonitoringService, MonitoringAppService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
+// 配置HTTP请求管道
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -422,7 +422,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// 禁用 HTTPS 重定向，方便本地开发
+// 禁用HTTPS重定向，方便本地开发
 // app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 
@@ -492,7 +492,7 @@ _ = Task.Run(async () =>
                 var appliedMigrations = await appContext.Database.GetAppliedMigrationsAsync();
                 logger.LogInformation("已应用 {Count} 个迁移", appliedMigrations.Count());
 
-                logger.LogInformation("✓ PostgreSQL/PostGIS database initialized successfully");
+                logger.LogInformation("✓ PostgreSQL/PostGIS数据库初始化成功");
 
                 // 验证连接
                 var canConnect = await appContext.Database.CanConnectAsync();
@@ -512,8 +512,8 @@ _ = Task.Run(async () =>
         }
         catch (Exception ex)
         {
-            logger.LogWarning("✗ PostgreSQL database migration failed: {Message}", ex.Message);
-            logger.LogWarning("详细错误信息: {Details}", ex.ToString());
+            logger.LogWarning("✗ PostgreSQL数据库迁移失败：{Message}", ex.Message);
+            logger.LogWarning("详细错误信息：{Details}", ex.ToString());
             logger.LogWarning("系统将继续运行，但部分功能可能受限");
         }
     }
@@ -531,12 +531,12 @@ _ = Task.Run(async () =>
             if (sqlServerContext != null && app.Environment.IsDevelopment())
             {
                 await sqlServerContext.Database.MigrateAsync();
-                logger.LogInformation("✓ SQL Server database initialized successfully");
+                logger.LogInformation("✓ SQL Server数据库初始化成功");
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning("✗ SQL Server database migration failed: {Message}", ex.Message);
+            logger.LogWarning("✗ SQL Server数据库迁移失败：{Message}", ex.Message);
         }
     }
 
@@ -599,12 +599,12 @@ _ = Task.Run(async () =>
         /// </summary>
         await minioService.EnsureBucketExistsAsync(MinioBuckets.THUMBNAILS);
 
-        logger.LogInformation("✓ MinIO storage buckets initialized successfully");
+        logger.LogInformation("✓ MinIO存储桶初始化成功");
         logger.LogInformation("存储桶列表：倾斜摄影、BIM模型、视频、3D模型、纹理、缩略图");
     }
     catch (Exception ex)
     {
-        logger.LogWarning("✗ MinIO initialization failed: {Message}", ex.Message);
+        logger.LogWarning("✗ MinIO初始化失败：{Message}", ex.Message);
         logger.LogWarning("对象存储功能可能受限，但系统仍可运行");
     }
 
@@ -616,11 +616,11 @@ _ = Task.Run(async () =>
             var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
             var db = redis.GetDatabase();
             await db.PingAsync();
-            logger.LogInformation("✓ Redis cache connection established successfully");
+            logger.LogInformation("✓ Redis缓存连接建立成功");
         }
         catch (Exception ex)
         {
-            logger.LogWarning("✗ Redis connection failed: {Message}", ex.Message);
+            logger.LogWarning("✗ Redis连接失败：{Message}", ex.Message);
         }
     }
 
@@ -631,7 +631,7 @@ _ = Task.Run(async () =>
         {
             var mongoClient = scope.ServiceProvider.GetRequiredService<IMongoClient>();
             await mongoClient.ListDatabaseNamesAsync();
-            logger.LogInformation("✓ MongoDB connection established successfully");
+            logger.LogInformation("✓ MongoDB连接建立成功");
 
             // 初始化 MongoDB 索引
             var mongoInitializer = scope.ServiceProvider.GetRequiredService<MongoDbInitializer>();
@@ -640,11 +640,11 @@ _ = Task.Run(async () =>
         }
         catch (Exception ex)
         {
-            logger.LogWarning("✗ MongoDB connection failed: {Message}", ex.Message);
+            logger.LogWarning("✗ MongoDB连接失败：{Message}", ex.Message);
         }
     }
 
-    logger.LogInformation("=== 异构融合存储系统启动完成 ===");
+    logger.LogInformation("=== 存储系统启动完成 ===");
     logger.LogInformation("PostgreSQL/PostGIS: 地形、模型、业务数据");
     logger.LogInformation("MongoDB: 非结构化数据（视频元数据、倾斜摄影、BIM）");
     logger.LogInformation("Redis: 会话缓存、热点数据");

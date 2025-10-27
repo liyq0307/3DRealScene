@@ -255,8 +255,9 @@ public class GridSlicingStrategy : ISlicingStrategy
         // 空值检查：确保OutputPath不为null
         var outputPath = task.OutputPath ?? "default_output";
         // 标准化路径格式：{OutputPath}/{Level}/{X}_{Y}_{Z}.{Format}
+        // 注意：使用正斜杠以兼容MinIO对象存储路径
         var fileName = $"{x}_{y}_{z}.{format.ToLowerInvariant()}";
-        return Path.Combine(outputPath, level.ToString(), fileName);
+        return $"{outputPath}/{level}/{fileName}";
     }
 
     /// <summary>
@@ -592,7 +593,13 @@ public class OctreeSlicingStrategy : ISlicingStrategy
             Level = level
         };
 
+        _logger.LogDebug("八叉树根节点：Level={Level}, Size={Size}, TileSize={TileSize}, MaxLevel={MaxLevel}",
+            level, rootNode.Size, config.TileSize, config.MaxLevel);
+
         await SubdivideOctreeNodeAsync(rootNode, nodes, config, cancellationToken);
+
+        _logger.LogInformation("八叉树构建完成：Level={Level}, 节点数={NodeCount}", level, nodes.Count);
+
         return nodes;
     }
 
@@ -1115,10 +1122,20 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     {
         var slices = new List<Slice>();
 
-        _logger.LogDebug("自适应切片策略：级别{Level}", level);
+        _logger.LogInformation("自适应切片策略：级别{Level}", level);
 
         // 自适应剖分算法：基于几何密度和视点重要性
         var adaptiveRegions = await AnalyzeGeometricDensityAsync(task, level, config, cancellationToken);
+
+        _logger.LogInformation("自适应策略分析完成：级别{Level}, 区域数量{RegionCount}", level, adaptiveRegions.Count);
+
+        // 区域数量验证（理论上现在应该始终有区域）
+        if (adaptiveRegions.Count == 0)
+        {
+            _logger.LogError("自适应策略意外地未生成任何区域：级别{Level}，这不应该发生", level);
+            // 这种情况理论上不应该发生了，因为我们移除了密度阈值过滤
+            // 如果仍然发生，说明可能存在其他问题（如取消、异常等）
+        }
 
         foreach (var region in adaptiveRegions)
         {
@@ -1140,6 +1157,8 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
 
             slices.Add(slice);
         }
+
+        _logger.LogInformation("自适应策略切片生成完成：级别{Level}, 切片数量{SliceCount}", level, slices.Count);
 
         return slices;
     }
@@ -1296,7 +1315,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     private async Task<List<AdaptiveRegion>> AnalyzeGeometricDensityAsync(SlicingTask task, int level, SlicingConfig config, CancellationToken cancellationToken)
     {
         // 几何密度分析算法：多维度几何复杂度分析
-        _logger.LogDebug("开始真实几何密度分析：级别{Level}", level);
+        _logger.LogInformation("开始几何密度分析：级别{Level}", level);
 
         var regions = new List<AdaptiveRegion>();
 
@@ -1306,9 +1325,11 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
             var geometricData = await LoadGeometricDataAsync(task, cancellationToken);
             if (geometricData == null || !geometricData.Any())
             {
-                _logger.LogWarning("无法获取几何数据，使用默认密度分析：级别{Level}", level);
+                _logger.LogWarning("无法获取几何数据，使用fallback密度分析：级别{Level}", level);
                 return await FallbackDensityAnalysisAsync(level, config, cancellationToken);
             }
+
+            _logger.LogInformation("加载几何数据成功：{PrimitiveCount}个几何图元", geometricData.Count);
 
             // 2. 构建空间索引以提高分析效率
             var spatialIndex = await BuildSpatialIndexAsync(geometricData, config, cancellationToken);
@@ -1347,22 +1368,22 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
                         // 综合密度评分
                         var compositeDensity = CalculateCompositeDensity(densityMetrics);
 
-                        // 基于密度阈值决定是否需要进一步剖分
-                        if (compositeDensity > config.GeometricErrorThreshold)
+                        // 修复：始终添加区域，不再使用密度阈值过滤
+                        // 原逻辑: if (compositeDensity > config.GeometricErrorThreshold) - 会导致某些级别没有区域
+                        // 新逻辑: 始终添加区域，让后续的优化决定是否需要细分
+                        // 这样可以确保每个级别都有完整的切片覆盖
+                        regions.Add(new AdaptiveRegion
                         {
-                            regions.Add(new AdaptiveRegion
-                            {
-                                X = x,
-                                Y = y,
-                                Z = z,
-                                Density = compositeDensity,
-                                Importance = CalculateRegionImportance(densityMetrics, level),
-                                VertexDensity = densityMetrics.VertexDensity,
-                                TriangleDensity = densityMetrics.TriangleDensity,
-                                CurvatureComplexity = densityMetrics.CurvatureComplexity,
-                                SurfaceArea = densityMetrics.SurfaceArea
-                            });
-                        }
+                            X = x,
+                            Y = y,
+                            Z = z,
+                            Density = compositeDensity,
+                            Importance = CalculateRegionImportance(densityMetrics, level),
+                            VertexDensity = densityMetrics.VertexDensity,
+                            TriangleDensity = densityMetrics.TriangleDensity,
+                            CurvatureComplexity = densityMetrics.CurvatureComplexity,
+                            SurfaceArea = densityMetrics.SurfaceArea
+                        });
                     }
                 }
             }
@@ -1402,8 +1423,12 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
             {
                 try
                 {
-                    modelStream = await _minioService.DownloadFileAsync("models", task.SourceModelPath);
-                    _logger.LogDebug("模型文件从MinIO下载成功：{SourceModelPath}", task.SourceModelPath);
+                    // 转换Windows路径为MinIO兼容的对象名
+                    var minioObjectName = ConvertToMinioObjectName(task.SourceModelPath);
+                    _logger.LogDebug("转换MinIO对象名：{OriginalPath} -> {MinioObjectName}", task.SourceModelPath, minioObjectName);
+
+                    modelStream = await _minioService.DownloadFileAsync("models", minioObjectName);
+                    _logger.LogDebug("模型文件从MinIO下载成功：{MinioObjectName}", minioObjectName);
                 }
                 catch (Exception ex)
                 {
@@ -1564,7 +1589,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     /// <summary>
     /// 解析OBJ格式模型文件
     /// OBJ是一种基于文本的3D模型格式，由顶点(v)、纹理坐标(vt)、法向量(vn)和面(f)组成
-    /// 增强特性：错误恢复、数据验证、性能优化、大文件支持
+    /// 增强特性：错误恢复、数据验证、性能优化、大文件支持、多编码支持
     /// </summary>
     private async Task<List<Triangle>> ParseOBJFormatAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -1574,12 +1599,67 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
         var errorCount = 0;
         const int MAX_ERRORS = 100; // 最大容忍错误数
 
-        using (var reader = new StreamReader(stream))
+        _logger.LogInformation("开始解析OBJ文件");
+
+        // 尝试检测文件编码（支持UTF-8、GBK等编码）
+        System.Text.Encoding encoding;
+        try
+        {
+            // 先读取一部分数据来检测编码
+            var buffer = new byte[Math.Min(4096, stream.Length)];
+            var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+            stream.Position = 0; // 重置流位置
+
+            // 检查BOM标记
+            if (bytesRead >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF)
+            {
+                encoding = System.Text.Encoding.UTF8;
+                _logger.LogInformation("检测到UTF-8 BOM编码");
+            }
+            // 尝试检测GBK编码（中文系统常用）
+            else if (HasChineseCharacters(buffer, bytesRead))
+            {
+                try
+                {
+                    encoding = System.Text.Encoding.GetEncoding("GBK");
+                    _logger.LogInformation("检测到可能的GBK编码");
+                }
+                catch
+                {
+                    encoding = System.Text.Encoding.UTF8;
+                    _logger.LogInformation("GBK编码不可用，使用UTF-8");
+                }
+            }
+            else
+            {
+                encoding = System.Text.Encoding.UTF8;
+                _logger.LogInformation("使用默认UTF-8编码");
+            }
+
+            _logger.LogInformation("OBJ文件大小：{Size} 字节，已读取{BytesRead}字节用于编码检测", stream.Length, bytesRead);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "编码检测失败，使用默认UTF-8编码");
+            encoding = System.Text.Encoding.UTF8;
+        }
+
+        var sampleLines = new List<string>(); // 保存前几行用于诊断
+        const int MAX_SAMPLE_LINES = 10;
+
+        using (var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true))
         {
             string? line;
+
             while ((line = await reader.ReadLineAsync()) != null)
             {
                 lineNumber++;
+
+                // 收集前几行用于诊断（不包含注释和空行）
+                if (sampleLines.Count < MAX_SAMPLE_LINES && !string.IsNullOrWhiteSpace(line) && !line.Trim().StartsWith("#"))
+                {
+                    sampleLines.Add(line.Trim());
+                }
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -1741,22 +1821,100 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
         }
 
         // 验证解析结果
+        _logger.LogInformation("OBJ解析完成：总行数={LineCount}, 顶点数={VertexCount}, 三角形数={TriangleCount}, 错误数={ErrorCount}",
+            lineNumber, vertices.Count, triangles.Count, errorCount);
+
         if (vertices.Count == 0)
         {
-            _logger.LogWarning("OBJ文件不包含任何顶点数据");
-            throw new InvalidDataException("OBJ文件不包含任何顶点数据");
+            // 输出前几行内容用于诊断
+            if (sampleLines.Any())
+            {
+                _logger.LogError("OBJ文件前{Count}行内容示例：\n{Lines}",
+                    sampleLines.Count, string.Join("\n", sampleLines.Select((l, i) => $"  {i + 1}: {l}")));
+            }
+
+            _logger.LogError("OBJ文件解析失败：文件共{LineCount}行，但未找到任何顶点数据（'v x y z'格式）。" +
+                           "可能原因：1) 文件为空或格式错误；2) 文件编码不正确；3) 文件内容被损坏。" +
+                           "请检查文件内容和编码（当前使用：{Encoding}）",
+                lineNumber, encoding.EncodingName);
+            throw new InvalidDataException($"OBJ文件不包含任何顶点数据（总行数：{lineNumber}，使用编码：{encoding.EncodingName}）");
         }
 
         if (triangles.Count == 0)
         {
-            _logger.LogWarning("OBJ文件不包含任何面数据");
-            throw new InvalidDataException("OBJ文件不包含任何面数据");
+            _logger.LogError("OBJ文件解析失败：找到{VertexCount}个顶点，但未找到任何面数据（'f i1 i2 i3'格式）。" +
+                           "可能原因：1) 文件只包含顶点没有面定义；2) 面索引格式不正确",
+                vertices.Count);
+            throw new InvalidDataException($"OBJ文件不包含任何面数据（顶点数：{vertices.Count}）");
         }
 
-        _logger.LogInformation("OBJ解析完成：{LineCount}行, {VertexCount}个顶点, {TriangleCount}个三角形, {ErrorCount}个错误",
-            lineNumber, vertices.Count, triangles.Count, errorCount);
+        _logger.LogInformation("OBJ解析成功：{VertexCount}个顶点, {TriangleCount}个三角形",
+            vertices.Count, triangles.Count);
 
         return triangles;
+    }
+
+    /// <summary>
+    /// 检测字节数组中是否包含中文字符（用于编码检测）
+    /// </summary>
+    private bool HasChineseCharacters(byte[] buffer, int length)
+    {
+        for (int i = 0; i < length - 1; i++)
+        {
+            // 检测GBK编码的中文字符范围
+            if ((buffer[i] >= 0x81 && buffer[i] <= 0xFE) &&
+                ((buffer[i + 1] >= 0x40 && buffer[i + 1] <= 0x7E) ||
+                 (buffer[i + 1] >= 0x80 && buffer[i + 1] <= 0xFE)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 将Windows路径转换为MinIO兼容的对象名
+    /// MinIO对象名规则：
+    /// - 使用正斜杠(/)作为路径分隔符
+    /// - 不支持绝对路径（不能以盘符开头）
+    /// - 不支持某些特殊字符，特别是在某些Windows环境下的 + 符号
+    /// </summary>
+    private string ConvertToMinioObjectName(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new ArgumentException("文件路径不能为空", nameof(filePath));
+        }
+
+        // 1. 标准化路径分隔符（统一使用正斜杠）
+        var normalizedPath = filePath.Replace('\\', '/');
+
+        // 2. 移除Windows盘符（如 "F:/Data" -> "Data"）
+        if (normalizedPath.Length >= 2 && normalizedPath[1] == ':')
+        {
+            normalizedPath = normalizedPath.Substring(2);
+        }
+
+        // 3. 移除开头的斜杠
+        normalizedPath = normalizedPath.TrimStart('/');
+
+        // 4. 处理特殊字符：某些MinIO实现不支持特定字符
+        // 将 + 替换为 _plus_ 以避免兼容性问题
+        normalizedPath = normalizedPath.Replace("+", "_plus_");
+
+        // 其他潜在的问题字符也可以在这里处理
+        // 例如：空格、#、& 等（根据实际需要添加）
+        normalizedPath = normalizedPath.Replace(" ", "_");
+        normalizedPath = normalizedPath.Replace("#", "_hash_");
+        normalizedPath = normalizedPath.Replace("&", "_and_");
+
+        // 5. 确保路径不为空
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            throw new InvalidOperationException($"无法将路径转换为有效的MinIO对象名：{filePath}");
+        }
+
+        return normalizedPath;
     }
 
     /// <summary>
@@ -2802,6 +2960,8 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     /// </summary>
     private Task<List<AdaptiveRegion>> FallbackDensityAnalysisAsync(int level, SlicingConfig config, CancellationToken cancellationToken)
     {
+        _logger.LogWarning("使用fallback密度分析策略：级别{Level}", level);
+
         var regions = new List<AdaptiveRegion>();
         var baseTilesInLevel = (int)Math.Pow(2, level);
 
@@ -2814,20 +2974,23 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
                     if (cancellationToken.IsCancellationRequested) break;
 
                     var density = CalculateFallbackDensity(level, x, y, z);
-                    if (density > config.GeometricErrorThreshold)
+                    // 移除密度阈值检查,确保生成所有切片
+                    // 原逻辑: if (density > config.GeometricErrorThreshold)
+                    // 新逻辑: 始终添加区域
+                    regions.Add(new AdaptiveRegion
                     {
-                        regions.Add(new AdaptiveRegion
-                        {
-                            X = x,
-                            Y = y,
-                            Z = z,
-                            Density = density,
-                            Importance = CalculateRegionImportance(level, x, y, z)
-                        });
-                    }
+                        X = x,
+                        Y = y,
+                        Z = z,
+                        Density = density,
+                        Importance = CalculateRegionImportance(level, x, y, z)
+                    });
                 }
             }
         }
+
+        _logger.LogInformation("fallback策略生成区域数量：{RegionCount}, 级别{Level}", regions.Count, level);
+
         return Task.FromResult(regions);
     }
 
@@ -4534,49 +4697,148 @@ public class SlicingAppService : ISlicingAppService
                 throw new InvalidOperationException($"源模型文件不存在：{request.SourceModelPath}");
             }
 
-            // 创建切片任务实体 - 领域对象构建
-            var task = new SlicingTask
-            {
-                Name = request.Name.Trim(), // 清理前后空格
-                SourceModelPath = request.SourceModelPath,
-                ModelType = request.ModelType,
-                SlicingConfig = System.Text.Json.JsonSerializer.Serialize(request.SlicingConfig),
-                OutputPath = string.IsNullOrEmpty(request.OutputPath) 
-                    ? $"task_{Guid.NewGuid()}" // 自动生成唯一输出路径
-                    : request.OutputPath.Trim(),
-                CreatedBy = userId,
-                Status = SlicingTaskStatus.Created
-            };
+            // 检查是否启用增量更新，如果是，则查找现有任务
+            SlicingTask? task = null;
+            bool isIncrementalUpdate = request.SlicingConfig.EnableIncrementalUpdates;
 
-            // 根据OutputPath判断存储类型
-            var slicingConfig = System.Text.Json.JsonSerializer.Deserialize<SlicingConfig>(task.SlicingConfig);
-            if (slicingConfig != null)
+            if (isIncrementalUpdate)
             {
-                if (!string.IsNullOrEmpty(request.OutputPath) && Path.IsPathRooted(request.OutputPath))
+                // 生成确定性的输出路径用于查找
+                var expectedOutputPath = string.IsNullOrEmpty(request.OutputPath)
+                    ? GenerateOutputPathFromSource(request.SourceModelPath)
+                    : request.OutputPath.Trim();
+
+                // 查找具有相同输出路径的现有任务
+                var allTasks = await _slicingTaskRepository.GetAllAsync();
+                var existingTask = allTasks
+                    .Where(t => t.OutputPath == expectedOutputPath && t.CreatedBy == userId)
+                    .OrderByDescending(t => t.CreatedAt)
+                    .FirstOrDefault();
+
+                if (existingTask != null)
                 {
-                    slicingConfig.StorageLocation = StorageLocationType.LocalFileSystem;
-                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, request.OutputPath);
+                    _logger.LogInformation("检测到增量更新：找到现有任务 {TaskId}，将更新而不是创建新任务", existingTask.Id);
+
+                    // 更新现有任务
+                    task = existingTask;
+                    task.Name = request.Name.Trim(); // 更新名称
+                    // 注意：这里先不序列化配置，等存储位置判断完成后再序列化
+                    // task.SlicingConfig 将在后面根据 OutputPath 重新设置
+                    task.Status = SlicingTaskStatus.Created; // 重置状态
+                    task.Progress = 0; // 重置进度
+                    task.ErrorMessage = null; // 清除错误信息
+                    task.StartedAt = null;
+                    task.CompletedAt = null;
+
+                    // 注意：这里不立即保存到数据库，等存储位置判断完成后再保存
+                    // await _slicingTaskRepository.UpdateAsync(task);
+                    // await _unitOfWork.SaveChangesAsync();
+
+                    _logger.LogInformation("已准备更新现有切片任务 {TaskId} 用于增量更新（等待存储位置判断）", task.Id);
                 }
                 else
                 {
-                    slicingConfig.StorageLocation = StorageLocationType.MinIO;
-                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, request.OutputPath);
+                    _logger.LogInformation("首次切片：未找到现有任务，将创建新任务");
                 }
+            }
+
+            // 如果不是增量更新，或者没有找到现有任务，则创建新任务
+            if (task == null)
+            {
+                // 创建切片任务实体 - 领域对象构建
+                task = new SlicingTask
+                {
+                    Name = request.Name.Trim(), // 清理前后空格
+                    SourceModelPath = request.SourceModelPath,
+                    ModelType = request.ModelType,
+                    SlicingConfig = System.Text.Json.JsonSerializer.Serialize(request.SlicingConfig),
+                    OutputPath = string.IsNullOrEmpty(request.OutputPath)
+                        ? GenerateOutputPathFromSource(request.SourceModelPath) // 基于源模型生成确定性路径
+                        : request.OutputPath.Trim(),
+                    CreatedBy = userId,
+                    Status = SlicingTaskStatus.Created
+                };
+            }
+
+            // 根据OutputPath判断存储类型
+            // 对于增量更新，使用新的请求配置；对于新任务，从task.SlicingConfig反序列化
+            var slicingConfig = isIncrementalUpdate
+                ? request.SlicingConfig
+                : System.Text.Json.JsonSerializer.Deserialize<SlicingConfig>(task.SlicingConfig);
+
+            if (slicingConfig != null)
+            {
+                // 判断存储位置的优先级：
+                // 1. 如果用户在 SlicingConfig 中明确指定了 StorageLocation，使用用户指定的
+                // 2. 如果任务的 OutputPath 是绝对路径（Path.IsPathRooted），判定为本地文件系统
+                // 3. 如果任务的 OutputPath 是相对路径或未提供路径，默认使用 MinIO
+
+                bool userSpecifiedStorage = request.SlicingConfig.StorageLocation != StorageLocationType.MinIO; // 假设默认值是MinIO
+                // 关键修复：对于增量更新，应该使用 task.OutputPath 而不是 request.OutputPath
+                // 因为增量更新时 task 可能来自 existingTask，其 OutputPath 已经确定
+                bool hasRootedPath = !string.IsNullOrEmpty(task.OutputPath) && Path.IsPathRooted(task.OutputPath);
+
+                if (userSpecifiedStorage)
+                {
+                    // 用户明确指定了存储位置，使用用户指定的
+                    slicingConfig.StorageLocation = request.SlicingConfig.StorageLocation;
+                    _logger.LogInformation("切片任务 {TaskId} 使用用户指定的存储位置：{StorageLocation}", task.Id, slicingConfig.StorageLocation);
+                }
+                else if (hasRootedPath)
+                {
+                    // 任务的输出路径是绝对路径，判定为本地文件系统
+                    slicingConfig.StorageLocation = StorageLocationType.LocalFileSystem;
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, task.OutputPath);
+                }
+                else
+                {
+                    // 默认使用 MinIO
+                    slicingConfig.StorageLocation = StorageLocationType.MinIO;
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, task.OutputPath);
+                }
+
                 task.SlicingConfig = System.Text.Json.JsonSerializer.Serialize(slicingConfig);
 
                 if (slicingConfig.StorageLocation == StorageLocationType.LocalFileSystem)
                 {
+                    // 对于本地文件系统，如果是相对路径，转换为绝对路径
+                    if (!string.IsNullOrEmpty(task.OutputPath) && !Path.IsPathRooted(task.OutputPath))
+                    {
+                        // 使用默认的本地切片目录
+                        var baseDirectory = Path.Combine(Directory.GetCurrentDirectory(), "slices");
+                        task.OutputPath = Path.Combine(baseDirectory, task.OutputPath);
+                        _logger.LogInformation("相对路径已转换为绝对路径：{OutputPath}", task.OutputPath);
+                    }
+
                     // 确保本地输出目录存在
-                    Directory.CreateDirectory(task.OutputPath);
-                    _logger.LogInformation("本地切片输出目录已创建或已存在：{OutputPath}", task.OutputPath);
+                    if (!string.IsNullOrEmpty(task.OutputPath))
+                    {
+                        Directory.CreateDirectory(task.OutputPath);
+                        _logger.LogInformation("本地切片输出目录已创建或已存在：{OutputPath}", task.OutputPath);
+                    }
                 }
             }
 
             _logger.LogInformation("切片任务 {TaskId} 的最终存储位置类型为 {StorageLocation}.", task.Id, slicingConfig?.StorageLocation);
 
             // 持久化切片任务 - 原子性操作确保数据一致性
-            await _slicingTaskRepository.AddAsync(task);
-            await _unitOfWork.SaveChangesAsync();
+            // 重要：在存储位置判断完成后才保存，确保 SlicingConfig 中的 StorageLocation 是正确的
+            if (isIncrementalUpdate && task.Id != Guid.Empty)
+            {
+                // 增量更新场景：更新现有任务
+                await _slicingTaskRepository.UpdateAsync(task);
+                await _unitOfWork.SaveChangesAsync();
+                _logger.LogInformation("切片任务已更新用于增量处理：{TaskId}，存储位置：{StorageLocation}",
+                    task.Id, slicingConfig?.StorageLocation);
+            }
+            else
+            {
+                // 新任务：添加到数据库
+                await _slicingTaskRepository.AddAsync(task);
+                await _unitOfWork.SaveChangesAsync();
+                _logger.LogInformation("新切片任务已创建：{TaskId}，存储位置：{StorageLocation}",
+                    task.Id, slicingConfig?.StorageLocation);
+            }
 
             var taskId = task.Id;
 
@@ -4598,7 +4860,30 @@ public class SlicingAppService : ISlicingAppService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "后台切片处理任务失败：{TaskId}", taskId);
-                    // 注意：这里不再抛出异常，因为这是后台任务，不应影响主流程
+
+                    // 更新任务状态为失败
+                    try
+                    {
+                        using (var scope = _serviceScopeFactory.CreateScope())
+                        {
+                            var repository = scope.ServiceProvider.GetRequiredService<IRepository<SlicingTask>>();
+                            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+                            var failedTask = await repository.GetByIdAsync(taskId);
+                            if (failedTask != null)
+                            {
+                                failedTask.Status = SlicingTaskStatus.Failed;
+                                failedTask.ErrorMessage = ex.Message;
+                                failedTask.CompletedAt = DateTime.UtcNow;
+                                await unitOfWork.SaveChangesAsync();
+                                _logger.LogInformation("已更新任务状态为失败：{TaskId}", taskId);
+                            }
+                        }
+                    }
+                    catch (Exception updateEx)
+                    {
+                        _logger.LogError(updateEx, "更新任务状态失败：{TaskId}", taskId);
+                    }
                 }
             });
 
@@ -5211,6 +5496,57 @@ public class SlicingAppService : ISlicingAppService
         }
     }
 
+    /// <summary>
+    /// 从源模型路径生成确定性的输出路径 - 增量更新支持
+    /// 算法：使用SHA256哈希生成基于源路径的确定性标识符
+    /// 特性：
+    /// - 相同的源路径总是生成相同的输出路径
+    /// - 支持增量更新：多次切片同一模型会使用相同目录
+    /// - 安全性：哈希值避免路径注入攻击
+    /// - 可读性：包含部分源文件名便于识别
+    /// </summary>
+    /// <param name="sourcePath">源模型文件路径</param>
+    /// <returns>确定性的输出路径</returns>
+    private string GenerateOutputPathFromSource(string sourcePath)
+    {
+        try
+        {
+            // 1. 计算源路径的SHA256哈希（前16位用于唯一性）
+            using (var sha256 = System.Security.Cryptography.SHA256.Create())
+            {
+                var pathBytes = System.Text.Encoding.UTF8.GetBytes(sourcePath);
+                var hashBytes = sha256.ComputeHash(pathBytes);
+                var hashHex = Convert.ToHexString(hashBytes).ToLower();
+                var shortHash = hashHex.Substring(0, 16); // 取前16位（64bit）
+
+                // 2. 提取源文件名（不含扩展名）用于可读性
+                var fileName = Path.GetFileNameWithoutExtension(sourcePath);
+                // 清理文件名：只保留字母数字和下划线
+                var cleanFileName = new string(fileName.Where(c =>
+                    char.IsLetterOrDigit(c) || c == '_' || c == '-').ToArray());
+                // 限制长度
+                if (cleanFileName.Length > 32)
+                {
+                    cleanFileName = cleanFileName.Substring(0, 32);
+                }
+
+                // 3. 组合：文件名_哈希值
+                // 例如：building_model_a1b2c3d4e5f6a7b8
+                var outputPath = $"{cleanFileName}_{shortHash}";
+
+                _logger.LogInformation("为源模型生成输出路径：{SourcePath} -> {OutputPath}", sourcePath, outputPath);
+
+                return outputPath;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "生成确定性输出路径失败，使用随机路径：{SourcePath}", sourcePath);
+            // 降级方案：使用随机GUID
+            return $"task_{Guid.NewGuid()}";
+        }
+    }
+
     #region 私有方法
 
     private static SlicingDtos.SlicingTaskDto MapToDto(SlicingTask task)
@@ -5700,7 +6036,40 @@ public class SlicingProcessor : ISlicingProcessor
     {
         var config = ParseSlicingConfig(task.SlicingConfig);
 
-        _logger.LogInformation("开始切片处理：任务{TaskId}, 策略{Strategy}", task.Id, config.Strategy);
+        _logger.LogInformation("开始切片处理：任务{TaskId}, 策略{Strategy}, 增量更新：{EnableIncrementalUpdates}",
+            task.Id, config.Strategy, config.EnableIncrementalUpdates);
+
+        // 准备增量更新：如果启用增量更新，加载现有切片数据用于比对
+        Dictionary<string, Slice> existingSlicesMap = new Dictionary<string, Slice>();
+        HashSet<string> processedSliceKeys = new HashSet<string>();
+        bool actuallyUseIncrementalUpdate = false; // 实际是否使用增量更新
+        bool hasSliceChanges = false; // 是否有切片发生变化（新增、更新或删除）
+
+        if (config.EnableIncrementalUpdates)
+        {
+            var existingSlices = await _sliceRepository.GetAllAsync();
+            var taskSlices = existingSlices.Where(s => s.SlicingTaskId == task.Id).ToList();
+
+            if (taskSlices.Any())
+            {
+                // 有现有切片数据，可以使用增量更新
+                actuallyUseIncrementalUpdate = true;
+
+                // 构建现有切片的映射表，key为 "level_x_y_z"
+                foreach (var slice in taskSlices)
+                {
+                    var key = $"{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}";
+                    existingSlicesMap[key] = slice;
+                }
+
+                _logger.LogInformation("增量更新模式：找到{Count}个现有切片用于比对", existingSlicesMap.Count);
+            }
+            else
+            {
+                // 没有现有切片数据，这是首次生成，使用正常生成模式
+                _logger.LogInformation("首次切片生成：虽然启用了增量更新，但数据库中无现有切片，将执行完整生成");
+            }
+        }
 
         // 创建切片策略实例
         ISlicingStrategy strategy = config.Strategy switch
@@ -5722,15 +6091,91 @@ public class SlicingProcessor : ISlicingProcessor
             // 使用选择的切片策略进行空间剖分
             var slices = await strategy.GenerateSlicesAsync(task, level, config, cancellationToken);
 
+            _logger.LogInformation("策略生成切片数量：{Count}, 级别：{Level}", slices.Count, level);
+
+            if (slices.Count == 0)
+            {
+                _logger.LogWarning("级别{Level}未生成任何切片，请检查切片配置和源模型", level);
+                continue; // 跳过这个级别
+            }
+
             foreach (var slice in slices)
             {
                 if (cancellationToken.IsCancellationRequested) break;
 
-                // 生成切片文件内容（这里需要实际的模型数据）
-                await GenerateSliceFileAsync(slice, config, cancellationToken);
+                // 增量更新：检查切片是否已存在
+                var sliceKey = $"{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}";
+                bool isNewSlice = !existingSlicesMap.ContainsKey(sliceKey);
+                bool needsUpdate = false;
 
-                // 批量处理优化：累积切片后批量写入数据库
-                await _sliceRepository.AddAsync(slice);
+                if (actuallyUseIncrementalUpdate && !isNewSlice)
+                {
+                    // 切片已存在，通过哈希值判断是否需要更新
+                    var existingSlice = existingSlicesMap[sliceKey];
+                    var newHash = await CalculateSliceHash(slice);
+                    var existingHash = await CalculateSliceHashFromExisting(existingSlice);
+
+                    needsUpdate = newHash != existingHash;
+
+                    if (!needsUpdate)
+                    {
+                        // 切片未变化，跳过生成和保存
+                        _logger.LogDebug("切片未变化，跳过：级别{Level}, 坐标({X},{Y},{Z})",
+                            slice.Level, slice.X, slice.Y, slice.Z);
+                        processedSliceKeys.Add(sliceKey);
+                        continue;
+                    }
+                    else
+                    {
+                        // 切片有变化，需要更新
+                        _logger.LogInformation("检测到切片变化，准备更新：级别{Level}, 坐标({X},{Y},{Z})",
+                            slice.Level, slice.X, slice.Y, slice.Z);
+                        // 保留已有的ID，这样后面更新时会替换而不是新增
+                        slice.Id = existingSlice.Id;
+                        hasSliceChanges = true; // 标记有变化
+                    }
+                }
+                else if (actuallyUseIncrementalUpdate && isNewSlice)
+                {
+                    // 新增切片
+                    _logger.LogInformation("检测到新增切片：级别{Level}, 坐标({X},{Y},{Z})",
+                        slice.Level, slice.X, slice.Y, slice.Z);
+                    hasSliceChanges = true; // 标记有变化
+                }
+
+                try
+                {
+                    // 生成切片文件内容（这里需要实际的模型数据）
+                    await GenerateSliceFileAsync(slice, config, cancellationToken);
+                    _logger.LogDebug("成功生成切片文件：{FilePath}", slice.FilePath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "生成切片文件失败：级别{Level}, 坐标({X},{Y},{Z}), 路径{FilePath}",
+                        slice.Level, slice.X, slice.Y, slice.Z, slice.FilePath);
+                    // 不中断整个流程,继续处理其他切片
+                    continue;
+                }
+
+                // 根据情况决定是新增还是更新
+                if (actuallyUseIncrementalUpdate && needsUpdate)
+                {
+                    // 更新现有切片
+                    await _sliceRepository.UpdateAsync(slice);
+                    _logger.LogDebug("更新切片：{SliceKey}", sliceKey);
+                }
+                else
+                {
+                    // 新增切片（首次生成或增量更新中的新切片）
+                    await _sliceRepository.AddAsync(slice);
+                    _logger.LogDebug("新增切片：{SliceKey}", sliceKey);
+                }
+
+                // 标记为已处理
+                if (actuallyUseIncrementalUpdate)
+                {
+                    processedSliceKeys.Add(sliceKey);
+                }
 
                 // 批量提交优化：每处理一定数量的切片后批量提交一次
                 // 性能优化：减少数据库连接和事务开销，提升整体吞吐量
@@ -5755,16 +6200,104 @@ public class SlicingProcessor : ISlicingProcessor
             _logger.LogInformation("级别{Level}处理完成，生成{SliceCount}个切片", level, slices.Count);
         }
 
+        // 增量更新：删除不再存在的旧切片（模型中已删除的部分）
+        if (actuallyUseIncrementalUpdate && existingSlicesMap.Count > 0)
+        {
+            // 1. 删除在已处理层级中不再存在的切片
+            var obsoleteSlicesInProcessedLevels = existingSlicesMap
+                .Where(kvp => !processedSliceKeys.Contains(kvp.Key))
+                .Where(kvp => kvp.Value.Level <= config.MaxLevel) // 只看已处理的层级
+                .Select(kvp => kvp.Value)
+                .ToList();
+
+            // 2. 删除超出新MaxLevel的所有切片（用户减少了LOD层级）
+            var obsoleteSlicesBeyondMaxLevel = existingSlicesMap
+                .Where(kvp => kvp.Value.Level > config.MaxLevel)
+                .Select(kvp => kvp.Value)
+                .ToList();
+
+            var allObsoleteSlices = obsoleteSlicesInProcessedLevels.Concat(obsoleteSlicesBeyondMaxLevel).ToList();
+
+            if (allObsoleteSlices.Any())
+            {
+                _logger.LogInformation("检测到{Count}个过时切片（{InLevel}个在已处理层级中，{BeyondLevel}个超出新的最大层级{MaxLevel}），开始清理",
+                    allObsoleteSlices.Count,
+                    obsoleteSlicesInProcessedLevels.Count,
+                    obsoleteSlicesBeyondMaxLevel.Count,
+                    config.MaxLevel);
+
+                // 删除切片文件和数据库记录
+                foreach (var obsoleteSlice in allObsoleteSlices)
+                {
+                    // 删除文件（本地或MinIO）
+                    try
+                    {
+                        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+                        {
+                            // 对于本地存储，需要拼接完整路径
+                            var fullPath = Path.IsPathRooted(obsoleteSlice.FilePath)
+                                ? obsoleteSlice.FilePath
+                                : Path.Combine(task.OutputPath ?? "", obsoleteSlice.FilePath);
+
+                            if (File.Exists(fullPath))
+                            {
+                                File.Delete(fullPath);
+                                _logger.LogDebug("本地切片文件已删除：{FilePath}", fullPath);
+                            }
+                        }
+                        else
+                        {
+                            await _minioService.DeleteFileAsync("slices", obsoleteSlice.FilePath);
+                            _logger.LogDebug("MinIO切片文件已删除：{FilePath}", obsoleteSlice.FilePath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "删除切片文件失败：{FilePath}", obsoleteSlice.FilePath);
+                    }
+
+                    // 删除数据库记录
+                    await _sliceRepository.DeleteAsync(obsoleteSlice);
+                    _logger.LogDebug("删除过时切片记录：级别{Level}, 坐标({X},{Y},{Z})",
+                        obsoleteSlice.Level, obsoleteSlice.X, obsoleteSlice.Y, obsoleteSlice.Z);
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                _logger.LogInformation("已清理{Count}个过时切片（包括文件和数据库记录）", allObsoleteSlices.Count);
+                hasSliceChanges = true; // 删除也是变化
+            }
+            else
+            {
+                _logger.LogInformation("增量更新：没有需要删除的过时切片");
+            }
+        }
+
         // 生成切片索引文件
         await GenerateSliceIndexAsync(task, config, cancellationToken);
 
         // 生成tileset.json用于Cesium加载
         await GenerateTilesetJsonAsync(task, config, cancellationToken);
 
-        // 生成增量更新索引（如果需要）
-        if (config.EnableIncrementalUpdates)
+        // 生成增量更新索引（仅当实际使用了增量更新且有切片变化时）
+        _logger.LogInformation("检查是否需要生成增量更新索引：实际使用增量更新={ActuallyUseIncrementalUpdate}, 有切片变化={HasSliceChanges}",
+            actuallyUseIncrementalUpdate, hasSliceChanges);
+
+        if (actuallyUseIncrementalUpdate)
         {
-            await GenerateIncrementalUpdateIndexAsync(task, config, cancellationToken);
+            if (hasSliceChanges)
+            {
+                _logger.LogInformation("开始生成增量更新索引：任务{TaskId}（检测到切片变化）", task.Id);
+                await GenerateIncrementalUpdateIndexAsync(task, config, cancellationToken);
+                _logger.LogInformation("增量更新索引生成完成：任务{TaskId}", task.Id);
+            }
+            else
+            {
+                _logger.LogInformation("增量更新：所有切片均未变化，无需重新生成增量索引：任务{TaskId}", task.Id);
+            }
+        }
+        else
+        {
+            _logger.LogInformation("未使用增量更新（首次生成或未启用），跳过增量索引生成：任务{TaskId}", task.Id);
         }
 
         _logger.LogInformation("切片处理完成：任务{TaskId}", task.Id);
@@ -5854,13 +6387,16 @@ public class SlicingProcessor : ISlicingProcessor
                 Directory.CreateDirectory(directory);
             }
             await File.WriteAllTextAsync(fullPath, indexContent, cancellationToken);
-            _logger.LogDebug("切片索引文件已保存到本地：{FilePath}", fullPath);
+            _logger.LogInformation("切片索引文件已保存到本地：{FilePath}", fullPath);
         }
         else
         {
-            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent));
-            await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
-            _logger.LogDebug("切片索引文件已上传到MinIO：{FilePath}", indexPath);
+            using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent)))
+            {
+                await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
+            }
+            _logger.LogInformation("切片索引文件已上传到MinIO：{FilePath}, 切片数量：{Count}",
+                indexPath, slices.Count);
         }
     }
 
@@ -5909,13 +6445,15 @@ public class SlicingProcessor : ISlicingProcessor
                 Directory.CreateDirectory(directory);
             }
             await File.WriteAllTextAsync(fullPath, tilesetContent, cancellationToken);
-            _logger.LogDebug("Tileset JSON文件已保存到本地：{FilePath}", fullPath);
+            _logger.LogInformation("Tileset JSON文件已保存到本地：{FilePath}", fullPath);
         }
         else
         {
-            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(tilesetContent));
-            await _minioService.UploadFileAsync("slices", tilesetPath, stream, "application/json", cancellationToken);
-            _logger.LogDebug("Tileset JSON文件已上传到MinIO：{FilePath}", tilesetPath);
+            using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(tilesetContent)))
+            {
+                await _minioService.UploadFileAsync("slices", tilesetPath, stream, "application/json", cancellationToken);
+            }
+            _logger.LogInformation("Tileset JSON文件已上传到MinIO：{FilePath}", tilesetPath);
         }
     }
 
@@ -6528,11 +7066,18 @@ public class SlicingProcessor : ISlicingProcessor
         else // 默认为MinIO
         {
             // 上传到对象存储
+            _logger.LogInformation("准备上传切片到MinIO: bucket=slices, path={FilePath}, size={Size}",
+                slice.FilePath, fileContent.Length);
+
             using (var stream = new MemoryStream(fileContent))
             {
-                await _minioService.UploadFileAsync("slices", slice.FilePath, stream, GetContentType(config.OutputFormat));
+                var contentType = GetContentType(config.OutputFormat);
+                _logger.LogDebug("ContentType: {ContentType}, OutputFormat: {OutputFormat}",
+                    contentType, config.OutputFormat);
+
+                await _minioService.UploadFileAsync("slices", slice.FilePath, stream, contentType, cancellationToken);
             }
-            _logger.LogDebug("切片文件已上传到MinIO：{FilePath}, 大小：{FileSize}", slice.FilePath, fileContent.Length);
+            _logger.LogInformation("切片文件已上传到MinIO：{FilePath}, 大小：{FileSize}", slice.FilePath, fileContent.Length);
         }
     }
 
@@ -7287,14 +7832,13 @@ public class SlicingProcessor : ISlicingProcessor
                     {
                         sliceData.Add(new
                         {
-                            s.Id,
                             s.Level,
                             s.X,
                             s.Y,
                             s.Z,
                             s.FilePath,
                             Hash = await CalculateSliceHash(s), // 计算切片哈希用于增量比较
-                            LastModified = s.CreatedAt
+                            s.BoundingBox
                         });
                     }
         
@@ -7328,12 +7872,12 @@ public class SlicingProcessor : ISlicingProcessor
         }
         else
         {
-            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent));
-            await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
-            _logger.LogDebug("增量更新索引文件已上传到MinIO：{FilePath}", indexPath);
+            using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(indexContent)))
+            {
+                await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
+            }
+            _logger.LogInformation("增量更新索引文件已上传到MinIO：{FilePath}", indexPath);
         }
-
-        _logger.LogInformation("增量更新索引已生成：{IndexPath}", indexPath);
 
         _logger.LogInformation("增量更新索引已生成：{IndexPath}", indexPath);
     }
@@ -7373,16 +7917,21 @@ public class SlicingProcessor : ISlicingProcessor
 
                     if (config.StorageLocation == StorageLocationType.LocalFileSystem)
                     {
-                        if (File.Exists(slice.FilePath))
+                        // 本地文件系统：需要拼接完整路径
+                        var fullPath = Path.IsPathRooted(slice.FilePath)
+                            ? slice.FilePath
+                            : Path.Combine(task.OutputPath ?? "", slice.FilePath);
+
+                        if (File.Exists(fullPath))
                         {
-                            using (var fileStream = File.OpenRead(slice.FilePath))
+                            using (var fileStream = File.OpenRead(fullPath))
                             {
                                 fileContentHash = sha256.ComputeHash(fileStream);
                             }
                         }
                         else
                         {
-                            _logger.LogWarning("本地切片文件不存在，无法计算哈希：{FilePath}", slice.FilePath);
+                            _logger.LogWarning("本地切片文件不存在，无法计算哈希：{FilePath}", fullPath);
                         }
                     }
                     else // MinIO
@@ -7442,6 +7991,19 @@ public class SlicingProcessor : ISlicingProcessor
                 return Convert.ToHexString(hashBytes).ToLower();
             }
         }
+    }
+
+    /// <summary>
+    /// 从已存在的切片计算哈希值 - 用于增量更新比对
+    /// 与CalculateSliceHash的区别是，这个方法用于已存在于数据库中的切片
+    /// </summary>
+    /// <param name="slice">已存在的切片数据</param>
+    /// <returns>哈希值字符串</returns>
+    private async Task<string> CalculateSliceHashFromExisting(Slice slice)
+    {
+        // 直接调用 CalculateSliceHash，因为逻辑是一样的
+        // 该方法会根据切片的 SlicingTaskId 查找任务配置，然后读取文件计算哈希
+        return await CalculateSliceHash(slice);
     }
 
     private System.IO.Compression.CompressionLevel GetCompressionLevel(int level)

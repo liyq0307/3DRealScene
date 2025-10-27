@@ -166,7 +166,7 @@
         <div v-if="sliceMetadata.length > 0" class="slice-grid">
           <div
             v-for="slice in sliceMetadata"
-            :key="`${slice.x}_${slice.y}_${slice.z}`"
+            :key="`${selectedLevel}_${slice.x}_${slice.y}_${slice.z}`"
             class="slice-item"
           >
             <div class="slice-coord">
@@ -663,13 +663,21 @@ const refreshTasks = async () => {
 
 const loadSliceMetadata = async () => {
   if (!selectedTaskId.value) return
+
+  // 清空旧数据，避免UI显示累积
+  sliceMetadata.value = []
+
   try {
-    sliceMetadata.value = await slicingService.getSliceMetadata(
+    const result = await slicingService.getSliceMetadata(
       selectedTaskId.value,
       selectedLevel.value
     )
+    // 使用新数据替换
+    sliceMetadata.value = result || []
   } catch (error) {
     console.error('加载切片元数据失败:', error)
+    // 确保出错时也清空数据
+    sliceMetadata.value = []
   }
 }
 
@@ -722,6 +730,7 @@ const createTask = async () => {
         tileSize: taskForm.value.tileSize,
         outputFormat: 'b3dm',
         compressOutput: taskForm.value.enableCompression,
+        enableIncrementalUpdates: taskForm.value.enableIncrementalUpdate,
         geometricErrorThreshold: 1.0,
         textureQuality: 0.8
       }
