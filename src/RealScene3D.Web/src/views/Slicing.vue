@@ -662,10 +662,11 @@ const refreshTasks = async () => {
 }
 
 const loadSliceMetadata = async () => {
-  if (!selectedTaskId.value) return
-
   // 清空旧数据，避免UI显示累积
   sliceMetadata.value = []
+  if (!selectedTaskId.value) {
+    return
+  }
 
   try {
     const result = await slicingService.getSliceMetadata(
