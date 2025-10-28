@@ -106,6 +106,7 @@ public class SceneService : ISceneService
     {
         var scene = await _context.Scenes
             .Include(s => s.SceneObjects)
+                .ThenInclude(so => so.SlicingTask)
             .FirstOrDefaultAsync(s => s.Id == id);
 
         return scene != null ? MapToDto(scene) : null;
@@ -241,21 +242,29 @@ public class SceneService : ISceneService
             Metadata = scene.Metadata,
             OwnerId = scene.OwnerId,
             CreatedAt = scene.CreatedAt,
-            SceneObjects = scene.SceneObjects.Select(so => new SceneDtos.SceneObjectDto
+            SceneObjects = scene.SceneObjects.Select(so =>
             {
-                Id = so.Id,
-                SceneId = so.SceneId,
-                Name = so.Name,
-                Type = so.Type,
-                Position = so.Position != null ? new[] { so.Position.X, so.Position.Y, so.Position.Z } : Array.Empty<double>(),
-                Rotation = so.Rotation,
-                Scale = so.Scale,
-                ModelPath = so.ModelPath,
-                MaterialData = so.MaterialData,
-                Properties = so.Properties,
-                CreatedAt = so.CreatedAt,
-                SlicingTaskId = so.SlicingTask?.Id,
-                SlicingTaskStatus = so.SlicingTask?.Status.ToString()
+                var slicingOutputPath = so.SlicingTask?.Status == SlicingTaskStatus.Completed ? so.SlicingTask.OutputPath : null;
+                var displayPath = slicingOutputPath ?? so.ModelPath;
+
+                return new SceneDtos.SceneObjectDto
+                {
+                    Id = so.Id,
+                    SceneId = so.SceneId,
+                    Name = so.Name,
+                    Type = so.Type,
+                    Position = so.Position != null ? new[] { so.Position.X, so.Position.Y, so.Position.Z } : Array.Empty<double>(),
+                    Rotation = so.Rotation,
+                    Scale = so.Scale,
+                    ModelPath = so.ModelPath,
+                    MaterialData = so.MaterialData,
+                    Properties = so.Properties,
+                    CreatedAt = so.CreatedAt,
+                    SlicingTaskId = so.SlicingTask?.Id,
+                    SlicingTaskStatus = so.SlicingTask?.Status.ToString(),
+                    SlicingOutputPath = slicingOutputPath,
+                    DisplayPath = displayPath
+                };
             }).ToList()
         };
     }

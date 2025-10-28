@@ -4765,7 +4765,7 @@ public class SlicingAppService : ISlicingAppService
             // 对于增量更新，使用新的请求配置；对于新任务，从task.SlicingConfig反序列化
             var slicingConfig = isIncrementalUpdate
                 ? request.SlicingConfig
-                : System.Text.Json.JsonSerializer.Deserialize<SlicingConfig>(task.SlicingConfig);
+                : System.Text.Json.JsonSerializer.Deserialize<SlicingDtos.SlicingConfig>(task.SlicingConfig) ?? new SlicingDtos.SlicingConfig();
 
             if (slicingConfig != null)
             {
@@ -4774,34 +4774,36 @@ public class SlicingAppService : ISlicingAppService
                 // 2. 如果任务的 OutputPath 是绝对路径（Path.IsPathRooted），判定为本地文件系统
                 // 3. 如果任务的 OutputPath 是相对路径或未提供路径，默认使用 MinIO
 
-                bool userSpecifiedStorage = request.SlicingConfig.StorageLocation != StorageLocationType.MinIO; // 假设默认值是MinIO
                 // 关键修复：对于增量更新，应该使用 task.OutputPath 而不是 request.OutputPath
                 // 因为增量更新时 task 可能来自 existingTask，其 OutputPath 已经确定
                 bool hasRootedPath = !string.IsNullOrEmpty(task.OutputPath) && Path.IsPathRooted(task.OutputPath);
 
+                bool userSpecifiedStorage = Enum.TryParse<StorageLocationType>(request.SlicingConfig.StorageLocation, true, out var specifiedLocation) && specifiedLocation != StorageLocationType.MinIO;
+
                 if (userSpecifiedStorage)
                 {
                     // 用户明确指定了存储位置，使用用户指定的
-                    slicingConfig.StorageLocation = request.SlicingConfig.StorageLocation;
+                    slicingConfig.StorageLocation = specifiedLocation.ToString();
                     _logger.LogInformation("切片任务 {TaskId} 使用用户指定的存储位置：{StorageLocation}", task.Id, slicingConfig.StorageLocation);
                 }
                 else if (hasRootedPath)
                 {
                     // 任务的输出路径是绝对路径，判定为本地文件系统
-                    slicingConfig.StorageLocation = StorageLocationType.LocalFileSystem;
-                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, task.OutputPath);
+                    slicingConfig.StorageLocation = StorageLocationType.LocalFileSystem.ToString();
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, task.OutputPath!);
                 }
                 else
                 {
                     // 默认使用 MinIO
-                    slicingConfig.StorageLocation = StorageLocationType.MinIO;
-                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, task.OutputPath);
+                    slicingConfig.StorageLocation = StorageLocationType.MinIO.ToString();
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, task.OutputPath!);
                 }
 
                 task.SlicingConfig = System.Text.Json.JsonSerializer.Serialize(slicingConfig);
 
-                if (slicingConfig.StorageLocation == StorageLocationType.LocalFileSystem)
+                if (Enum.TryParse<StorageLocationType>(slicingConfig.StorageLocation, true, out var finalLocation) && finalLocation == StorageLocationType.LocalFileSystem)
                 {
+
                     // 对于本地文件系统，如果是相对路径，转换为绝对路径
                     if (!string.IsNullOrEmpty(task.OutputPath) && !Path.IsPathRooted(task.OutputPath))
                     {
@@ -5559,7 +5561,7 @@ public class SlicingAppService : ISlicingAppService
             SourceModelPath = task.SourceModelPath,
             ModelType = task.ModelType,
             SceneObjectId = task.SceneObjectId,
-            SlicingConfig = ParseSlicingConfig(task.SlicingConfig),
+            SlicingConfig = MapSlicingConfigToDto(ParseSlicingConfig(task.SlicingConfig)),
             Status = task.Status.ToString().ToLowerInvariant(),
             Progress = task.Progress,
             OutputPath = task.OutputPath,
@@ -5569,6 +5571,21 @@ public class SlicingAppService : ISlicingAppService
             StartedAt = task.StartedAt,
             CompletedAt = task.CompletedAt,
             TotalSlices = 0 // 这里应该计算实际的切片总数
+        };
+    }
+
+    private static SlicingDtos.SlicingConfig MapSlicingConfigToDto(SlicingConfig domainConfig)
+    {
+        return new SlicingDtos.SlicingConfig
+        {
+            Granularity = domainConfig.Strategy.ToString(),
+            OutputFormat = domainConfig.OutputFormat,
+            CoordinateSystem = "EPSG:4326", // 默认值
+            CustomSettings = "{}", // 默认值
+            TileSize = domainConfig.TileSize,
+            MaxLevel = domainConfig.MaxLevel,
+            EnableIncrementalUpdates = domainConfig.EnableIncrementalUpdates,
+            StorageLocation = domainConfig.StorageLocation.ToString()
         };
     }
 

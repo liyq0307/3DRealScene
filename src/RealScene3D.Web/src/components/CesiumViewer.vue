@@ -140,23 +140,26 @@ const loadSceneObjects = async (objects: any[]) => {
 
   for (const obj of objects) {
     try {
-      if (obj.slicingTaskStatus === 'completed' && obj.slicingTaskId) {
-        // 加载切片内容 (3D Tiles)
-        const tilesetUrl = `/api/slicing/${obj.slicingTaskId}/tileset.json` // 假设API提供tileset.json
-        const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetUrl)
+      if (!obj.displayPath) {
+        console.warn(`Object ${obj.name} has no displayPath, skipping.`)
+        continue
+      }
+
+      // 检查displayPath是否指向3D Tileset (以tileset.json结尾)
+      if (obj.displayPath.endsWith('tileset.json')) {
+        const tileset = await Cesium.Cesium3DTileset.fromUrl(obj.displayPath)
         viewer.scene.primitives.add(tileset)
         loadedModels.set(obj.id, tileset)
-        console.log(`Loaded 3D Tileset for object ${obj.name}: ${tilesetUrl}`)
+        console.log(`Loaded 3D Tileset for object ${obj.name}: ${obj.displayPath}`)
       } else {
-        // 加载原始模型 (GLTF/GLB)
-        const modelUrl = obj.modelPath // 假设modelPath是可直接访问的URL
+        // 否则，假定为GLTF/GLB模型
         const model = await Cesium.Model.fromGltfAsync({
-          url: modelUrl,
-          modelMatrix: Cesium.Matrix4.IDENTITY // Adjust as needed for position, rotation, scale
+          url: obj.displayPath,
+          modelMatrix: Cesium.Matrix4.IDENTITY // 根据需要调整位置、旋转、缩放
         });
         viewer.scene.primitives.add(model);
         loadedModels.set(obj.id, model)
-        console.log(`Loaded original model for object ${obj.name}: ${modelUrl}`)
+        console.log(`Loaded original model for object ${obj.name}: ${obj.displayPath}`)
       }
     } catch (error) {
       console.error(`Failed to load object ${obj.name} (${obj.id}):`, error)

@@ -348,5 +348,15 @@ public class SceneDtos
         /// 关联的切片任务状态，可选项
         /// </summary>
         public string? SlicingTaskStatus { get; set; }
+
+        /// <summary>
+        /// 切片输出路径
+        /// </summary>
+        public string? SlicingOutputPath { get; set; }
+
+        /// <summary>
+        /// 显示路径
+        /// </summary>
+        public string? DisplayPath { get; set; }
     }
 }

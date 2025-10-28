@@ -323,7 +323,7 @@ const viewScene = async (id: string) => {
   try {
     console.log('[Scenes] Fetching scene details...')
     currentScene.value = await sceneService.getScene(id)
-    sceneObjects.value = await sceneObjectService.getSceneObjects(id) // 获取场景对象
+    sceneObjects.value = currentScene.value.sceneObjects // 直接从场景数据中获取场景对象
     console.log('[Scenes] Scene details loaded:', currentScene.value)
     console.log('[Scenes] Scene objects loaded:', sceneObjects.value)
     showDetailDialog.value = true
