@@ -95,6 +95,10 @@
                 <span class="meta-label">路径:</span>
                 {{ getShortPath(obj.modelPath) }}
               </span>
+              <span class="meta-item" v-if="obj.slicingTaskStatus">
+                <span class="meta-label">切片状态:</span>
+                <span :class="getSlicingStatusClass(obj.slicingTaskStatus)">{{ getSlicingStatusText(obj.slicingTaskStatus) }}</span>
+              </span>
             </div>
             <div class="object-transform">
               <span class="transform-item" title="位置">
@@ -108,6 +112,9 @@
             </button>
             <button @click="duplicateObject(obj)" class="btn-icon" title="复制">
               <span>📋</span>
+            </button>
+            <button @click="startSlicing(obj)" class="btn-icon" title="切片">
+              <span>🔪</span>
             </button>
             <button @click="deleteObject(obj.id)" class="btn-icon danger" title="删除">
               <span>🗑️</span>
@@ -126,6 +133,7 @@
               <th>位置</th>
               <th>旋转</th>
               <th>缩放</th>
+              <th>切片状态</th>
               <th>创建时间</th>
               <th>操作</th>
             </tr>
@@ -147,11 +155,18 @@
               <td>{{ formatVector(obj.position) }}</td>
               <td>{{ formatVector(obj.rotation) }}</td>
               <td>{{ formatVector(obj.scale) }}</td>
+              <td>
+                <span v-if="obj.slicingTaskStatus" :class="getSlicingStatusClass(obj.slicingTaskStatus)">
+                  {{ getSlicingStatusText(obj.slicingTaskStatus) }}
+                </span>
+                <span v-else>-</span>
+              </td>
               <td>{{ formatDateTime(obj.createdAt) }}</td>
               <td>
                 <div class="table-actions" @click.stop>
                   <button @click="editObject(obj)" class="btn-sm">编辑</button>
                   <button @click="duplicateObject(obj)" class="btn-sm">复制</button>
+                  <button @click="startSlicing(obj)" class="btn-sm">切片</button>
                   <button @click="deleteObject(obj.id)" class="btn-sm btn-danger">删除</button>
                 </div>
               </td>
@@ -412,16 +427,94 @@
         />
       </div>
     </Modal>
+
+    <!-- 切片配置对话框 -->
+    <Modal
+      v-model="showSlicingDialog"
+      title="配置切片任务"
+      size="md"
+    >
+      <div class="slicing-dialog">
+        <div class="form-group">
+          <label>任务名称 *</label>
+          <input v-model="slicingForm.name" type="text" class="form-input" />
+        </div>
+        <div class="form-group">
+          <label>模型类型</label>
+          <select v-model="slicingForm.modelType" class="form-select">
+            <option value="Model3D">3D模型</option>
+            <option value="PointCloud">点云</option>
+            <!-- 其他类型 -->
+          </select>
+        </div>
+        <div class="form-group">
+          <label>切片策略</label>
+          <select v-model="slicingForm.slicingStrategy" class="form-select">
+            <option value="Octree">八叉树</option>
+            <option value="Grid">网格</option>
+            <option value="KdTree">KD树</option>
+            <option value="Adaptive">自适应</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>最大LOD级别</label>
+          <input v-model.number="slicingForm.maxLevel" type="number" class="form-input" min="0" max="20" />
+        </div>
+        <div class="form-group">
+          <label>切片尺寸 (米)</label>
+          <input v-model.number="slicingForm.tileSize" type="number" class="form-input" min="1" />
+        </div>
+        <div class="form-group">
+          <label>几何误差阈值</label>
+          <input v-model.number="slicingForm.geometricErrorThreshold" type="number" class="form-input" min="0.1" step="0.1" />
+        </div>
+        <div class="form-group">
+          <label>并行处理数量</label>
+          <input v-model.number="slicingForm.parallelProcessingCount" type="number" class="form-input" min="1" />
+        </div>
+        <div class="form-group">
+          <label>输出格式</label>
+          <select v-model="slicingForm.outputFormat" class="form-select">
+            <option value="b3dm">B3DM</option>
+            <option value="gltf">GLTF</option>
+            <option value="glb">GLB</option>
+            <option value="json">JSON</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>压缩级别</label>
+          <input v-model.number="slicingForm.compressionLevel" type="number" class="form-input" min="0" max="9" />
+        </div>
+        <div class="form-group">
+          <label>存储位置</label>
+          <select v-model="slicingForm.storageLocation" class="form-select">
+            <option value="MinIO">MinIO</option>
+            <option value="LocalFileSystem">本地文件系统</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input v-model="slicingForm.enableIncrementalUpdates" type="checkbox" />
+            <span>启用增量更新</span>
+          </label>
+        </div>
+      </div>
+      <template #footer>
+        <button @click="closeSlicingDialog" class="btn btn-secondary">取消</button>
+        <button @click="submitSlicingTask" class="btn btn-primary">开始切片</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { sceneService, sceneObjectService, fileService } from '@/services/api'
+import { sceneService, sceneObjectService, fileService, slicingService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import Modal from '@/components/Modal.vue'
 import ModelViewer from '@/components/ModelViewer.vue'
 import { FileHandleStore } from '@/services/fileHandleStore'
+import authStore from '@/stores/auth'
 
 const { success: showSuccess, error: showError } = useMessage()
 
@@ -474,9 +567,26 @@ const filterType = ref('')
 const showCreateDialog = ref(false)
 const showPreviewDialog = ref(false)
 const showUrlDialog = ref(false)  // URL输入对话框
+const showSlicingDialog = ref(false) // 新增：切片对话框
 const editingObject = ref<any>(null)
 const previewModelUrl = ref('')
 const previewModelFile = ref<File | undefined>(undefined)  // 用于预览的File对象
+const objectToSlice = ref<any>(null) // 新增：待切片的对象
+
+// 切片表单数据
+const slicingForm = ref({
+  name: '',
+  modelType: 'Model3D',
+  slicingStrategy: 'Octree',
+  maxLevel: 10,
+  tileSize: 100,
+  geometricErrorThreshold: 1,
+  parallelProcessingCount: 4,
+  outputFormat: 'b3dm',
+  compressionLevel: 6,
+  enableIncrementalUpdates: false,
+  storageLocation: 'MinIO'
+})
 
 // 文件选择相关
 const fileInputRef = ref<HTMLInputElement>()
@@ -820,6 +930,70 @@ const deleteObject = async (id: string) => {
   }
 }
 
+// 切片操作方法
+const startSlicing = (obj: any) => {
+  if (!obj.modelPath) {
+    showError('该对象没有关联的模型文件，无法切片。');
+    return;
+  }
+  objectToSlice.value = obj;
+  slicingForm.value.name = `切片任务 - ${obj.name}`;
+  slicingForm.value.modelType = obj.objectType || obj.type; // 继承对象类型
+  openSlicingDialog();
+};
+
+const openSlicingDialog = () => {
+  showSlicingDialog.value = true;
+};
+
+const closeSlicingDialog = () => {
+  showSlicingDialog.value = false;
+  objectToSlice.value = null;
+};
+
+const submitSlicingTask = async () => {
+  if (!objectToSlice.value) {
+    showError('没有选择要切片的对象。');
+    return;
+  }
+
+  if (!slicingForm.value.name) {
+    showError('请输入切片任务名称。');
+    return;
+  }
+
+  try {
+    // 获取当前用户ID
+    const userId = authStore.currentUser.value?.id || '9055f06c-20d2-4e67-8a89-069887a2c4e8';
+
+    const requestData = {
+      name: slicingForm.value.name,
+      sourceModelPath: objectToSlice.value.modelPath,
+      modelType: slicingForm.value.modelType,
+      sceneObjectId: objectToSlice.value.id, // 关联场景对象ID
+      slicingConfig: {
+        strategy: slicingForm.value.slicingStrategy,
+        maxLevel: slicingForm.value.maxLevel,
+        tileSize: slicingForm.value.tileSize,
+        geometricErrorThreshold: slicingForm.value.geometricErrorThreshold,
+        parallelProcessingCount: slicingForm.value.parallelProcessingCount,
+        outputFormat: slicingForm.value.outputFormat,
+        compressionLevel: slicingForm.value.compressionLevel,
+        enableIncrementalUpdates: slicingForm.value.enableIncrementalUpdates,
+        storageLocation: slicingForm.value.storageLocation
+      }
+    };
+
+    await slicingService.createSlicingTask(requestData, userId);
+    showSuccess('切片任务已成功创建！');
+    closeSlicingDialog();
+    await loadObjects(); // 刷新对象列表以显示切片状态
+  } catch (error) {
+    console.error('创建切片任务失败:', error);
+    showError('创建切片任务失败，请稍后重试。');
+  }
+};
+
 // 预览3D模型
 const previewModel = async (obj: any) => {
   if (!obj.modelPath) {
@@ -1029,6 +1203,35 @@ const getTypeIcon = (type: string): string => {
   }
   return iconMap[type] || '📦'
 }
+
+const getSlicingStatusClass = (status: string): string => {
+  switch (status?.toLowerCase()) {
+    case 'created':
+    case 'queued':
+      return 'status-pending';
+    case 'processing':
+      return 'status-processing';
+    case 'completed':
+      return 'status-completed';
+    case 'failed':
+    case 'cancelled':
+      return 'status-failed';
+    default:
+      return '';
+  }
+};
+
+const getSlicingStatusText = (status: string): string => {
+  switch (status?.toLowerCase()) {
+    case 'created': return '已创建';
+    case 'queued': return '排队中';
+    case 'processing': return '处理中';
+    case 'completed': return '已完成';
+    case 'failed': return '失败';
+    case 'cancelled': return '已取消';
+    default: return '未知';
+  }
+};
 
 const getShortPath = (path: string): string => {
   if (!path) return ''
@@ -1711,5 +1914,27 @@ onMounted(async () => {
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 500;
+}
+
+/* 切片状态样式 */
+.status-pending {
+  color: #ffc107;
+  font-weight: 600;
+}
+
+.status-processing {
+  color: #17a2b8;
+  font-weight: 600;
+}
+
+.status-completed {
+  color: #28a745;
+  font-weight: 600;
+}
+
+.status-failed,
+.status-cancelled {
+  color: #dc3545;
+  font-weight: 600;
 }
 </style>

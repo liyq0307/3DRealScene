@@ -52,6 +52,11 @@ public class SceneDtos
         /// 格式示例：{"camera": {"fov": 60, "near": 1, "far": 10000}, "rendering": {"quality": "high"}}
         /// </summary>
         public string Metadata { get; set; } = "{}";
+
+        /// <summary>
+        /// 场景对象集合，用于在创建场景时一并创建场景对象
+        /// </summary>
+        public ICollection<CreateSceneObjectRequest> SceneObjects { get; set; } = new List<CreateSceneObjectRequest>();
     }
 
     /// <summary>
@@ -134,6 +139,11 @@ public class SceneDtos
         /// 场景创建时间
         /// </summary>
         public DateTime CreatedAt { get; set; }
+
+        /// <summary>
+        /// 场景对象集合
+        /// </summary>
+        public ICollection<SceneObjectDto> SceneObjects { get; set; } = new List<SceneObjectDto>();
     }
 
     /// <summary>
@@ -326,9 +336,17 @@ public class SceneDtos
         /// </summary>
         public string Properties { get; set; } = "{}";
 
-        /// <summary>
-        /// 对象创建时间
         /// </summary>
         public DateTime CreatedAt { get; set; }
+
+        /// <summary>
+        /// 关联的切片任务ID，可选项
+        /// </summary>
+        public Guid? SlicingTaskId { get; set; }
+
+        /// <summary>
+        /// 关联的切片任务状态，可选项
+        /// </summary>
+        public string? SlicingTaskStatus { get; set; }
     }
 }

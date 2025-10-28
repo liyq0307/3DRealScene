@@ -32,6 +32,18 @@ public class SlicingTask
     public string SourceModelPath { get; set; } = string.Empty;
 
     /// <summary>
+    /// 关联的场景对象ID，可选项
+    /// 外键关联到SceneObject实体，建立切片任务与场景对象的从属关系
+    /// </summary>
+    public Guid? SceneObjectId { get; set; }
+
+    /// <summary>
+    /// 关联的场景对象导航属性
+    /// 与SceneObject实体建立多对一关联关系
+    /// </summary>
+    public SceneObject? SceneObject { get; set; }
+
+    /// <summary>
     /// 模型类型，必填项，最大长度50字符
     /// 指定切片算法和处理策略，如：BIM、倾斜摄影、激光点云等
     /// 不同类型采用不同的切片算法和参数配置

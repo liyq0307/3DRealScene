@@ -32,29 +32,6 @@ namespace RealScene3D.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "SlicingTasks",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    SourceModelPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    ModelType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    SlicingConfig = table.Column<string>(type: "text", nullable: false),
-                    Status = table.Column<int>(type: "integer", nullable: false),
-                    Progress = table.Column<int>(type: "integer", nullable: false),
-                    OutputPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
-                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_SlicingTasks", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "SystemMetrics",
                 columns: table => new
                 {
@@ -91,32 +68,6 @@ namespace RealScene3D.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Users", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Slices",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    SlicingTaskId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Level = table.Column<int>(type: "integer", nullable: false),
-                    X = table.Column<int>(type: "integer", nullable: false),
-                    Y = table.Column<int>(type: "integer", nullable: false),
-                    Z = table.Column<int>(type: "integer", nullable: false),
-                    FilePath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    BoundingBox = table.Column<string>(type: "text", nullable: false),
-                    FileSize = table.Column<long>(type: "bigint", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Slices", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Slices_SlicingTasks_SlicingTaskId",
-                        column: x => x.SlicingTaskId,
-                        principalTable: "SlicingTasks",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -337,6 +288,36 @@ namespace RealScene3D.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "SlicingTasks",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    SourceModelPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    ModelType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    SlicingConfig = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
+                    Progress = table.Column<int>(type: "integer", nullable: false),
+                    OutputPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SceneObjectId = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SlicingTasks", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_SlicingTasks_SceneObjects_SceneObjectId",
+                        column: x => x.SceneObjectId,
+                        principalTable: "SceneObjects",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "WorkflowExecutionHistories",
                 columns: table => new
                 {
@@ -358,6 +339,32 @@ namespace RealScene3D.Infrastructure.Migrations
                         name: "FK_WorkflowExecutionHistories_WorkflowInstances_WorkflowInstan~",
                         column: x => x.WorkflowInstanceId,
                         principalTable: "WorkflowInstances",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Slices",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SlicingTaskId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Level = table.Column<int>(type: "integer", nullable: false),
+                    X = table.Column<int>(type: "integer", nullable: false),
+                    Y = table.Column<int>(type: "integer", nullable: false),
+                    Z = table.Column<int>(type: "integer", nullable: false),
+                    FilePath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    BoundingBox = table.Column<string>(type: "text", nullable: false),
+                    FileSize = table.Column<long>(type: "bigint", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Slices", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Slices_SlicingTasks_SlicingTaskId",
+                        column: x => x.SlicingTaskId,
+                        principalTable: "SlicingTasks",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -391,6 +398,12 @@ namespace RealScene3D.Infrastructure.Migrations
                 name: "IX_Slices_SlicingTaskId",
                 table: "Slices",
                 column: "SlicingTaskId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SlicingTasks_SceneObjectId",
+                table: "SlicingTasks",
+                column: "SceneObjectId",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserLogs_UserId",
@@ -443,9 +456,6 @@ namespace RealScene3D.Infrastructure.Migrations
                 name: "Dashboards");
 
             migrationBuilder.DropTable(
-                name: "SceneObjects");
-
-            migrationBuilder.DropTable(
                 name: "Slices");
 
             migrationBuilder.DropTable(
@@ -461,16 +471,19 @@ namespace RealScene3D.Infrastructure.Migrations
                 name: "AlertRules");
 
             migrationBuilder.DropTable(
-                name: "Scenes");
-
-            migrationBuilder.DropTable(
                 name: "SlicingTasks");
 
             migrationBuilder.DropTable(
                 name: "WorkflowInstances");
 
             migrationBuilder.DropTable(
+                name: "SceneObjects");
+
+            migrationBuilder.DropTable(
                 name: "Workflows");
+
+            migrationBuilder.DropTable(
+                name: "Scenes");
 
             migrationBuilder.DropTable(
                 name: "Users");

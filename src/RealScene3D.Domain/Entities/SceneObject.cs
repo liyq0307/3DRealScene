@@ -76,4 +76,9 @@ public class SceneObject : BaseEntity
     /// 用于获取场景的完整信息和相关对象
     /// </summary>
     public Scene3D Scene { get; set; } = null!;
+
+    /// <summary>
+    /// 关联的切片任务
+    /// </summary>
+    public virtual SlicingTask? SlicingTask { get; set; }
 }

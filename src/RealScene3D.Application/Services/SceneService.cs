@@ -15,6 +15,7 @@ namespace RealScene3D.Application.Services;
 public class SceneService : ISceneService
 {
     private readonly IRepository<Scene3D> _sceneRepository;
+    private readonly IRepository<SceneObject> _sceneObjectRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ApplicationDbContext _context;
     private readonly GeometryFactory _geometryFactory;
@@ -22,10 +23,12 @@ public class SceneService : ISceneService
 
     public SceneService(
         IRepository<Scene3D> sceneRepository,
+        IRepository<SceneObject> sceneObjectRepository,
         IUnitOfWork unitOfWork,
         ApplicationDbContext context)
     {
         _sceneRepository = sceneRepository;
+        _sceneObjectRepository = sceneObjectRepository;
         _unitOfWork = unitOfWork;
         _context = context;
         _geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
@@ -71,6 +74,24 @@ public class SceneService : ISceneService
         }
 
         await _sceneRepository.AddAsync(scene);
+
+        foreach (var objRequest in request.SceneObjects)
+        {
+            var sceneObject = new SceneObject
+            {
+                SceneId = scene.Id,
+                Name = objRequest.Name,
+                Type = objRequest.Type,
+                Position = _geometryFactory.CreatePoint(new CoordinateZ(objRequest.Position[0], objRequest.Position[1], objRequest.Position.Length > 2 ? objRequest.Position[2] : 0)),
+                Rotation = objRequest.Rotation,
+                Scale = objRequest.Scale,
+                ModelPath = objRequest.ModelPath,
+                MaterialData = objRequest.MaterialData,
+                Properties = objRequest.Properties
+            };
+            scene.SceneObjects.Add(sceneObject);
+        }
+
         await _unitOfWork.SaveChangesAsync();
 
         return MapToDto(scene);
@@ -98,6 +119,8 @@ public class SceneService : ISceneService
     public async Task<IEnumerable<SceneDtos.SceneDto>> GetUserScenesAsync(Guid userId)
     {
         var scenes = await _context.Scenes
+            .Include(s => s.SceneObjects)
+                .ThenInclude(so => so.SlicingTask)
             .Where(s => s.OwnerId == userId)
             .ToListAsync();
 
@@ -110,7 +133,10 @@ public class SceneService : ISceneService
     /// <returns>所有公开可访问的场景列表</returns>
     public async Task<IEnumerable<SceneDtos.SceneDto>> GetAllScenesAsync()
     {
-        var scenes = await _sceneRepository.GetAllAsync();
+        var scenes = await _context.Scenes
+            .Include(s => s.SceneObjects)
+                .ThenInclude(so => so.SlicingTask)
+            .ToListAsync();
         return scenes.Select(MapToDto);
     }
 
@@ -214,7 +240,23 @@ public class SceneService : ISceneService
                 : null,
             Metadata = scene.Metadata,
             OwnerId = scene.OwnerId,
-            CreatedAt = scene.CreatedAt
+            CreatedAt = scene.CreatedAt,
+            SceneObjects = scene.SceneObjects.Select(so => new SceneDtos.SceneObjectDto
+            {
+                Id = so.Id,
+                SceneId = so.SceneId,
+                Name = so.Name,
+                Type = so.Type,
+                Position = so.Position != null ? new[] { so.Position.X, so.Position.Y, so.Position.Z } : Array.Empty<double>(),
+                Rotation = so.Rotation,
+                Scale = so.Scale,
+                ModelPath = so.ModelPath,
+                MaterialData = so.MaterialData,
+                Properties = so.Properties,
+                CreatedAt = so.CreatedAt,
+                SlicingTaskId = so.SlicingTask?.Id,
+                SlicingTaskStatus = so.SlicingTask?.Status.ToString()
+            }).ToList()
         };
     }
 }

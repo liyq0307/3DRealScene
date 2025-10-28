@@ -22,11 +22,14 @@ public class SlicingDtos
         /// </summary>
         public string Name { get; set; } = string.Empty;
 
-        /// <summary>
-        /// 源3D模型文件路径，必填项
-        /// 支持多种3D模型格式，如：OBJ、FBX、GLTF等
         /// </summary>
         public string SourceModelPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 关联的场景对象ID，可选项
+        /// </summary>
+        public Guid? SceneObjectId { get; set;}
+
 
         /// <summary>
         /// 模型类型，必填项
@@ -34,12 +37,38 @@ public class SlicingDtos
         /// </summary>
         public string ModelType { get; set; } = string.Empty;
 
+            /// <summary>
+            /// 切片配置参数，必填项
+            /// 包含切片粒度、输出格式、坐标系等配置信息
+            /// </summary>
+            public SlicingConfig SlicingConfig { get; set; } = new();
+        }
+        
         /// <summary>
-        /// 切片配置参数，必填项
-        /// 包含切片粒度、输出格式、坐标系等配置信息
+        /// 切片配置参数DTO
+        /// 用于定义切片任务的详细配置，如切片粒度、输出格式、坐标系等
         /// </summary>
-        public SlicingConfig SlicingConfig { get; set; } = new();
-
+        public class SlicingConfig
+        {
+            /// <summary>
+            /// 切片粒度，例如："High", "Medium", "Low"
+            /// </summary>
+            public string Granularity { get; set; } = "Medium";
+        
+            /// <summary>
+            /// 输出格式，例如："3D Tiles", "Cesium3DTiles", "GLTF"
+            /// </summary>
+            public string OutputFormat { get; set; } = "3D Tiles";
+        
+            /// <summary>
+            /// 坐标系，例如："EPSG:4326", "EPSG:3857"
+            /// </summary>
+            public string CoordinateSystem { get; set; } = "EPSG:4326";
+        
+            /// <summary>
+            /// 其他自定义配置，JSON字符串
+            /// </summary>
+            public string CustomSettings { get; set; } = "{}";
         /// <summary>
         /// 切片输出目录路径，可选项
         /// 指定切片结果文件的存储目录路径，如果未提供则自动生成
@@ -68,10 +97,13 @@ public class SlicingDtos
         /// </summary>
         public string SourceModelPath { get; set; } = string.Empty;
 
-        /// <summary>
-        /// 模型类型
         /// </summary>
         public string ModelType { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 关联的场景对象ID，可选项
+        /// </summary>
+        public Guid? SceneObjectId { get; set;}
 
         /// <summary>
         /// 切片配置参数

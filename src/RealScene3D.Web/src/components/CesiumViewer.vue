@@ -62,7 +62,7 @@
  * 作者：liyq
  * 创建时间：2025-10-22
  */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import * as Cesium from 'cesium'
 
 // ==================== Props 定义 ====================
@@ -76,6 +76,7 @@ interface Props {
   }
   terrainProvider?: string    // 地形数据源
   imageryProvider?: string    // 影像数据源
+  sceneObjects?: any[]        // 场景对象列表
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -84,7 +85,8 @@ const props = withDefaults(defineProps<Props>(), {
     longitude: 116.39,  // 北京
     latitude: 39.91,
     height: 15000000    // 15000km高度
-  })
+  }),
+  sceneObjects: () => []
 })
 
 // ==================== Emits 定义 ====================
@@ -114,6 +116,61 @@ const cameraInfo = ref({
 let viewer: Cesium.Viewer | null = null
 let frameCount = 0
 let lastTime = performance.now()
+const loadedModels = new Map<string, any>() // Store references to loaded models/tilesets
+
+// ==================== 监听 Props 变化 ====================
+
+watch(
+  () => props.sceneObjects,
+  (newVal, oldVal) => {
+    if (viewer && newVal !== oldVal) {
+      loadSceneObjects(newVal || [])
+    }
+  },
+  { deep: true }
+)
+
+// ==================== 场景对象加载 ====================
+
+const loadSceneObjects = async (objects: any[]) => {
+  if (!viewer) return
+
+  // 清除之前加载的所有模型
+  clearLoadedObjects()
+
+  for (const obj of objects) {
+    try {
+      if (obj.slicingTaskStatus === 'completed' && obj.slicingTaskId) {
+        // 加载切片内容 (3D Tiles)
+        const tilesetUrl = `/api/slicing/${obj.slicingTaskId}/tileset.json` // 假设API提供tileset.json
+        const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetUrl)
+        viewer.scene.primitives.add(tileset)
+        loadedModels.set(obj.id, tileset)
+        console.log(`Loaded 3D Tileset for object ${obj.name}: ${tilesetUrl}`)
+      } else {
+        // 加载原始模型 (GLTF/GLB)
+        const modelUrl = obj.modelPath // 假设modelPath是可直接访问的URL
+        const model = await Cesium.Model.fromGltfAsync({
+          url: modelUrl,
+          modelMatrix: Cesium.Matrix4.IDENTITY // Adjust as needed for position, rotation, scale
+        });
+        viewer.scene.primitives.add(model);
+        loadedModels.set(obj.id, model)
+        console.log(`Loaded original model for object ${obj.name}: ${modelUrl}`)
+      }
+    } catch (error) {
+      console.error(`Failed to load object ${obj.name} (${obj.id}):`, error)
+    }
+  }
+}
+
+const clearLoadedObjects = () => {
+  if (!viewer) return
+  loadedModels.forEach((model) => {
+    viewer?.scene.primitives.remove(model)
+  })
+  loadedModels.clear()
+}
 
 // ==================== 初始化Cesium ====================
 
@@ -192,6 +249,11 @@ const initCesium = async () => {
 
     // 启动FPS监控
     startFPSMonitor()
+
+    // 初始加载场景对象
+    if (props.sceneObjects && props.sceneObjects.length > 0) {
+      loadSceneObjects(props.sceneObjects)
+    }
 
     loading.value = false
     emit('ready', viewer)

@@ -4756,7 +4756,8 @@ public class SlicingAppService : ISlicingAppService
                         ? GenerateOutputPathFromSource(request.SourceModelPath) // 基于源模型生成确定性路径
                         : request.OutputPath.Trim(),
                     CreatedBy = userId,
-                    Status = SlicingTaskStatus.Created
+                    Status = SlicingTaskStatus.Created,
+                    SceneObjectId = request.SceneObjectId
                 };
             }
 
@@ -5557,6 +5558,7 @@ public class SlicingAppService : ISlicingAppService
             Name = task.Name,
             SourceModelPath = task.SourceModelPath,
             ModelType = task.ModelType,
+            SceneObjectId = task.SceneObjectId,
             SlicingConfig = ParseSlicingConfig(task.SlicingConfig),
             Status = task.Status.ToString().ToLowerInvariant(),
             Progress = task.Progress,

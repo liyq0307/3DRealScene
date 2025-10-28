@@ -130,6 +130,7 @@
                 <CesiumViewer
                   v-if="showDetailDialog"
                   :show-info="true"
+                  :scene-objects="sceneObjects"
                   @ready="onCesiumReady"
                   @error="onCesiumError"
                 />
@@ -218,7 +219,7 @@
  */
 
 import { ref, computed, onMounted } from 'vue'
-import { sceneService } from '../services/api'
+import { sceneService, sceneObjectService } from '../services/api'
 import authStore from '@/stores/auth'
 import { useMessage } from '@/composables/useMessage'
 import CesiumViewer from '@/components/CesiumViewer.vue'
@@ -237,6 +238,7 @@ const { success: showSuccess, error: showError } = useMessage()
  */
 const scenes = ref<any[]>([])
 const currentScene = ref<any>(null)
+const sceneObjects = ref<any[]>([]) // 新增：存储当前场景的场景对象
 const editingScene = ref<string | null>(null)
 
 // 对话框状态
@@ -321,7 +323,9 @@ const viewScene = async (id: string) => {
   try {
     console.log('[Scenes] Fetching scene details...')
     currentScene.value = await sceneService.getScene(id)
+    sceneObjects.value = await sceneObjectService.getSceneObjects(id) // 获取场景对象
     console.log('[Scenes] Scene details loaded:', currentScene.value)
+    console.log('[Scenes] Scene objects loaded:', sceneObjects.value)
     showDetailDialog.value = true
     console.log('[Scenes] Dialog shown')
   } catch (error) {
@@ -337,6 +341,7 @@ const closeDetailDialog = () => {
   console.log('[Scenes] closeDetailDialog() called')
   showDetailDialog.value = false
   currentScene.value = null
+  sceneObjects.value = [] // 清空场景对象
   console.log('[Scenes] Dialog closed, showDetailDialog:', showDetailDialog.value)
 }
 

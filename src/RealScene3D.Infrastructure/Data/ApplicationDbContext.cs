@@ -107,11 +107,6 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Position)
                   .HasColumnType("geography");
 
-            entity.HasOne(e => e.Scene)
-                  .WithMany(s => s.SceneObjects)
-                  .HasForeignKey(e => e.SceneId)
-                  .OnDelete(DeleteBehavior.Cascade);
-
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
@@ -174,6 +169,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ModelType).IsRequired().HasMaxLength(50);
             entity.Property(e => e.SlicingConfig).IsRequired();
             entity.Property(e => e.OutputPath).HasMaxLength(500);
+
+            entity.HasOne(st => st.SceneObject)
+                  .WithOne(so => so.SlicingTask)
+                  .HasForeignKey<SlicingTaskEntity>(st => st.SceneObjectId)
+                  .IsRequired(false)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         // 配置切片实体

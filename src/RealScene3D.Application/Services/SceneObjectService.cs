@@ -76,7 +76,9 @@ public class SceneObjectService : ISceneObjectService
     /// <returns>场景对象详情，如果不存在则返回null</returns>
     public async Task<SceneDtos.SceneObjectDto?> GetObjectByIdAsync(Guid id)
     {
-        var obj = await _objectRepository.GetByIdAsync(id);
+        var obj = await _context.SceneObjects
+            .Include(so => so.SlicingTask)
+            .FirstOrDefaultAsync(so => so.Id == id && !so.IsDeleted);
         return obj != null ? MapToDto(obj) : null;
     }
 
@@ -88,6 +90,7 @@ public class SceneObjectService : ISceneObjectService
     public async Task<IEnumerable<SceneDtos.SceneObjectDto>> GetSceneObjectsAsync(Guid sceneId)
     {
         var objects = await _context.SceneObjects
+            .Include(o => o.SlicingTask)
             .Where(o => o.SceneId == sceneId && !o.IsDeleted)
             .ToListAsync();
 
@@ -197,7 +200,9 @@ public class SceneObjectService : ISceneObjectService
             ModelPath = obj.ModelPath,
             MaterialData = obj.MaterialData,
             Properties = obj.Properties,
-            CreatedAt = obj.CreatedAt
+            CreatedAt = obj.CreatedAt,
+            SlicingTaskId = obj.SlicingTask?.Id,
+            SlicingTaskStatus = obj.SlicingTask?.Status.ToString()
         };
     }
 }

@@ -13,7 +13,7 @@ using RealScene3D.Infrastructure.Data;
 namespace RealScene3D.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20251021032522_InitialCreate")]
+    [Migration("20251028081743_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -379,6 +379,9 @@ namespace RealScene3D.Infrastructure.Migrations
                     b.Property<int>("Progress")
                         .HasColumnType("integer");
 
+                    b.Property<Guid>("SceneObjectId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("SlicingConfig")
                         .IsRequired()
                         .HasColumnType("text");
@@ -395,6 +398,9 @@ namespace RealScene3D.Infrastructure.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SceneObjectId")
+                        .IsUnique();
 
                     b.ToTable("SlicingTasks");
                 });
@@ -733,6 +739,16 @@ namespace RealScene3D.Infrastructure.Migrations
                     b.Navigation("SlicingTask");
                 });
 
+            modelBuilder.Entity("RealScene3D.Domain.Entities.SlicingTask", b =>
+                {
+                    b.HasOne("RealScene3D.Domain.Entities.SceneObject", "SceneObject")
+                        .WithOne("SlicingTask")
+                        .HasForeignKey("RealScene3D.Domain.Entities.SlicingTask", "SceneObjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("SceneObject");
+                });
+
             modelBuilder.Entity("RealScene3D.Domain.Entities.UserLog", b =>
                 {
                     b.HasOne("RealScene3D.Domain.Entities.User", "User")
@@ -784,6 +800,11 @@ namespace RealScene3D.Infrastructure.Migrations
             modelBuilder.Entity("RealScene3D.Domain.Entities.Scene3D", b =>
                 {
                     b.Navigation("SceneObjects");
+                });
+
+            modelBuilder.Entity("RealScene3D.Domain.Entities.SceneObject", b =>
+                {
+                    b.Navigation("SlicingTask");
                 });
 
             modelBuilder.Entity("RealScene3D.Domain.Entities.User", b =>
