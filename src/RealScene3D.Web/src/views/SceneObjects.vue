@@ -457,8 +457,11 @@
           </select>
         </div>
         <div class="form-group">
-          <label>最大LOD级别</label>
-          <input v-model.number="slicingForm.maxLevel" type="number" class="form-input" min="0" max="20" />
+          <label>最大LOD级别 (建议≤8，过高会导致内存溢出)</label>
+          <input v-model.number="slicingForm.maxLevel" type="number" class="form-input" min="0" max="10" />
+          <small class="form-hint" v-if="slicingForm.maxLevel > 8" style="color: orange;">
+            ⚠️ 级别{slicingForm.maxLevel}}将生成约 {{ estimateSliceCount(slicingForm.maxLevel) }} 个切片，可能导致内存不足
+          </small>
         </div>
         <div class="form-group">
           <label>切片尺寸 (米)</label>
@@ -951,6 +954,20 @@ const closeSlicingDialog = () => {
   objectToSlice.value = null;
 };
 
+// 估算切片数量
+const estimateSliceCount = (level: number): string => {
+  const tilesInLevel = Math.pow(2, level);
+  const zTiles = level === 0 ? 1 : tilesInLevel / 2;
+  const count = tilesInLevel * tilesInLevel * zTiles;
+
+  if (count >= 1000000) {
+    return `${(count / 1000000).toFixed(1)}百万`;
+  } else if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}千`;
+  }
+  return count.toString();
+};
+
 const submitSlicingTask = async () => {
   if (!objectToSlice.value) {
     showError('没有选择要切片的对象。');
@@ -959,6 +976,12 @@ const submitSlicingTask = async () => {
 
   if (!slicingForm.value.name) {
     showError('请输入切片任务名称。');
+    return;
+  }
+
+  // 验证最大LOD级别，防止内存溢出
+  if (slicingForm.value.maxLevel > 10) {
+    showError('最大LOD级别不能超过10，以防止内存溢出。请降低级别或增大切片尺寸。');
     return;
   }
 

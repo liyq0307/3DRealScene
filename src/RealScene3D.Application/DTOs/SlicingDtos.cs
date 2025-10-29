@@ -56,9 +56,18 @@ public class SlicingDtos
     public class SlicingConfig
     {
         /// <summary>
-        /// 切片粒度，例如："High", "Medium", "Low"
+        /// 切片粒度，例如："High", "Medium", "Low"（已废弃，请使用 Strategy）
         /// </summary>
         public string Granularity { get; set; } = "Medium";
+
+        /// <summary>
+        /// 切片策略，例如："Grid", "Octree", "KdTree", "Adaptive"
+        /// Grid = 0 - 规则网格切片
+        /// Octree = 1 - 八叉树切片（默认）
+        /// KdTree = 2 - KD树切片
+        /// Adaptive = 3 - 自适应切片
+        /// </summary>
+        public string? Strategy { get; set; }
 
         /// <summary>
         /// 输出格式，例如："3D Tiles", "Cesium3DTiles", "GLTF"

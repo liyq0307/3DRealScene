@@ -138,33 +138,60 @@ const loadSceneObjects = async (objects: any[]) => {
   // 清除之前加载的所有模型
   clearLoadedObjects()
 
+  console.log(`[CesiumViewer] Loading ${objects.length} scene objects...`)
+
   for (const obj of objects) {
     try {
       if (!obj.displayPath) {
-        console.warn(`Object ${obj.name} has no displayPath, skipping.`)
+        console.warn(`[CesiumViewer] Object ${obj.name} has no displayPath, skipping.`)
         continue
       }
 
+      // 解析位置、旋转、缩放
+      const position = obj.position || [0, 0, 0]
+      const rotation = typeof obj.rotation === 'string' ? JSON.parse(obj.rotation) : obj.rotation || { x: 0, y: 0, z: 0 }
+      const scale = typeof obj.scale === 'string' ? JSON.parse(obj.scale) : obj.scale || { x: 1, y: 1, z: 1 }
+
+      // 创建模型矩阵（位置 + 旋转 + 缩放）
+      const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
+      const heading = Cesium.Math.toRadians(rotation.y) // Y轴旋转对应偏航角
+      const pitch = Cesium.Math.toRadians(rotation.x)   // X轴旋转对应俯仰角
+      const roll = Cesium.Math.toRadians(rotation.z)    // Z轴旋转对应翻滚角
+      const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll)
+      const orientation = Cesium.Transforms.headingPitchRollQuaternion(cartesian, hpr)
+
+      const modelMatrix = Cesium.Matrix4.fromTranslationQuaternionRotationScale(
+        cartesian,
+        orientation,
+        new Cesium.Cartesian3(scale.x, scale.y, scale.z)
+      )
+
       // 检查displayPath是否指向3D Tileset (以tileset.json结尾)
-      if (obj.displayPath.endsWith('tileset.json')) {
+      if (obj.displayPath.endsWith('tileset.json') || obj.displayPath.includes('/tileset.json')) {
         const tileset = await Cesium.Cesium3DTileset.fromUrl(obj.displayPath)
+        tileset.modelMatrix = modelMatrix
         viewer.scene.primitives.add(tileset)
         loadedModels.set(obj.id, tileset)
-        console.log(`Loaded 3D Tileset for object ${obj.name}: ${obj.displayPath}`)
+        console.log(`[CesiumViewer] ✓ Loaded 3D Tileset for ${obj.name} at position [${position.join(', ')}]`)
+
+        // 切片任务完成后，飞向该切片
+        viewer.flyTo(tileset)
       } else {
         // 否则，假定为GLTF/GLB模型
         const model = await Cesium.Model.fromGltfAsync({
           url: obj.displayPath,
-          modelMatrix: Cesium.Matrix4.IDENTITY // 根据需要调整位置、旋转、缩放
-        });
-        viewer.scene.primitives.add(model);
+          modelMatrix: modelMatrix
+        })
+        viewer.scene.primitives.add(model)
         loadedModels.set(obj.id, model)
-        console.log(`Loaded original model for object ${obj.name}: ${obj.displayPath}`)
+        console.log(`[CesiumViewer] ✓ Loaded model for ${obj.name} at position [${position.join(', ')}]`)
       }
     } catch (error) {
-      console.error(`Failed to load object ${obj.name} (${obj.id}):`, error)
+      console.error(`[CesiumViewer] ✗ Failed to load object ${obj.name} (${obj.id}):`, error)
     }
   }
+
+  console.log(`[CesiumViewer] Successfully loaded ${loadedModels.size} objects`)
 }
 
 const clearLoadedObjects = () => {

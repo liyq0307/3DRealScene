@@ -376,7 +376,7 @@ namespace RealScene3D.Infrastructure.Migrations
                     b.Property<int>("Progress")
                         .HasColumnType("integer");
 
-                    b.Property<Guid>("SceneObjectId")
+                    b.Property<Guid?>("SceneObjectId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SlicingConfig")

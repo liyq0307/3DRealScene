@@ -335,6 +335,9 @@ builder.Services.AddScoped<IFileCleanupService, FileCleanupService>();
 // 支持实体框架和自定义仓储的统一接口
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 
+// 注册特定的仓储实现，提供优化的查询方法
+builder.Services.AddScoped<ISliceRepository, SliceRepository>();
+
 /// <summary>
 /// 工作单元模式注册，确保跨聚合的事务一致性
 /// 协调多个仓储的操作，统一提交或回滚

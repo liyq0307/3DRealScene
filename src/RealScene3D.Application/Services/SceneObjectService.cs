@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using NetTopologySuite.Geometries;
 using RealScene3D.Application.DTOs;
 using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.Data;
+using RealScene3D.Infrastructure.MinIO;
 
 namespace RealScene3D.Application.Services;
 
@@ -16,25 +19,46 @@ namespace RealScene3D.Application.Services;
 public class SceneObjectService : ISceneObjectService
 {
     private readonly IRepository<SceneObject> _objectRepository;
+    private readonly IRepository<SlicingTask> _slicingTaskRepository;
+    private readonly ISliceRepository _sliceRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ApplicationDbContext _context;
     private readonly GeometryFactory _geometryFactory;
+    private readonly ILogger<SceneObjectService> _logger;
+    private readonly IMinioStorageService? _minioStorageService;
+    private readonly IConfiguration _configuration;
+
 
     /// <summary>
-    /// 构造函数 - 依赖注入仓储和数据库上下文
+    /// 构造函数，注入所需的依赖服务
     /// </summary>
-    /// <param name="objectRepository">场景对象仓储接口</param>
-    /// <param name="unitOfWork">工作单元接口</param>
+    /// <param name="objectRepository">场景对象仓储</param>
+    /// <param name="slicingTaskRepository">切片任务仓储</param>
+    /// <param name="sliceRepository">切片仓储</param>
+    /// <param name="unitOfWork">工作单元</param>
     /// <param name="context">应用数据库上下文</param>
+    /// <param name="logger">日志记录器</param>
+    /// <param name="minioStorageService">MinIO存储服务</param>
+    /// <param name="configuration">配置服务</param>
     public SceneObjectService(
         IRepository<SceneObject> objectRepository,
+        IRepository<SlicingTask> slicingTaskRepository,
+        ISliceRepository sliceRepository,
         IUnitOfWork unitOfWork,
-        ApplicationDbContext context)
+        ApplicationDbContext context,
+        ILogger<SceneObjectService> logger,
+        IMinioStorageService minioStorageService,
+        IConfiguration configuration)
     {
         _objectRepository = objectRepository;
+        _slicingTaskRepository = slicingTaskRepository;
+        _sliceRepository = sliceRepository;
         _unitOfWork = unitOfWork;
         _context = context;
         _geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+        _logger = logger;
+        _minioStorageService = minioStorageService;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -161,6 +185,7 @@ public class SceneObjectService : ISceneObjectService
 
     /// <summary>
     /// 删除场景对象（软删除）
+    /// 同时删除关联的切片任务、切片数据以及MinIO中的模型文件
     /// </summary>
     /// <param name="id">要删除的场景对象ID</param>
     /// <returns>删除是否成功</returns>
@@ -172,11 +197,322 @@ public class SceneObjectService : ISceneObjectService
             return false;
         }
 
-        obj.IsDeleted = true;
-        obj.UpdatedAt = DateTime.UtcNow;
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            _logger.LogInformation("开始删除场景对象 {ObjectId}, ModelPath: {ModelPath}", id, obj.ModelPath);
 
-        return true;
+            // 1. 删除MinIO中的模型文件（如果是MinIO路径）
+            await DeleteMinioFileIfNeededAsync(obj.ModelPath);
+
+            // 2. 查找并删除关联的切片任务
+            var allTasks = await _slicingTaskRepository.GetAllAsync();
+            var relatedTasks = allTasks.Where(t => t.SceneObjectId == id).ToList();
+
+            if (relatedTasks.Any())
+            {
+                _logger.LogInformation("删除场景对象 {ObjectId} 关联的 {Count} 个切片任务", id, relatedTasks.Count);
+
+                foreach (var task in relatedTasks)
+                {
+                    // 获取切片任务的配置信息，以确定存储位置
+                    var config = ParseSlicingConfig(task.SlicingConfig);
+                    var storageLocation = config.StorageLocation;
+
+                    // 查找并删除所有关联的切片文件
+                    var slices = await _sliceRepository.GetByTaskIdAsync(task.Id);
+                    if (slices.Any())
+                    {
+                        _logger.LogInformation("删除切片任务 {TaskId} 关联的 {Count} 个切片文件，存储位置：{StorageLocation}",
+                            task.Id, slices.Count(), storageLocation);
+                        foreach (var slice in slices)
+                        {
+                            await DeleteSliceFileAsync(slice.FilePath, task.OutputPath, storageLocation);
+                        }
+                    }
+
+                    // 从数据库中删除切片记录
+                    var deletedCount = await _sliceRepository.DeleteByTaskIdAsync(task.Id);
+                    if (deletedCount > 0)
+                    {
+                        _logger.LogInformation("从数据库中删除了 {Count} 条切片记录", deletedCount);
+                    }
+
+                    // 删除切片任务
+                    await _slicingTaskRepository.DeleteAsync(task);
+                }
+            }
+
+            // 3. 软删除场景对象
+            obj.IsDeleted = true;
+            obj.UpdatedAt = DateTime.UtcNow;
+            await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation("成功删除场景对象 {ObjectId} 及其关联的切片数据", id);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "删除场景对象 {ObjectId} 时发生错误", id);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 如果文件路径是MinIO路径，则删除MinIO中的文件
+    /// 支持多种路径格式：
+    /// - MinIO URL: http://localhost:9000/bucket/object (从配置读取endpoint)
+    /// - MinIO相对路径: bucket/object
+    /// - 跳过本地路径和非MinIO远程URL
+    /// </summary>
+    /// <param name="filePath">文件路径</param>
+    /// <summary>
+    /// 根据存储位置删除切片文件
+    /// </summary>
+    /// <param name="filePath">文件路径</param>
+    /// <param name="outputPath">任务输出路径</param>
+    /// <param name="storageLocation">存储位置类型</param>
+    private async Task DeleteSliceFileAsync(string? filePath, string? outputPath, StorageLocationType storageLocation)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            _logger.LogDebug("文件路径为空，跳过文件删除");
+            return;
+        }
+
+        try
+        {
+            if (storageLocation == StorageLocationType.LocalFileSystem)
+            {
+                // 本地文件系统：拼接完整路径
+                var fullPath = Path.IsPathRooted(filePath)
+                    ? filePath
+                    : Path.Combine(outputPath ?? "", filePath);
+
+                if (File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                    _logger.LogInformation("✓ 成功删除本地切片文件: {FilePath}", fullPath);
+                }
+                else
+                {
+                    _logger.LogWarning("本地切片文件不存在: {FilePath}", fullPath);
+                }
+            }
+            else // MinIO
+            {
+                // MinIO：直接使用相对路径
+                if (_minioStorageService == null)
+                {
+                    _logger.LogWarning("MinIO存储服务未注入，无法删除切片文件: {FilePath}", filePath);
+                    return;
+                }
+                var deleted = await _minioStorageService.DeleteFileAsync("slices", filePath);
+                if (deleted)
+                {
+                    _logger.LogInformation("✓ 成功删除MinIO切片文件: {FilePath}", filePath);
+                }
+                else
+                {
+                    _logger.LogWarning("✗ MinIO切片文件删除失败或文件不存在: {FilePath}", filePath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 不抛出异常，只记录日志，避免影响主流程
+            _logger.LogError(ex, "删除切片文件时发生错误: {FilePath}", filePath);
+        }
+    }
+
+    /// <summary>
+    /// 解析切片配置JSON字符串
+    /// </summary>
+    /// <param name="configJson">配置JSON字符串</param>
+    /// <returns>切片配置对象</returns>
+    private static SlicingConfig ParseSlicingConfig(string configJson)
+    {
+        try
+        {
+            var config = System.Text.Json.JsonSerializer.Deserialize<SlicingConfig>(configJson);
+            return config ?? new SlicingConfig();
+        }
+        catch
+        {
+            return new SlicingConfig();
+        }
+    }
+
+    private async Task DeleteMinioFileIfNeededAsync(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            _logger.LogDebug("文件路径为空，跳过MinIO文件删除");
+            return;
+        }
+
+        if (_minioStorageService == null)
+        {
+            _logger.LogWarning("MinIO存储服务未注入，无法删除MinIO文件");
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("检查文件路径类型: {FilePath}", filePath);
+
+            string? bucket = null;
+            string? objectName = null;
+
+            // 已知的MinIO bucket列表
+            var knownBuckets = new[]
+            {
+                MinioBuckets.MODELS_3D,
+                MinioBuckets.BIM_MODELS,
+                MinioBuckets.VIDEOS,
+                MinioBuckets.TEXTURES,
+                MinioBuckets.THUMBNAILS,
+                MinioBuckets.TILT_PHOTOGRAPHY,
+                MinioBuckets.DOCUMENTS,
+                MinioBuckets.TEMP
+            };
+
+            // 从配置中读取MinIO endpoint
+            var minioEndpoint = _configuration["MinIO:Endpoint"];
+            var minioUseSSLStr = _configuration["MinIO:UseSSL"];
+            var minioUseSSL = !string.IsNullOrEmpty(minioUseSSLStr) && bool.Parse(minioUseSSLStr);
+
+            // 情况1: MinIO URL格式 (http://localhost:9000/bucket/object 或 https://...)
+            // 支持预签名URL（包含查询参数）
+            if (filePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                filePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var uri = new Uri(filePath);
+                    var fileHost = $"{uri.Host}:{uri.Port}";
+
+                    // 检查是否是配置的MinIO endpoint
+                    bool isMinioUrl = false;
+                    if (!string.IsNullOrEmpty(minioEndpoint))
+                    {
+                        // 规范化endpoint进行比较
+                        var normalizedMinioEndpoint = minioEndpoint.Replace("http://", "").Replace("https://", "");
+                        isMinioUrl = fileHost.Equals(normalizedMinioEndpoint, StringComparison.OrdinalIgnoreCase) ||
+                                    uri.Host.Equals(normalizedMinioEndpoint.Split(':')[0], StringComparison.OrdinalIgnoreCase);
+
+                        _logger.LogInformation("URL Host比对 - 文件Host: {FileHost}, 配置Endpoint: {MinioEndpoint}, 是否匹配: {IsMatch}",
+                            fileHost, minioEndpoint, isMinioUrl);
+                    }
+
+                    if (isMinioUrl)
+                    {
+                        // 提取路径部分（忽略查询参数），去掉开头的 /
+                        // 预签名URL格式: http://localhost:9000/bucket/object?X-Amz-Algorithm=...
+                        // AbsolutePath会自动去除查询参数，只保留路径部分
+                        var path = uri.AbsolutePath.TrimStart('/');
+
+                        // URL解码（处理 %2B 等编码字符）
+                        path = Uri.UnescapeDataString(path);
+
+                        var parts = path.Split('/', 2);
+
+                        if (parts.Length == 2)
+                        {
+                            var possibleBucket = parts[0];
+                            if (knownBuckets.Contains(possibleBucket, StringComparer.OrdinalIgnoreCase))
+                            {
+                                bucket = possibleBucket;
+                                objectName = parts[1];
+                                _logger.LogInformation("检测到MinIO URL格式（含签名参数） - Host: {Host}, Bucket: {Bucket}, ObjectName: {ObjectName}",
+                                    uri.Host, bucket, objectName);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("URL的bucket不在已知列表中，跳过删除: {Bucket}", possibleBucket);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation("MinIO URL无法解析bucket/object结构，跳过删除: {FilePath}", filePath);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("检测到非MinIO的远程URL（host不匹配配置的endpoint），跳过删除: {FilePath}", filePath);
+                        return;
+                    }
+                }
+                catch (UriFormatException)
+                {
+                    _logger.LogWarning("URL格式无效，跳过删除: {FilePath}", filePath);
+                    return;
+                }
+            }
+            // 情况2: Windows本地路径 (C:\..., D:\...) 或者 Unix绝对路径
+            else if (filePath.Contains(":\\") || filePath.StartsWith("/"))
+            {
+                _logger.LogInformation("检测到本地路径，跳过删除: {FilePath}", filePath);
+                return;
+            }
+            // 情况3: 相对路径 (./, ../)
+            else if (filePath.StartsWith("./") || filePath.StartsWith("../"))
+            {
+                _logger.LogInformation("检测到相对路径，跳过删除: {FilePath}", filePath);
+                return;
+            }
+            // 情况4: MinIO相对路径
+            else
+            {
+                var normalizedPath = filePath.TrimStart('/');
+                var parts = normalizedPath.Split('/', 2);
+
+                if (parts.Length == 2)
+                {
+                    var possibleBucket = parts[0];
+
+                    if (knownBuckets.Contains(possibleBucket, StringComparer.OrdinalIgnoreCase))
+                    {
+                        bucket = possibleBucket;
+                        objectName = parts[1];
+                        _logger.LogInformation("检测到MinIO相对路径 - Bucket: {Bucket}, ObjectName: {ObjectName}", bucket, objectName);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("检测到Unix本地路径（非MinIO bucket），跳过删除: {FilePath}", filePath);
+                        return;
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("无法解析为MinIO路径（缺少bucket/object结构），跳过删除: {FilePath}", filePath);
+                    return;
+                }
+            }
+
+            // 执行删除操作
+            if (!string.IsNullOrEmpty(bucket) && !string.IsNullOrEmpty(objectName))
+            {
+                _logger.LogInformation("尝试删除MinIO文件: {Bucket}/{ObjectName}", bucket, objectName);
+
+                var deleted = await _minioStorageService.DeleteFileAsync(bucket, objectName);
+
+                if (deleted)
+                {
+                    _logger.LogInformation("✓ 成功删除MinIO文件: {Bucket}/{ObjectName}", bucket, objectName);
+                }
+                else
+                {
+                    _logger.LogWarning("✗ MinIO文件删除失败或文件不存在: {Bucket}/{ObjectName}", bucket, objectName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 不抛出异常，只记录日志，避免影响主流程
+            _logger.LogError(ex, "删除MinIO文件时发生错误: {FilePath}", filePath);
+        }
     }
 
     /// <summary>

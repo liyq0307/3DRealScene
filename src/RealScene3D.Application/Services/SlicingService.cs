@@ -159,7 +159,7 @@ public class GridSlicingStrategy : ISlicingStrategy
     }
 
     /// <summary>
-    /// 并行切片生成 - 适用于大规模切片的高性能处理
+    /// 并行切片生成 - 适用于大规模切片的高性能处理（内存优化版本）
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="level">LOD级别</param>
@@ -172,15 +172,16 @@ public class GridSlicingStrategy : ISlicingStrategy
         SlicingTask task, int level, SlicingConfig config,
         int tilesInLevel, int zTilesCount, CancellationToken cancellationToken)
     {
-        var slices = new List<Slice>();
+        // 使用线程安全的集合
+        var slices = new System.Collections.Concurrent.ConcurrentBag<Slice>();
         var parallelOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Min(config.ParallelProcessingCount, Environment.ProcessorCount),
             CancellationToken = cancellationToken
         };
 
-        var lockObject = new object();
         var processedCount = 0;
+        var totalSlices = tilesInLevel * tilesInLevel * zTilesCount;
 
         await Task.Run(() =>
         {
@@ -193,17 +194,20 @@ public class GridSlicingStrategy : ISlicingStrategy
                         if (cancellationToken.IsCancellationRequested) break;
 
                         var slice = CreateSlice(task, level, config, x, y, z);
+                        slices.Add(slice);
 
-                        lock (lockObject)
+                        var currentCount = Interlocked.Increment(ref processedCount);
+
+                        // 并行进度监控（减少日志频率）
+                        if (currentCount % 500 == 0)
                         {
-                            slices.Add(slice);
-                            processedCount++;
+                            _logger.LogDebug("并行网格切片生成进度：级别{Level}，已生成{Processed}/{Total}",
+                                level, currentCount, totalSlices);
 
-                            // 并行进度监控
-                            if (processedCount % 500 == 0)
+                            // 定期触发GC以控制内存增长
+                            if (currentCount % 2000 == 0)
                             {
-                                _logger.LogDebug("并行网格切片生成进度：级别{Level}，已生成{Processed}",
-                                    level, processedCount);
+                                GC.Collect(0, GCCollectionMode.Optimized);
                             }
                         }
                     }
@@ -211,7 +215,7 @@ public class GridSlicingStrategy : ISlicingStrategy
             });
         }, cancellationToken);
 
-        return slices;
+        return slices.ToList();
     }
 
     /// <summary>
@@ -1338,15 +1342,20 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
             var baseTileSize = config.TileSize;
             var levelTileSize = baseTileSize * Math.Pow(2, config.MaxLevel - level);
 
-            // 4. 多分辨率密度分析
+            // 4. 多分辨率密度分析（优化版：减少临时对象分配）
             var densityAnalyzer = new GeometricDensityAnalyzer(_logger);
+            var levelSize = (int)Math.Pow(2, level);
+            var zSize = level == 0 ? 1 : levelSize / 2;
+
+            // 预分配 regions 容量以减少重新分配
+            regions.Capacity = levelSize * levelSize * zSize;
 
             // 分析不同LOD级别的密度分布
-            for (int x = 0; x < Math.Pow(2, level); x++)
+            for (int z = 0; z < zSize; z++)
             {
-                for (int y = 0; y < Math.Pow(2, level); y++)
+                for (int y = 0; y < levelSize; y++)
                 {
-                    for (int z = 0; z < (level == 0 ? 1 : Math.Pow(2, level) / 2); z++)
+                    for (int x = 0; x < levelSize; x++)
                     {
                         if (cancellationToken.IsCancellationRequested) break;
 
@@ -1385,6 +1394,12 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
                             SurfaceArea = densityMetrics.SurfaceArea
                         });
                     }
+                }
+
+                // 在每处理完一个 Z 层后，触发轻量级 GC
+                if (z % 2 == 0 && regions.Count > 1000)
+                {
+                    GC.Collect(0, GCCollectionMode.Optimized);
                 }
             }
 
@@ -1498,36 +1513,39 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
             var fileExtension = Path.GetExtension(task.SourceModelPath).ToLowerInvariant();
             List<Triangle> triangles;
 
-            // 使用 using 语句确保资源正确释放
+            // 使用 await using 语句确保 Stream 资源正确释放
             try
             {
-                switch (fileExtension)
+                await using (modelStream)
                 {
-                    case ".obj":
-                        _logger.LogDebug("解析OBJ格式模型文件");
-                        triangles = await ParseOBJFormatAsync(modelStream, cancellationToken);
-                        break;
+                    switch (fileExtension)
+                    {
+                        case ".obj":
+                            _logger.LogDebug("解析OBJ格式模型文件");
+                            triangles = await ParseOBJFormatAsync(modelStream, cancellationToken);
+                            break;
 
-                    case ".stl":
-                        _logger.LogDebug("解析STL格式模型文件");
-                        triangles = await ParseSTLFormatAsync(modelStream, cancellationToken);
-                        break;
+                        case ".stl":
+                            _logger.LogDebug("解析STL格式模型文件");
+                            triangles = await ParseSTLFormatAsync(modelStream, cancellationToken);
+                            break;
 
-                    case ".ply":
-                        _logger.LogDebug("解析PLY格式模型文件");
-                        triangles = await ParsePLYFormatAsync(modelStream, cancellationToken);
-                        break;
+                        case ".ply":
+                            _logger.LogDebug("解析PLY格式模型文件");
+                            triangles = await ParsePLYFormatAsync(modelStream, cancellationToken);
+                            break;
 
-                    case ".gltf":
-                    case ".glb":
-                        _logger.LogDebug("解析GLTF/GLB格式模型文件");
-                        triangles = await ParseGLTFFormatAsync(modelStream, cancellationToken);
-                        break;
+                        case ".gltf":
+                        case ".glb":
+                            _logger.LogDebug("解析GLTF/GLB格式模型文件");
+                            triangles = await ParseGLTFFormatAsync(modelStream, cancellationToken);
+                            break;
 
-                    default:
-                        _logger.LogWarning("不支持的模型格式：{FileExtension}，使用模拟数据", fileExtension);
-                        var mockTriangles = GenerateMockGeometricData(task);
-                        return ConvertTrianglesToPrimitives(mockTriangles, cancellationToken);
+                        default:
+                            _logger.LogWarning("不支持的模型格式：{FileExtension}，使用模拟数据", fileExtension);
+                            var mockTriangles = GenerateMockGeometricData(task);
+                            return ConvertTrianglesToPrimitives(mockTriangles, cancellationToken);
+                    }
                 }
             }
             catch (Exception ex)
@@ -1535,15 +1553,6 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
                 _logger.LogWarning(ex, "模型文件解析失败，使用模拟数据：{FileExtension}", fileExtension);
                 var mockTriangles = GenerateMockGeometricData(task);
                 triangles = mockTriangles;
-            }
-            finally
-            {
-                // 确保流被正确释放
-                if (modelStream != null)
-                {
-                    await modelStream.DisposeAsync();
-                    _logger.LogDebug("模型文件流已释放");
-                }
             }
 
             // 转换三角形为几何图元
@@ -4742,87 +4751,89 @@ public class SlicingAppService : ISlicingAppService
                 }
             }
 
-            // 如果不是增量更新，或者没有找到现有任务，则创建新任务
-            if (task == null)
+                            // 如果不是增量更新，或者没有找到现有任务，则创建新任务
+                            if (task == null)
+                            {
+                                // 转换 DTO 配置为 Domain 配置
+                                var initialDomainConfig = MapSlicingConfigToDomain(request.SlicingConfig);
+                    
+                                // 创建切片任务实体 - 领域对象构建
+                                task = new SlicingTask
+                                {
+                                    Name = request.Name.Trim(), // 清理前后空格
+                                    SourceModelPath = request.SourceModelPath,
+                                    ModelType = request.ModelType,
+                                    SlicingConfig = System.Text.Json.JsonSerializer.Serialize(initialDomainConfig),
+                                    OutputPath = string.IsNullOrEmpty(request.OutputPath)
+                                        ? GenerateOutputPathFromSource(request.SourceModelPath) // 基于源模型生成确定性路径
+                                        : request.OutputPath.Trim(),
+                                    CreatedBy = userId,
+                                    Status = SlicingTaskStatus.Created,
+                                    SceneObjectId = request.SceneObjectId
+                                };
+                            }            // 根据OutputPath判断存储类型
+            // 先将 DTO 配置转换为 Domain 配置
+            var domainConfig = isIncrementalUpdate || task.Status == SlicingTaskStatus.Created
+                ? MapSlicingConfigToDomain(request.SlicingConfig)
+                : ParseSlicingConfig(task.SlicingConfig);
+
+            // 判断存储位置的优先级：
+            // 1. 如果用户在 SlicingConfig 中明确指定了 StorageLocation，使用用户指定的
+            // 2. 如果任务的 OutputPath 是绝对路径（Path.IsPathRooted），判定为本地文件系统
+            // 3. 如果任务的 OutputPath 是相对路径或未提供路径，默认使用 MinIO
+
+            // 关键修复：对于增量更新，应该使用 task.OutputPath 而不是 request.OutputPath
+            // 因为增量更新时 task 可能来自 existingTask，其 OutputPath 已经确定
+            bool hasRootedPath = !string.IsNullOrEmpty(task.OutputPath) && Path.IsPathRooted(task.OutputPath);
+
+            StorageLocationType specifiedLocation = StorageLocationType.MinIO;
+            bool userSpecifiedStorage = request.SlicingConfig.StorageLocation != null &&
+                                       Enum.TryParse<StorageLocationType>(request.SlicingConfig.StorageLocation, true, out specifiedLocation) &&
+                                       specifiedLocation != StorageLocationType.MinIO;
+
+            if (userSpecifiedStorage)
             {
-                // 创建切片任务实体 - 领域对象构建
-                task = new SlicingTask
-                {
-                    Name = request.Name.Trim(), // 清理前后空格
-                    SourceModelPath = request.SourceModelPath,
-                    ModelType = request.ModelType,
-                    SlicingConfig = System.Text.Json.JsonSerializer.Serialize(request.SlicingConfig),
-                    OutputPath = string.IsNullOrEmpty(request.OutputPath)
-                        ? GenerateOutputPathFromSource(request.SourceModelPath) // 基于源模型生成确定性路径
-                        : request.OutputPath.Trim(),
-                    CreatedBy = userId,
-                    Status = SlicingTaskStatus.Created,
-                    SceneObjectId = request.SceneObjectId
-                };
+                // 用户明确指定了存储位置，使用用户指定的
+                domainConfig.StorageLocation = specifiedLocation;
+                _logger.LogInformation("切片任务 {TaskId} 使用用户指定的存储位置：{StorageLocation}", task.Id, domainConfig.StorageLocation);
+            }
+            else if (hasRootedPath)
+            {
+                // 任务的输出路径是绝对路径，判定为本地文件系统
+                domainConfig.StorageLocation = StorageLocationType.LocalFileSystem;
+                _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, task.OutputPath!);
+            }
+            else
+            {
+                // 默认使用 MinIO
+                domainConfig.StorageLocation = StorageLocationType.MinIO;
+                _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, task.OutputPath!);
             }
 
-            // 根据OutputPath判断存储类型
-            // 对于增量更新，使用新的请求配置；对于新任务，从task.SlicingConfig反序列化
-            var slicingConfig = isIncrementalUpdate
-                ? request.SlicingConfig
-                : System.Text.Json.JsonSerializer.Deserialize<SlicingDtos.SlicingConfig>(task.SlicingConfig) ?? new SlicingDtos.SlicingConfig();
+            // 序列化更新后的配置
+            task.SlicingConfig = System.Text.Json.JsonSerializer.Serialize(domainConfig);
 
-            if (slicingConfig != null)
+            if (domainConfig.StorageLocation == StorageLocationType.LocalFileSystem)
             {
-                // 判断存储位置的优先级：
-                // 1. 如果用户在 SlicingConfig 中明确指定了 StorageLocation，使用用户指定的
-                // 2. 如果任务的 OutputPath 是绝对路径（Path.IsPathRooted），判定为本地文件系统
-                // 3. 如果任务的 OutputPath 是相对路径或未提供路径，默认使用 MinIO
-
-                // 关键修复：对于增量更新，应该使用 task.OutputPath 而不是 request.OutputPath
-                // 因为增量更新时 task 可能来自 existingTask，其 OutputPath 已经确定
-                bool hasRootedPath = !string.IsNullOrEmpty(task.OutputPath) && Path.IsPathRooted(task.OutputPath);
-
-                bool userSpecifiedStorage = Enum.TryParse<StorageLocationType>(request.SlicingConfig.StorageLocation, true, out var specifiedLocation) && specifiedLocation != StorageLocationType.MinIO;
-
-                if (userSpecifiedStorage)
+                // 对于本地文件系统，如果是相对路径，转换为绝对路径
+                if (!string.IsNullOrEmpty(task.OutputPath) && !Path.IsPathRooted(task.OutputPath))
                 {
-                    // 用户明确指定了存储位置，使用用户指定的
-                    slicingConfig.StorageLocation = specifiedLocation.ToString();
-                    _logger.LogInformation("切片任务 {TaskId} 使用用户指定的存储位置：{StorageLocation}", task.Id, slicingConfig.StorageLocation);
-                }
-                else if (hasRootedPath)
-                {
-                    // 任务的输出路径是绝对路径，判定为本地文件系统
-                    slicingConfig.StorageLocation = StorageLocationType.LocalFileSystem.ToString();
-                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为本地文件系统路径。", task.Id, task.OutputPath!);
-                }
-                else
-                {
-                    // 默认使用 MinIO
-                    slicingConfig.StorageLocation = StorageLocationType.MinIO.ToString();
-                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, task.OutputPath!);
+                    // 使用默认的本地切片目录
+                    var baseDirectory = Path.Combine(Directory.GetCurrentDirectory(), "slices");
+                    task.OutputPath = Path.Combine(baseDirectory, task.OutputPath);
+                    _logger.LogInformation("相对路径已转换为绝对路径：{OutputPath}", task.OutputPath);
                 }
 
-                task.SlicingConfig = System.Text.Json.JsonSerializer.Serialize(slicingConfig);
-
-                if (Enum.TryParse<StorageLocationType>(slicingConfig.StorageLocation, true, out var finalLocation) && finalLocation == StorageLocationType.LocalFileSystem)
+                // 确保本地输出目录存在
+                if (!string.IsNullOrEmpty(task.OutputPath))
                 {
-
-                    // 对于本地文件系统，如果是相对路径，转换为绝对路径
-                    if (!string.IsNullOrEmpty(task.OutputPath) && !Path.IsPathRooted(task.OutputPath))
-                    {
-                        // 使用默认的本地切片目录
-                        var baseDirectory = Path.Combine(Directory.GetCurrentDirectory(), "slices");
-                        task.OutputPath = Path.Combine(baseDirectory, task.OutputPath);
-                        _logger.LogInformation("相对路径已转换为绝对路径：{OutputPath}", task.OutputPath);
-                    }
-
-                    // 确保本地输出目录存在
-                    if (!string.IsNullOrEmpty(task.OutputPath))
-                    {
-                        Directory.CreateDirectory(task.OutputPath);
-                        _logger.LogInformation("本地切片输出目录已创建或已存在：{OutputPath}", task.OutputPath);
-                    }
+                    Directory.CreateDirectory(task.OutputPath);
+                    _logger.LogInformation("本地切片输出目录已创建或已存在：{OutputPath}", task.OutputPath);
                 }
             }
 
-            _logger.LogInformation("切片任务 {TaskId} 的最终存储位置类型为 {StorageLocation}.", task.Id, slicingConfig?.StorageLocation);
+            _logger.LogInformation("切片任务 {TaskId} 的最终存储位置类型为 {StorageLocation}, 策略为 {Strategy}.",
+                task.Id, domainConfig.StorageLocation, domainConfig.Strategy);
 
             // 持久化切片任务 - 原子性操作确保数据一致性
             // 重要：在存储位置判断完成后才保存，确保 SlicingConfig 中的 StorageLocation 是正确的
@@ -4831,16 +4842,16 @@ public class SlicingAppService : ISlicingAppService
                 // 增量更新场景：更新现有任务
                 await _slicingTaskRepository.UpdateAsync(task);
                 await _unitOfWork.SaveChangesAsync();
-                _logger.LogInformation("切片任务已更新用于增量处理：{TaskId}，存储位置：{StorageLocation}",
-                    task.Id, slicingConfig?.StorageLocation);
+                _logger.LogInformation("切片任务已更新用于增量处理：{TaskId}，存储位置：{StorageLocation}，策略：{Strategy}",
+                    task.Id, domainConfig.StorageLocation, domainConfig.Strategy);
             }
             else
             {
                 // 新任务：添加到数据库
                 await _slicingTaskRepository.AddAsync(task);
                 await _unitOfWork.SaveChangesAsync();
-                _logger.LogInformation("新切片任务已创建：{TaskId}，存储位置：{StorageLocation}",
-                    task.Id, slicingConfig?.StorageLocation);
+                _logger.LogInformation("新切片任务已创建：{TaskId}，存储位置：{StorageLocation}，策略：{Strategy}",
+                    task.Id, domainConfig.StorageLocation, domainConfig.Strategy);
             }
 
             var taskId = task.Id;
@@ -5018,7 +5029,7 @@ public class SlicingAppService : ISlicingAppService
             // 删除关联的所有切片文件
             var allSlices = await _sliceRepository.GetAllAsync();
             var taskSlices = allSlices.Where(s => s.SlicingTaskId == taskId).ToList();
-            
+
             foreach (var slice in taskSlices)
             {
                 if (config.StorageLocation == StorageLocationType.LocalFileSystem)
@@ -5579,6 +5590,7 @@ public class SlicingAppService : ISlicingAppService
         return new SlicingDtos.SlicingConfig
         {
             Granularity = domainConfig.Strategy.ToString(),
+            Strategy = domainConfig.Strategy.ToString(),
             OutputFormat = domainConfig.OutputFormat,
             CoordinateSystem = "EPSG:4326", // 默认值
             CustomSettings = "{}", // 默认值
@@ -5586,6 +5598,71 @@ public class SlicingAppService : ISlicingAppService
             MaxLevel = domainConfig.MaxLevel,
             EnableIncrementalUpdates = domainConfig.EnableIncrementalUpdates,
             StorageLocation = domainConfig.StorageLocation.ToString()
+        };
+    }
+
+    /// <summary>
+    /// 将 DTO 切片配置转换为 Domain 切片配置
+    /// 处理策略字符串到枚举的转换，支持 Granularity 和 Strategy 两种字段名
+    /// </summary>
+    private static SlicingConfig MapSlicingConfigToDomain(SlicingDtos.SlicingConfig dtoConfig)
+    {
+        // 确定使用哪个字段作为策略来源（优先使用 Strategy，其次 Granularity）
+        var strategyString = !string.IsNullOrWhiteSpace(dtoConfig.Strategy)
+            ? dtoConfig.Strategy
+            : dtoConfig.Granularity;
+
+        // 解析策略枚举
+        SlicingStrategy strategy = SlicingStrategy.Octree; // 默认值
+        if (!string.IsNullOrWhiteSpace(strategyString))
+        {
+            // 尝试按枚举名称解析
+            if (Enum.TryParse<SlicingStrategy>(strategyString, true, out var parsedStrategy))
+            {
+                strategy = parsedStrategy;
+            }
+            // 兼容旧的 Granularity 值映射
+            else
+            {
+                strategy = strategyString.ToLowerInvariant() switch
+                {
+                    "high" => SlicingStrategy.Grid,
+                    "medium" => SlicingStrategy.Octree,
+                    "low" => SlicingStrategy.Adaptive,
+                    _ => SlicingStrategy.Octree
+                };
+            }
+        }
+
+        // 解析存储位置
+        StorageLocationType storageLocation = StorageLocationType.MinIO; // 默认值
+        if (!string.IsNullOrWhiteSpace(dtoConfig.StorageLocation))
+        {
+            Enum.TryParse<StorageLocationType>(dtoConfig.StorageLocation, true, out storageLocation);
+        }
+
+        // 解析输出格式
+        var outputFormat = "b3dm";
+        if (!string.IsNullOrWhiteSpace(dtoConfig.OutputFormat))
+        {
+            outputFormat = dtoConfig.OutputFormat.ToLowerInvariant() switch
+            {
+                "3d tiles" => "b3dm",
+                "cesium3dtiles" => "b3dm",
+                "gltf" => "gltf",
+                "json" => "json",
+                _ => dtoConfig.OutputFormat.ToLowerInvariant()
+            };
+        }
+
+        return new SlicingConfig
+        {
+            Strategy = strategy,
+            TileSize = dtoConfig.TileSize > 0 ? dtoConfig.TileSize : 100.0,
+            MaxLevel = dtoConfig.MaxLevel >= 0 ? dtoConfig.MaxLevel : 10,
+            OutputFormat = outputFormat,
+            EnableIncrementalUpdates = dtoConfig.EnableIncrementalUpdates,
+            StorageLocation = storageLocation
         };
     }
 
@@ -6118,6 +6195,12 @@ public class SlicingProcessor : ISlicingProcessor
                 continue; // 跳过这个级别
             }
 
+            // 批量大小设置：使用合理的批量大小避免内存累积
+            const int batchSize = 50; // 每批处理50个切片
+            var processedInBatch = 0;
+            var slicesToAdd = new List<Slice>(batchSize);
+            var slicesToUpdate = new List<Slice>(batchSize);
+
             foreach (var slice in slices)
             {
                 if (cancellationToken.IsCancellationRequested) break;
@@ -6176,18 +6259,16 @@ public class SlicingProcessor : ISlicingProcessor
                     continue;
                 }
 
-                // 根据情况决定是新增还是更新
+                // 收集待批量处理的切片
                 if (actuallyUseIncrementalUpdate && needsUpdate)
                 {
-                    // 更新现有切片
-                    await _sliceRepository.UpdateAsync(slice);
-                    _logger.LogDebug("更新切片：{SliceKey}", sliceKey);
+                    slicesToUpdate.Add(slice);
+                    _logger.LogDebug("标记切片待更新：{SliceKey}", sliceKey);
                 }
                 else
                 {
-                    // 新增切片（首次生成或增量更新中的新切片）
-                    await _sliceRepository.AddAsync(slice);
-                    _logger.LogDebug("新增切片：{SliceKey}", sliceKey);
+                    slicesToAdd.Add(slice);
+                    _logger.LogDebug("标记切片待新增：{SliceKey}", sliceKey);
                 }
 
                 // 标记为已处理
@@ -6196,20 +6277,69 @@ public class SlicingProcessor : ISlicingProcessor
                     processedSliceKeys.Add(sliceKey);
                 }
 
-                // 批量提交优化：每处理一定数量的切片后批量提交一次
+                processedInBatch++;
+
+                // 批量提交优化：每处理一定数量的切片后批量提交一次并触发GC
                 // 性能优化：减少数据库连接和事务开销，提升整体吞吐量
-                // 批量大小：根据切片大小和数据库性能动态调整，通常为CPU核心数的2-4倍
-                // 事务管理：确保批量操作的原子性，要么全部成功，要么全部回滚
-                // 内存权衡：增大批量大小可提升性能，但会增加内存占用和故障恢复成本
-                if (slices.Count % config.ParallelProcessingCount == 0)
+                // 内存优化：定期提交并释放内存，避免内存持续累积
+                if (processedInBatch >= batchSize)
                 {
+                    // 批量添加新切片
+                    if (slicesToAdd.Count > 0)
+                    {
+                        foreach (var s in slicesToAdd)
+                        {
+                            await _sliceRepository.AddAsync(s);
+                        }
+                        slicesToAdd.Clear();
+                    }
+
+                    // 批量更新切片
+                    if (slicesToUpdate.Count > 0)
+                    {
+                        foreach (var s in slicesToUpdate)
+                        {
+                            await _sliceRepository.UpdateAsync(s);
+                        }
+                        slicesToUpdate.Clear();
+                    }
+
                     await _unitOfWork.SaveChangesAsync();
-                    _logger.LogDebug("批量提交切片数据：{Count}个切片", config.ParallelProcessingCount);
+                    _logger.LogDebug("批量提交切片数据：{Count}个切片", processedInBatch);
+                    processedInBatch = 0;
+
+                    // 强制垃圾回收以释放内存
+                    GC.Collect(0, GCCollectionMode.Optimized);
                 }
 
                 // 动态调整处理时间 - 基于切片复杂度
                 var processingDelay = CalculateProcessingDelay(slice, config);
                 await Task.Delay(processingDelay, cancellationToken);
+            }
+
+            // 提交剩余的切片
+            if (slicesToAdd.Count > 0 || slicesToUpdate.Count > 0)
+            {
+                if (slicesToAdd.Count > 0)
+                {
+                    foreach (var s in slicesToAdd)
+                    {
+                        await _sliceRepository.AddAsync(s);
+                    }
+                    slicesToAdd.Clear();
+                }
+
+                if (slicesToUpdate.Count > 0)
+                {
+                    foreach (var s in slicesToUpdate)
+                    {
+                        await _sliceRepository.UpdateAsync(s);
+                    }
+                    slicesToUpdate.Clear();
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                _logger.LogDebug("最终批量提交切片数据：{Count}个切片", processedInBatch);
             }
 
             // 更新进度
@@ -7047,7 +7177,7 @@ public class SlicingProcessor : ISlicingProcessor
     private async Task GenerateSliceFileAsync(Slice slice, SlicingConfig config, CancellationToken cancellationToken)
     {
         // 多格式切片文件生成算法
-        byte[] fileContent;
+        byte[]? fileContent;
 
         switch (config.OutputFormat.ToLower())
         {
@@ -7088,7 +7218,8 @@ public class SlicingProcessor : ISlicingProcessor
             _logger.LogInformation("准备上传切片到MinIO: bucket=slices, path={FilePath}, size={Size}",
                 slice.FilePath, fileContent.Length);
 
-            using (var stream = new MemoryStream(fileContent))
+            // 使用 using 语句确保 MemoryStream 被正确释放
+            using (var stream = new MemoryStream(fileContent, false))
             {
                 var contentType = GetContentType(config.OutputFormat);
                 _logger.LogDebug("ContentType: {ContentType}, OutputFormat: {OutputFormat}",
@@ -7097,6 +7228,9 @@ public class SlicingProcessor : ISlicingProcessor
                 await _minioService.UploadFileAsync("slices", slice.FilePath, stream, contentType, cancellationToken);
             }
             _logger.LogInformation("切片文件已上传到MinIO：{FilePath}, 大小：{FileSize}", slice.FilePath, fileContent.Length);
+
+            // 释放 fileContent 引用，帮助GC回收
+            fileContent = null;
         }
     }
 
@@ -7707,11 +7841,15 @@ public class SlicingProcessor : ISlicingProcessor
         var indexBytes = new byte[indices.Length * sizeof(ushort)];
         Buffer.BlockCopy(indices, 0, indexBytes, 0, indexBytes.Length);
 
-        // 3. 构建Binary Chunk数据
-        var binaryData = vertexBytes.Concat(normalBytes).Concat(indexBytes).ToArray();
+        // 3. 构建Binary Chunk数据（优化内存使用，避免Concat产生临时数组）
         var vertexBufferByteLength = vertexBytes.Length;
         var normalBufferByteLength = normalBytes.Length;
         var indexBufferByteLength = indexBytes.Length;
+
+        var binaryData = new byte[vertexBufferByteLength + normalBufferByteLength + indexBufferByteLength];
+        Buffer.BlockCopy(vertexBytes, 0, binaryData, 0, vertexBufferByteLength);
+        Buffer.BlockCopy(normalBytes, 0, binaryData, vertexBufferByteLength, normalBufferByteLength);
+        Buffer.BlockCopy(indexBytes, 0, binaryData, vertexBufferByteLength + normalBufferByteLength, indexBufferByteLength);
 
         // 4. 构建glTF JSON（引用buffer 0）
         var gltfJson = new
@@ -7846,31 +7984,31 @@ public class SlicingProcessor : ISlicingProcessor
         var allSlices = await _sliceRepository.GetAllAsync();
         var slices = allSlices.Where(s => s.SlicingTaskId == task.Id).ToList();
 
-                    var sliceData = new List<object>();
-                    foreach (var s in slices)
-                    {
-                        sliceData.Add(new
-                        {
-                            s.Level,
-                            s.X,
-                            s.Y,
-                            s.Z,
-                            s.FilePath,
-                            Hash = await CalculateSliceHash(s), // 计算切片哈希用于增量比较
-                            s.BoundingBox
-                        });
-                    }
-        
-                    var updateIndex = new
-                    {
-                        TaskId = task.Id,
-                        Version = DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
-                        LastModified = DateTime.UtcNow,
-                        SliceCount = slices.Count,
-                        Slices = sliceData,
-                        Strategy = config.Strategy.ToString(),
-                        TileSize = config.TileSize
-                    };
+        var sliceData = new List<object>();
+        foreach (var s in slices)
+        {
+            sliceData.Add(new
+            {
+                s.Level,
+                s.X,
+                s.Y,
+                s.Z,
+                s.FilePath,
+                Hash = await CalculateSliceHash(s), // 计算切片哈希用于增量比较
+                s.BoundingBox
+            });
+        }
+
+        var updateIndex = new
+        {
+            TaskId = task.Id,
+            Version = DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
+            LastModified = DateTime.UtcNow,
+            SliceCount = slices.Count,
+            Slices = sliceData,
+            Strategy = config.Strategy.ToString(),
+            TileSize = config.TileSize
+        };
         var indexContent = System.Text.Json.JsonSerializer.Serialize(updateIndex, new JsonSerializerOptions
         {
             WriteIndented = true

@@ -281,7 +281,7 @@
           </div>
 
           <div class="form-group">
-            <label>LOD层级数 *</label>
+            <label>LOD层级数 * (建议≤8，过高会导致内存溢出)</label>
             <input
               v-model.number="taskForm.lodLevels"
               type="number"
@@ -290,6 +290,9 @@
               class="form-input"
               placeholder="1-10"
             />
+            <small class="form-hint" v-if="taskForm.lodLevels > 8" style="color: orange; display: block; margin-top: 4px;">
+              ⚠️ 级别{{taskForm.lodLevels}}将生成约 {{ estimateSliceCount(taskForm.lodLevels) }} 个切片，可能导致内存不足
+            </small>
           </div>
 
           <div class="form-group">
@@ -617,14 +620,24 @@ const getStatusVariant = (status: string): 'primary' | 'warning' | 'success' | '
   return variantMap[status] || 'gray'
 }
 
-const getStrategyName = (strategy: number) => {
-  const strategyMap: Record<number, string> = {
-    0: 'Grid',
-    1: 'Octree',
-    2: 'KdTree',
-    3: 'Adaptive'
+const getStrategyName = (strategy: number | string | undefined) => {
+  // 如果是字符串，直接返回（后端已经转换为字符串名称）
+  if (typeof strategy === 'string') {
+    return strategy
   }
-  return strategyMap[strategy] || '未知'
+
+  // 如果是数字，进行映射
+  if (typeof strategy === 'number') {
+    const strategyMap: Record<number, string> = {
+      0: 'Grid',
+      1: 'Octree',
+      2: 'KdTree',
+      3: 'Adaptive'
+    }
+    return strategyMap[strategy] || '未知'
+  }
+
+  return '未知'
 }
 
 const getStrategyIcon = (name: string) => {
@@ -712,11 +725,39 @@ const closeCreateTaskDialog = () => {
   showCreateTaskDialog.value = false
 }
 
+// 估算切片数量
+const estimateSliceCount = (level: number): string => {
+  const tilesInLevel = Math.pow(2, level)
+  const zTiles = level === 0 ? 1 : tilesInLevel / 2
+  const count = tilesInLevel * tilesInLevel * zTiles
+
+  if (count >= 1000000) {
+    return `${(count / 1000000).toFixed(1)}百万`
+  } else if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}千`
+  }
+  return count.toString()
+}
+
 const createTask = async () => {
   try {
     if (!taskForm.value.name || !taskForm.value.modelPath) {
       alert('请填写必填字段')
       return
+    }
+
+    // 验证最大LOD级别，防止内存溢出
+    if (taskForm.value.lodLevels > 10) {
+      alert('最大LOD级别不能超过10，以防止内存溢出。请降低级别或增大切片尺寸。')
+      return
+    }
+
+    // 将切片策略数字映射为字符串
+    const strategyMap: Record<number, string> = {
+      0: 'Grid',
+      1: 'Octree',
+      2: 'KdTree',
+      3: 'Adaptive'
     }
 
     // 将前端表单数据映射到后端期望的格式
@@ -726,7 +767,7 @@ const createTask = async () => {
       modelType: 'General3DModel', // 默认模型类型
       outputPath: taskForm.value.outputPath, // 添加输出路径
       slicingConfig: {
-        strategy: taskForm.value.slicingStrategy,
+        strategy: strategyMap[taskForm.value.slicingStrategy] || 'Octree',
         maxLevel: taskForm.value.lodLevels,
         tileSize: taskForm.value.tileSize,
         outputFormat: 'b3dm',
@@ -737,12 +778,16 @@ const createTask = async () => {
       }
     }
 
+    console.log('发送的请求数据:', JSON.stringify(requestData, null, 2))
     await slicingService.createSlicingTask(requestData, userId)
     await loadTasks()
     closeCreateTaskDialog()
-  } catch (error) {
+  } catch (error: any) {
     console.error('创建切片任务失败:', error)
-    alert('创建任务失败')
+    console.error('错误详情:', error.response?.data)
+    console.error('错误状态:', error.response?.status)
+    const errorMessage = error.response?.data?.message || error.message || '创建任务失败'
+    alert(`创建任务失败: ${errorMessage}`)
   }
 }
 
