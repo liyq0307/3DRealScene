@@ -13,7 +13,7 @@ using RealScene3D.Infrastructure.Data;
 namespace RealScene3D.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20251028081743_InitialCreate")]
+    [Migration("20251030025853_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -379,7 +379,7 @@ namespace RealScene3D.Infrastructure.Migrations
                     b.Property<int>("Progress")
                         .HasColumnType("integer");
 
-                    b.Property<Guid>("SceneObjectId")
+                    b.Property<Guid?>("SceneObjectId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SlicingConfig")

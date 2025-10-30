@@ -294,6 +294,7 @@ namespace RealScene3D.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     SourceModelPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    SceneObjectId = table.Column<Guid>(type: "uuid", nullable: true),
                     ModelType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     SlicingConfig = table.Column<string>(type: "text", nullable: false),
                     Status = table.Column<int>(type: "integer", nullable: false),
@@ -303,8 +304,7 @@ namespace RealScene3D.Infrastructure.Migrations
                     CreatedBy = table.Column<Guid>(type: "uuid", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    SceneObjectId = table.Column<Guid>(type: "uuid", nullable: false)
+                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
