@@ -4775,7 +4775,7 @@ public class SlicingAppService : ISlicingAppService
             // 先将 DTO 配置转换为 Domain 配置
             var domainConfig = isIncrementalUpdate || task.Status == SlicingTaskStatus.Created
                 ? MapSlicingConfigToDomain(request.SlicingConfig)
-                : ParseSlicingConfig(task.SlicingConfig);
+                : SlicingUtilities.ParseSlicingConfig(task.SlicingConfig);
 
             // 判断存储位置的优先级：
             // 1. 如果用户在 SlicingConfig 中明确指定了 StorageLocation，使用用户指定的
@@ -5024,108 +5024,22 @@ public class SlicingAppService : ISlicingAppService
             }
 
             // 获取切片配置
-            var config = ParseSlicingConfig(task.SlicingConfig);
+            var config = SlicingUtilities.ParseSlicingConfig(task.SlicingConfig);
 
             // 删除关联的所有切片文件
             var allSlices = await _sliceRepository.GetAllAsync();
             var taskSlices = allSlices.Where(s => s.SlicingTaskId == taskId).ToList();
-
             foreach (var slice in taskSlices)
             {
-                if (config.StorageLocation == StorageLocationType.LocalFileSystem)
-                {
-                    _logger.LogDebug("尝试删除本地切片文件：{FilePath}", slice.FilePath);
-                    if (File.Exists(slice.FilePath))
-                    {
-                        _logger.LogDebug("本地切片文件存在：{FilePath}", slice.FilePath);
-                        try
-                        {
-                            File.Delete(slice.FilePath);
-                            _logger.LogDebug("本地切片文件已删除：{FilePath}", slice.FilePath);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "删除本地切片文件失败：{FilePath}", slice.FilePath);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogWarning("本地切片文件不存在，无法删除：{FilePath}", slice.FilePath);
-                    }
-                }
-                else
-                {
-                    await _minioService.DeleteFileAsync("slices", slice.FilePath);
-                    _logger.LogDebug("MinIO切片文件已删除：{FilePath}", slice.FilePath);
-                }
+                await SlicingUtilities.DeleteSliceFileAsync(
+                    slice.FilePath, task.OutputPath, config.StorageLocation, _minioService, _logger);
+
+                // 删除数据库中的切片记录
+                await _sliceRepository.DeleteAsync(slice);
             }
 
             // 删除切片索引文件和tileset.json
-            if (!string.IsNullOrEmpty(task.OutputPath))
-            {
-                if (config.StorageLocation == StorageLocationType.LocalFileSystem)
-                {
-                    var indexPath = Path.Combine(task.OutputPath, "index.json");
-                    if (File.Exists(indexPath))
-                    {
-                        File.Delete(indexPath);
-                        _logger.LogDebug("本地切片索引文件已删除：{FilePath}", indexPath);
-                    }
-                    var tilesetPath = Path.Combine(task.OutputPath, "tileset.json");
-                    if (File.Exists(tilesetPath))
-                    {
-                        File.Delete(tilesetPath);
-                        _logger.LogDebug("本地tileset.json文件已删除：{FilePath}", tilesetPath);
-                    }
-                    // 删除增量更新索引文件
-                    var incrementalIndexPath = Path.Combine(task.OutputPath, "incremental_index.json");
-                    if (File.Exists(incrementalIndexPath))
-                    {
-                        File.Delete(incrementalIndexPath);
-                        _logger.LogDebug("本地增量更新索引文件已删除：{FilePath}", incrementalIndexPath);
-                    }
-                    // 尝试删除输出目录，如果为空
-                    if (Directory.Exists(task.OutputPath))
-                    {
-                        // 递归删除所有空子目录
-                        foreach (var dir in Directory.EnumerateDirectories(task.OutputPath, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
-                        {
-                            try
-                            {
-                                if (!Directory.EnumerateFileSystemEntries(dir).Any())
-                                {
-                                    Directory.Delete(dir);
-                                    _logger.LogDebug("本地空目录已删除：{DirectoryPath}", dir);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "删除本地空目录失败：{DirectoryPath}", dir);
-                            }
-                        }
-
-                        // 最后尝试删除根输出目录，如果为空
-                        if (!Directory.EnumerateFileSystemEntries(task.OutputPath).Any())
-                        {
-                            Directory.Delete(task.OutputPath);
-                            _logger.LogDebug("本地切片输出根目录已删除：{OutputPath}", task.OutputPath);
-                        }
-                    }
-                }
-                else
-                {
-                    await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/tileset.json");
-                    await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/index.json");
-                    // 删除增量更新索引文件
-                    await _minioService.DeleteFileAsync("slices", $"{task.OutputPath}/incremental_index.json");
-                }
-            }
-
-            // 删除数据库中的切片记录
-            foreach (var slice in taskSlices)
-            {
-                await _sliceRepository.DeleteAsync(slice);
-            }
+            await SlicingUtilities.DeleteSliceIndexAndTilesetAsync(task.OutputPath, config.StorageLocation, _minioService, _logger);
 
             // 删除数据库中的任务记录
             await _slicingTaskRepository.DeleteAsync(task);
@@ -5572,7 +5486,7 @@ public class SlicingAppService : ISlicingAppService
             SourceModelPath = task.SourceModelPath,
             ModelType = task.ModelType,
             SceneObjectId = task.SceneObjectId,
-            SlicingConfig = MapSlicingConfigToDto(ParseSlicingConfig(task.SlicingConfig)),
+            SlicingConfig = MapSlicingConfigToDto(SlicingUtilities.ParseSlicingConfig(task.SlicingConfig)),
             Status = task.Status.ToString().ToLowerInvariant(),
             Progress = task.Progress,
             OutputPath = task.OutputPath,
@@ -5683,19 +5597,6 @@ public class SlicingAppService : ISlicingAppService
         };
     }
 
-    private static SlicingConfig ParseSlicingConfig(string configJson)
-    {
-        try
-        {
-            var config = JsonSerializer.Deserialize<SlicingConfig>(configJson);
-            return config ?? new SlicingConfig();
-        }
-        catch
-        {
-            return new SlicingConfig();
-        }
-    }
-
     private string GetCurrentStage(SlicingTaskStatus status)
     {
         return status switch
@@ -5749,7 +5650,7 @@ public class SlicingAppService : ISlicingAppService
             var task = await _slicingTaskRepository.GetByIdAsync(taskId);
             if (task == null) return 0;
 
-            var config = ParseSlicingConfig(task.SlicingConfig);
+            var config = SlicingUtilities.ParseSlicingConfig(task.SlicingConfig);
             long totalCount = 0;
 
             // 根据不同策略计算总切片数

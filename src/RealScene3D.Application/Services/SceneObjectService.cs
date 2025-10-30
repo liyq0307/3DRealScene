@@ -208,14 +208,14 @@ public class SceneObjectService : ISceneObjectService
             var allTasks = await _slicingTaskRepository.GetAllAsync();
             var relatedTasks = allTasks.Where(t => t.SceneObjectId == id).ToList();
 
-            if (relatedTasks.Any())
+            if (relatedTasks.Count != 0)
             {
                 _logger.LogInformation("删除场景对象 {ObjectId} 关联的 {Count} 个切片任务", id, relatedTasks.Count);
 
                 foreach (var task in relatedTasks)
                 {
                     // 获取切片任务的配置信息，以确定存储位置
-                    var config = ParseSlicingConfig(task.SlicingConfig);
+                    var config = SlicingUtilities.ParseSlicingConfig(task.SlicingConfig);
                     var storageLocation = config.StorageLocation;
 
                     // 查找并删除所有关联的切片文件
@@ -226,7 +226,11 @@ public class SceneObjectService : ISceneObjectService
                             task.Id, slices.Count(), storageLocation);
                         foreach (var slice in slices)
                         {
-                            await DeleteSliceFileAsync(slice.FilePath, task.OutputPath, storageLocation);
+                            await SlicingUtilities.DeleteSliceFileAsync(
+                                slice.FilePath, task.OutputPath, storageLocation, _minioStorageService, _logger);
+
+                            // 删除数据库中的切片记录
+                            await _sliceRepository.DeleteAsync(slice);
                         }
                     }
 
@@ -239,6 +243,10 @@ public class SceneObjectService : ISceneObjectService
 
                     // 删除切片任务
                     await _slicingTaskRepository.DeleteAsync(task);
+
+                    // 删除切片索引文件和tileset.json
+                    await SlicingUtilities.DeleteSliceIndexAndTilesetAsync(
+                        task.OutputPath, storageLocation, _minioStorageService, _logger);
                 }
             }
 
@@ -258,90 +266,10 @@ public class SceneObjectService : ISceneObjectService
     }
 
     /// <summary>
-    /// 如果文件路径是MinIO路径，则删除MinIO中的文件
-    /// 支持多种路径格式：
-    /// - MinIO URL: http://localhost:9000/bucket/object (从配置读取endpoint)
-    /// - MinIO相对路径: bucket/object
-    /// - 跳过本地路径和非MinIO远程URL
+    /// 删除MinIO文件（如果路径指向MinIO存储）
     /// </summary>
     /// <param name="filePath">文件路径</param>
-    /// <summary>
-    /// 根据存储位置删除切片文件
-    /// </summary>
-    /// <param name="filePath">文件路径</param>
-    /// <param name="outputPath">任务输出路径</param>
-    /// <param name="storageLocation">存储位置类型</param>
-    private async Task DeleteSliceFileAsync(string? filePath, string? outputPath, StorageLocationType storageLocation)
-    {
-        if (string.IsNullOrWhiteSpace(filePath))
-        {
-            _logger.LogDebug("文件路径为空，跳过文件删除");
-            return;
-        }
-
-        try
-        {
-            if (storageLocation == StorageLocationType.LocalFileSystem)
-            {
-                // 本地文件系统：拼接完整路径
-                var fullPath = Path.IsPathRooted(filePath)
-                    ? filePath
-                    : Path.Combine(outputPath ?? "", filePath);
-
-                if (File.Exists(fullPath))
-                {
-                    File.Delete(fullPath);
-                    _logger.LogInformation("✓ 成功删除本地切片文件: {FilePath}", fullPath);
-                }
-                else
-                {
-                    _logger.LogWarning("本地切片文件不存在: {FilePath}", fullPath);
-                }
-            }
-            else // MinIO
-            {
-                // MinIO：直接使用相对路径
-                if (_minioStorageService == null)
-                {
-                    _logger.LogWarning("MinIO存储服务未注入，无法删除切片文件: {FilePath}", filePath);
-                    return;
-                }
-                var deleted = await _minioStorageService.DeleteFileAsync("slices", filePath);
-                if (deleted)
-                {
-                    _logger.LogInformation("✓ 成功删除MinIO切片文件: {FilePath}", filePath);
-                }
-                else
-                {
-                    _logger.LogWarning("✗ MinIO切片文件删除失败或文件不存在: {FilePath}", filePath);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            // 不抛出异常，只记录日志，避免影响主流程
-            _logger.LogError(ex, "删除切片文件时发生错误: {FilePath}", filePath);
-        }
-    }
-
-    /// <summary>
-    /// 解析切片配置JSON字符串
-    /// </summary>
-    /// <param name="configJson">配置JSON字符串</param>
-    /// <returns>切片配置对象</returns>
-    private static SlicingConfig ParseSlicingConfig(string configJson)
-    {
-        try
-        {
-            var config = System.Text.Json.JsonSerializer.Deserialize<SlicingConfig>(configJson);
-            return config ?? new SlicingConfig();
-        }
-        catch
-        {
-            return new SlicingConfig();
-        }
-    }
-
+    /// <returns></returns>
     private async Task DeleteMinioFileIfNeededAsync(string? filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
