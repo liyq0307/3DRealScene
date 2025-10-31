@@ -6,6 +6,7 @@ using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.Data;
+using RealScene3D.Infrastructure.MinIO;
 
 namespace RealScene3D.Application.Services;
 
@@ -20,12 +21,14 @@ public class SceneService : ISceneService
     private readonly ApplicationDbContext _context;
     private readonly GeometryFactory _geometryFactory;
     private readonly GeoJsonReader _geoJsonReader;
+    private readonly IMinioStorageService _minioStorageService;
 
     public SceneService(
         IRepository<Scene3D> sceneRepository,
         IRepository<SceneObject> sceneObjectRepository,
         IUnitOfWork unitOfWork,
-        ApplicationDbContext context)
+        ApplicationDbContext context,
+        IMinioStorageService minioStorageService)
     {
         _sceneRepository = sceneRepository;
         _sceneObjectRepository = sceneObjectRepository;
@@ -33,6 +36,7 @@ public class SceneService : ISceneService
         _context = context;
         _geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
         _geoJsonReader = new GeoJsonReader();
+        _minioStorageService = minioStorageService;
     }
 
     /// <summary>
@@ -109,7 +113,11 @@ public class SceneService : ISceneService
                 .ThenInclude(so => so.SlicingTask)
             .FirstOrDefaultAsync(s => s.Id == id);
 
-        return scene != null ? MapToDto(scene) : null;
+        if (scene == null)
+            return null;
+
+        var sceneDto = MapToDto(scene);
+        return EnrichWithPresignedUrlsAsync(sceneDto);
     }
 
     /// <summary>
@@ -245,7 +253,30 @@ public class SceneService : ISceneService
             SceneObjects = scene.SceneObjects.Select(so =>
             {
                 var slicingOutputPath = so.SlicingTask?.Status == SlicingTaskStatus.Completed ? so.SlicingTask.OutputPath : null;
-                var displayPath = slicingOutputPath ?? so.ModelPath;
+
+                // 如果切片任务完成，displayPath应该指向tileset.json
+                string? displayPath = null;
+                if (!string.IsNullOrEmpty(slicingOutputPath) && so.SlicingTask?.Status == SlicingTaskStatus.Completed)
+                {
+                    // 构建tileset.json路径
+                    if (slicingOutputPath.EndsWith("tileset.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        displayPath = slicingOutputPath;
+                    }
+                    else if (slicingOutputPath.EndsWith('/') || slicingOutputPath.EndsWith('\\'))
+                    {
+                        displayPath = slicingOutputPath + "tileset.json";
+                    }
+                    else
+                    {
+                        displayPath = slicingOutputPath + "/tileset.json";
+                    }
+                }
+                else
+                {
+                    // 如果没有切片输出或切片未完成，使用原始模型路径
+                    displayPath = so.ModelPath;
+                }
 
                 return new SceneDtos.SceneObjectDto
                 {
@@ -267,5 +298,38 @@ public class SceneService : ISceneService
                 };
             }).ToList()
         };
+    }
+
+    /// <summary>
+    /// 为场景对象生成后端代理路径（用于访问MinIO存储）
+    /// </summary>
+    private SceneDtos.SceneDto EnrichWithPresignedUrlsAsync(SceneDtos.SceneDto sceneDto)
+    {
+        foreach (var obj in sceneDto.SceneObjects)
+        {
+            if (string.IsNullOrEmpty(obj.DisplayPath))
+                continue;
+
+            // 如果已经是完整URL（包含http或https），跳过
+            if (obj.DisplayPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                obj.DisplayPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // 使用后端代理路径访问MinIO对象
+            try
+            {
+                const string bucketName = MinioBuckets.MODELS_3D;
+                obj.DisplayPath = $"/api/files/proxy/{bucketName}/{obj.DisplayPath}";
+            }
+            catch (Exception ex)
+            {
+                // 如果构建代理路径失败，保留原始路径
+                Console.WriteLine($"Failed to build proxy path for {obj.Name}: {ex.Message}");
+            }
+        }
+
+        return sceneDto;
     }
 }

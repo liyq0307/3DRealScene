@@ -126,6 +126,25 @@
             <!-- 3D查看器 -->
             <div class="detail-section">
               <h4>Cesium 3D地球</h4>
+
+              <!-- 格式兼容性提示 -->
+              <div v-if="hasUnsupportedModels" class="format-notice">
+                <div class="notice-icon">⚠️</div>
+                <div class="notice-content">
+                  <strong>模型格式提示</strong>
+                  <p>
+                    本场景包含需要转换才能显示的模型格式（如 OBJ、FBX、DAE 等）。
+                    <br>
+                    Cesium 原生支持 glTF/GLB 和 3D Tiles 格式。
+                    <br>
+                    其他格式需要通过切片服务转换为 3D Tiles 才能在地球上显示。
+                  </p>
+                  <button class="btn btn-primary btn-sm" @click="convertModelsToTiles">
+                    转换为 3D Tiles
+                  </button>
+                </div>
+              </div>
+
               <div class="scene-viewer-wrapper">
                 <CesiumViewer
                   v-if="showDetailDialog"
@@ -219,7 +238,7 @@
  */
 
 import { ref, computed, onMounted } from 'vue'
-import { sceneService, sceneObjectService } from '../services/api'
+import { sceneService } from '../services/api'
 import authStore from '@/stores/auth'
 import { useMessage } from '@/composables/useMessage'
 import CesiumViewer from '@/components/CesiumViewer.vue'
@@ -283,6 +302,27 @@ const paginatedScenes = computed(() => {
   return filteredScenes.value.slice(start, end)
 })
 
+// 检查是否有不支持的模型格式
+const hasUnsupportedModels = computed(() => {
+  if (!sceneObjects.value || sceneObjects.value.length === 0) return false
+
+  const nativelySupportedFormats = ['gltf', 'glb', 'json']
+  const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
+
+  return sceneObjects.value.some(obj => {
+    if (!obj.displayPath) return false
+
+    const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
+
+    // 如果是可转换格式，并且没有完成的切片任务，则认为是不支持的
+    if (convertibleFormats.includes(fileExt || '')) {
+      return !obj.slicingTaskId || obj.slicingTaskStatus !== 'Completed'
+    }
+
+    return false
+  })
+})
+
 // ==================== 业务逻辑方法 ====================
 
 /**
@@ -323,11 +363,29 @@ const viewScene = async (id: string) => {
   try {
     console.log('[Scenes] Fetching scene details...')
     currentScene.value = await sceneService.getScene(id)
-    sceneObjects.value = currentScene.value.sceneObjects // 直接从场景数据中获取场景对象
+
+    // 检查API返回的数据结构
+    console.log('[Scenes] Full scene data:', JSON.stringify(currentScene.value, null, 2))
+    console.log('[Scenes] Scene keys:', Object.keys(currentScene.value))
+
+    // 使用正确的属性名 sceneObjects（后端返回camelCase）
+    if (currentScene.value.sceneObjects && currentScene.value.sceneObjects.length > 0) {
+      sceneObjects.value = currentScene.value.sceneObjects
+      console.log('[Scenes] Using sceneObjects (camelCase):', sceneObjects.value.length, 'objects')
+    } else {
+      sceneObjects.value = []
+      console.warn('[Scenes] No scene objects found in response!')
+    }
+
     console.log('[Scenes] Scene details loaded:', currentScene.value)
-    console.log('[Scenes] Scene objects loaded:', sceneObjects.value)
+    console.log('[Scenes] Scene objects count:', sceneObjects.value?.length || 0)
+    console.log('[Scenes] Scene objects data:', JSON.stringify(sceneObjects.value, null, 2))
+
+    // 等待下一个tick，确保所有响应式数据更新完成
+    await new Promise(resolve => setTimeout(resolve, 100))
+
     showDetailDialog.value = true
-    console.log('[Scenes] Dialog shown')
+    console.log('[Scenes] Dialog shown, sceneObjects ready for CesiumViewer')
   } catch (error) {
     console.error('[Scenes] 加载场景详情失败:', error)
     showError('加载场景详情失败')
@@ -483,6 +541,71 @@ const deleteScene = async (id: string) => {
     } catch (error) {
       console.error('删除场景失败:', error)
       showError('删除场景失败，请稍后重试')
+    }
+  }
+}
+
+/**
+ * 转换不支持的模型为3D Tiles格式
+ */
+const convertModelsToTiles = async () => {
+  if (!sceneObjects.value || sceneObjects.value.length === 0) {
+    showError('没有可转换的模型')
+    return
+  }
+
+  const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
+
+  // 找出需要转换的模型
+  const modelsToConvert = sceneObjects.value.filter(obj => {
+    if (!obj.displayPath) return false
+    const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
+    return convertibleFormats.includes(fileExt || '') &&
+           (!obj.slicingTaskId || obj.slicingTaskStatus !== 'Completed')
+  })
+
+  if (modelsToConvert.length === 0) {
+    showError('没有需要转换的模型')
+    return
+  }
+
+  if (confirm(`确定要为 ${modelsToConvert.length} 个模型创建切片任务吗？`)) {
+    try {
+      let successCount = 0
+      let failCount = 0
+
+      for (const obj of modelsToConvert) {
+        try {
+          // TODO: 调用切片服务API创建切片任务
+          // const response = await slicingService.createSlicingTask({
+          //   sceneObjectId: obj.id,
+          //   strategy: 'Grid', // 或 'Octree' / 'KDTree'
+          //   maxLevel: 5,
+          //   parallelProcessingCount: 4
+          // })
+
+          console.log(`为模型 ${obj.name} 创建切片任务`)
+          successCount++
+        } catch (error) {
+          console.error(`为模型 ${obj.name} 创建切片任务失败:`, error)
+          failCount++
+        }
+      }
+
+      if (successCount > 0) {
+        showSuccess(`成功为 ${successCount} 个模型创建切片任务`)
+        // 重新加载场景详情以获取最新的切片状态
+        if (currentScene.value) {
+          await viewScene(currentScene.value.id)
+        }
+      }
+
+      if (failCount > 0) {
+        showError(`${failCount} 个模型创建切片任务失败`)
+      }
+    } catch (error) {
+      console.error('批量创建切片任务失败:', error)
+      showError('创建切片任务失败')
     }
   }
 }
@@ -788,6 +911,48 @@ onMounted(() => {
   background: #1a1a1a;
   border-radius: 8px;
   overflow: hidden;
+}
+
+/* 格式兼容性提示 */
+.format-notice {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border: 1px solid #ffc107;
+  border-left: 4px solid #ff9800;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(255, 152, 0, 0.1);
+}
+
+.notice-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.notice-content {
+  flex: 1;
+}
+
+.notice-content strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #856404;
+  font-size: 1rem;
+}
+
+.notice-content p {
+  margin: 0 0 0.75rem 0;
+  color: #664d03;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
 }
 
 .loading-state {

@@ -28,6 +28,20 @@ using RealScene3D.WebApi.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ========== Kestrel服务器配置 ==========
+// 配置请求大小限制以支持大文件上传（最大500MB）
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 500 * 1024 * 1024; // 500MB
+    options.ValueLengthLimit = int.MaxValue;
+    options.MultipartHeadersLengthLimit = int.MaxValue;
+});
+
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.MaxRequestBodySize = 500 * 1024 * 1024; // 500MB
+});
+
 // ========== 基础服务配置 ==========
 
 /// <summary>

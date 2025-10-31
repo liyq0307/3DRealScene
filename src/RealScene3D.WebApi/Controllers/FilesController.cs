@@ -15,8 +15,8 @@ public class FilesController : ControllerBase
     private readonly IMinioStorageService _storageService;
     private readonly ILogger<FilesController> _logger;
 
-    // 最大文件大小限制 (100MB)
-    private const long MaxFileSize = 100 * 1024 * 1024;
+    // 最大文件大小限制 (500MB) - 匹配前端限制
+    private const long MaxFileSize = 500 * 1024 * 1024;
 
     public FilesController(
         IMinioStorageService storageService,
@@ -243,6 +243,71 @@ public class FilesController : ControllerBase
     }
 
     /// <summary>
+    /// 代理访问MinIO文件（用于3D Tiles等需要目录结构的场景）
+    /// </summary>
+    [HttpGet("proxy/{bucket}/{*objectPath}")]
+    [AllowAnonymous] // 允许匿名访问，因为Cesium无法传递认证token
+    public async Task<IActionResult> ProxyFile(string bucket, string objectPath)
+    {
+        try
+        {
+            // 验证bucket是否在允许列表中
+            var allowedBuckets = new[] { MinioBuckets.MODELS_3D, MinioBuckets.TEXTURES, MinioBuckets.THUMBNAILS };
+            if (!allowedBuckets.Contains(bucket))
+            {
+                return BadRequest(new { message = "不支持的存储桶" });
+            }
+
+            // 检查文件是否存在
+            var exists = await _storageService.FileExistsAsync(bucket, objectPath);
+            if (!exists)
+            {
+                _logger.LogWarning("代理访问文件不存在: {Bucket}/{ObjectPath}", bucket, objectPath);
+                return NotFound();
+            }
+
+            // 获取文件流
+            var stream = await _storageService.DownloadFileAsync(bucket, objectPath);
+
+            // 根据文件扩展名确定Content-Type
+            var contentType = GetContentTypeFromPath(objectPath);
+
+            _logger.LogInformation("代理访问文件成功: {Bucket}/{ObjectPath}", bucket, objectPath);
+
+            // 设置CORS头，允许Cesium跨域访问
+            Response.Headers.Add("Access-Control-Allow-Origin", "*");
+            Response.Headers.Add("Access-Control-Allow-Methods", "GET, OPTIONS");
+            Response.Headers.Add("Access-Control-Allow-Headers", "*");
+
+            return File(stream, contentType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "代理访问文件失败: {Bucket}/{ObjectPath}", bucket, objectPath);
+            return StatusCode(500, new { message = "访问文件失败" });
+        }
+    }
+
+    private string GetContentTypeFromPath(string path)
+    {
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        return extension switch
+        {
+            ".json" => "application/json",
+            ".b3dm" => "application/octet-stream",
+            ".pnts" => "application/octet-stream",
+            ".i3dm" => "application/octet-stream",
+            ".cmpt" => "application/octet-stream",
+            ".glb" => "model/gltf-binary",
+            ".gltf" => "model/gltf+json",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".obj" => "text/plain",
+            _ => "application/octet-stream"
+        };
+    }
+
+    /// <summary>
     /// 获取文件下载链接
     /// </summary>
     [HttpGet("download-url/{bucket}/{*objectName}")]
@@ -297,85 +362,6 @@ public class FilesController : ControllerBase
             _logger.LogError(ex, "列出文件失败: {Bucket}", bucket);
             return StatusCode(500, new { message = "列出文件失败", error = ex.Message });
         }
-    }
-
-    /// <summary>
-    /// 代理获取文件（用于避免CORS问题）
-    /// </summary>
-    [HttpGet("proxy/{bucket}/{*objectName}")]
-    [AllowAnonymous] // 允许匿名访问，因为是公开资源
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ProxyFile(string bucket, string objectName)
-    {
-        try
-        {
-            _logger.LogInformation("正在代理访问文件: Bucket={Bucket}, ObjectName={ObjectName}", bucket, objectName);
-
-            var exists = await _storageService.FileExistsAsync(bucket, objectName);
-            if (!exists)
-            {
-                _logger.LogWarning("文件不存在: Bucket={Bucket}, ObjectName={ObjectName}", bucket, objectName);
-                return NotFound(new { message = "文件不存在", bucket, objectName });
-            }
-
-            // 从MinIO获取文件流
-            var stream = await _storageService.DownloadFileAsync(bucket, objectName);
-
-            // 根据文件扩展名确定Content-Type
-            var contentType = GetContentType(objectName);
-
-            _logger.LogInformation("文件代理成功: Bucket={Bucket}, ObjectName={ObjectName}, ContentType={ContentType}",
-                bucket, objectName, contentType);
-
-            // 设置响应头以启用缓存
-            Response.Headers.CacheControl = "public, max-age=604800"; // 7天缓存
-
-            return File(stream, contentType);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "代理文件失败: Bucket={Bucket}, ObjectName={ObjectName}", bucket, objectName);
-            return StatusCode(500, new { message = "获取文件失败", error = ex.Message, bucket, objectName });
-        }
-    }
-
-    private string GetContentType(string fileName)
-    {
-        var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        return extension switch
-        {
-            // 图片格式
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".png" => "image/png",
-            ".webp" => "image/webp",
-            ".gif" => "image/gif",
-            ".bmp" => "image/bmp",
-            ".svg" => "image/svg+xml",
-
-            // 文档格式
-            ".pdf" => "application/pdf",
-
-            // 视频格式
-            ".mp4" => "video/mp4",
-            ".webm" => "video/webm",
-
-            // 数据格式
-            ".json" => "application/json",
-            ".xml" => "application/xml",
-
-            // 3D模型格式
-            ".gltf" => "model/gltf+json",
-            ".glb" => "model/gltf-binary",
-            ".obj" => "text/plain",  // OBJ是文本格式
-            ".mtl" => "text/plain",  // MTL材质文件
-            ".fbx" => "application/octet-stream",
-            ".dae" => "model/vnd.collada+xml",
-            ".3ds" => "application/octet-stream",
-            ".stl" => "application/octet-stream",
-
-            _ => "application/octet-stream"
-        };
     }
 
     private string DetermineBucket(string? requestedBucket, string fileName)
