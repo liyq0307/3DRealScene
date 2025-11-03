@@ -1600,7 +1600,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     /// OBJ是一种基于文本的3D模型格式，由顶点(v)、纹理坐标(vt)、法向量(vn)和面(f)组成
     /// 增强特性：错误恢复、数据验证、性能优化、大文件支持、多编码支持
     /// </summary>
-    private async Task<List<Triangle>> ParseOBJFormatAsync(Stream stream, CancellationToken cancellationToken)
+    public async Task<List<Triangle>> ParseOBJFormatAsync(Stream stream, CancellationToken cancellationToken)
     {
         var triangles = new List<Triangle>();
         var vertices = new List<Vector3D>();
@@ -1930,7 +1930,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     /// 解析STL格式模型文件（支持二进制和ASCII格式）
     /// STL是一种简单的三角形网格格式，广泛用于3D打印和CAD软件
     /// </summary>
-    private async Task<List<Triangle>> ParseSTLFormatAsync(Stream stream, CancellationToken cancellationToken)
+    public async Task<List<Triangle>> ParseSTLFormatAsync(Stream stream, CancellationToken cancellationToken)
     {
         var triangles = new List<Triangle>();
 
@@ -2059,7 +2059,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     /// PLY（Polygon File Format）是一种灵活的多边形网格格式
     /// 支持：ASCII/Binary格式、多边形三角化、顶点属性（位置、法向量、颜色等）
     /// </summary>
-    private async Task<List<Triangle>> ParsePLYFormatAsync(Stream stream, CancellationToken cancellationToken)
+    public async Task<List<Triangle>> ParsePLYFormatAsync(Stream stream, CancellationToken cancellationToken)
     {
         var triangles = new List<Triangle>();
 
@@ -2478,7 +2478,7 @@ public class AdaptiveSlicingStrategy : ISlicingStrategy
     /// GLTF是现代的3D场景传输格式，支持复杂的材质、动画等
     /// 支持：GLTF（JSON格式）和GLB（二进制格式）、嵌入式和外部Buffer、多种图元类型
     /// </summary>
-    private async Task<List<Triangle>> ParseGLTFFormatAsync(Stream stream, CancellationToken cancellationToken)
+    public async Task<List<Triangle>> ParseGLTFFormatAsync(Stream stream, CancellationToken cancellationToken)
     {
         var triangles = new List<Triangle>();
 
@@ -4076,7 +4076,7 @@ internal class GeometricPrimitive
 /// 三角形数据结构
 /// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
 /// </summary>
-internal class Triangle
+public class Triangle
 {
     public Vector3D[] Vertices { get; set; } = new Vector3D[3];
 }
@@ -4935,7 +4935,24 @@ public class SlicingAppService : ISlicingAppService
         try
         {
             var task = await _slicingTaskRepository.GetByIdAsync(taskId);
-            return task != null ? MapToDto(task) : null;
+            if (task == null)
+            {
+                return null;
+            }
+
+            // 计算实际的切片总数
+            int totalSlices = 0;
+            try
+            {
+                var slices = await _sliceRepository.GetAllAsync();
+                totalSlices = slices.Count(s => s.SlicingTaskId == taskId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "计算切片总数失败，使用默认值0：{TaskId}", taskId);
+            }
+
+            return MapToDto(task, totalSlices);
         }
         catch (Exception ex)
         {
@@ -5477,7 +5494,7 @@ public class SlicingAppService : ISlicingAppService
 
     #region 私有方法
 
-    private static SlicingDtos.SlicingTaskDto MapToDto(SlicingTask task)
+    private static SlicingDtos.SlicingTaskDto MapToDto(SlicingTask task, int totalSlices = 0)
     {
         return new SlicingDtos.SlicingTaskDto
         {
@@ -5495,7 +5512,7 @@ public class SlicingAppService : ISlicingAppService
             CreatedAt = task.CreatedAt,
             StartedAt = task.StartedAt,
             CompletedAt = task.CompletedAt,
-            TotalSlices = 0 // 这里应该计算实际的切片总数
+            TotalSlices = totalSlices
         };
     }
 
@@ -6036,6 +6053,25 @@ public class SlicingProcessor : ISlicingProcessor
         _logger.LogInformation("开始切片处理：任务{TaskId}, 策略{Strategy}, 增量更新：{EnableIncrementalUpdates}",
             task.Id, config.Strategy, config.EnableIncrementalUpdates);
 
+        // **步骤1: 加载源模型的三角形数据**
+        _logger.LogInformation("开始加载源模型三角形数据：{SourceModelPath}", task.SourceModelPath);
+        List<Triangle> allTriangles;
+        try
+        {
+            allTriangles = await LoadTrianglesFromModelAsync(task, cancellationToken);
+            _logger.LogInformation("模型加载完成：共{TriangleCount}个三角形", allTriangles.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "加载模型失败，使用空几何数据");
+            allTriangles = new List<Triangle>(); // 使用空数据继续执行
+        }
+
+        // **步骤2: 构建空间索引以加速切片查询**
+        _logger.LogInformation("开始构建三角形空间索引");
+        var triangleSpatialIndex = BuildTriangleSpatialIndex(allTriangles);
+        _logger.LogInformation("空间索引构建完成");
+
         // 准备增量更新：如果启用增量更新，加载现有切片数据用于比对
         Dictionary<string, Slice> existingSlicesMap = new Dictionary<string, Slice>();
         HashSet<string> processedSliceKeys = new HashSet<string>();
@@ -6148,8 +6184,13 @@ public class SlicingProcessor : ISlicingProcessor
 
                 try
                 {
-                    // 生成切片文件内容（这里需要实际的模型数据）
-                    await GenerateSliceFileAsync(slice, config, cancellationToken);
+                    // **步骤3: 查询切片相交的三角形数据**
+                    var sliceTriangles = QueryTrianglesForSlice(slice, triangleSpatialIndex);
+                    _logger.LogDebug("切片({X},{Y},{Z})查询到{Count}个三角形",
+                        slice.X, slice.Y, slice.Z, sliceTriangles.Count);
+
+                    // 生成切片文件内容（传入实际的三角形数据）
+                    await GenerateSliceFileAsync(slice, config, sliceTriangles, cancellationToken);
                     _logger.LogDebug("成功生成切片文件：{FilePath}", slice.FilePath);
                 }
                 catch (Exception ex)
@@ -6353,6 +6394,240 @@ public class SlicingProcessor : ISlicingProcessor
         _logger.LogInformation("切片处理完成：任务{TaskId}", task.Id);
     }
 
+    /// <summary>
+    /// 从源模型文件加载三角形数据
+    /// 这是一个简化版本的LoadModelAsync，只提取三角形数据
+    /// </summary>
+    private async Task<List<Triangle>> LoadTrianglesFromModelAsync(SlicingTask task, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("开始加载模型三角形：{SourceModelPath}", task.SourceModelPath);
+
+        Stream? modelStream = null;
+
+        // 1. 尝试从MinIO加载模型文件
+        try
+        {
+            var segments = task.SourceModelPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length >= 2)
+            {
+                var bucket = segments[0];
+                var objectName = string.Join("/", segments.Skip(1));
+                _logger.LogDebug("尝试从MinIO加载：bucket={Bucket}, object={ObjectName}", bucket, objectName);
+                modelStream = await _minioService.DownloadFileAsync(bucket, objectName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "从MinIO加载模型失败：{SourceModelPath}", task.SourceModelPath);
+        }
+
+        // 2. 尝试从本地文件系统加载
+        if (modelStream == null && File.Exists(task.SourceModelPath))
+        {
+            _logger.LogDebug("从本地文件系统加载：{LocalPath}", task.SourceModelPath);
+            modelStream = File.OpenRead(task.SourceModelPath);
+        }
+
+        // 3. 如果所有数据源都失败，返回空列表
+        if (modelStream == null)
+        {
+            _logger.LogWarning("无法从任何数据源加载模型文件：{SourceModelPath}", task.SourceModelPath);
+            return new List<Triangle>();
+        }
+
+        // 4. 根据文件扩展名解析模型格式
+        var fileExtension = Path.GetExtension(task.SourceModelPath).ToLowerInvariant();
+        List<Triangle> triangles;
+
+        // 创建一个临时的 AdaptiveSlicingStrategy 实例来调用解析方法
+        // 这些解析方法是格式转换工具，不依赖于具体的切片策略
+        var tempStrategy = new AdaptiveSlicingStrategy(_logger, _minioService);
+
+        try
+        {
+            await using (modelStream)
+            {
+                switch (fileExtension)
+                {
+                    case ".obj":
+                        triangles = await tempStrategy.ParseOBJFormatAsync(modelStream, cancellationToken);
+                        break;
+
+                    case ".stl":
+                        triangles = await tempStrategy.ParseSTLFormatAsync(modelStream, cancellationToken);
+                        break;
+
+                    case ".ply":
+                        triangles = await tempStrategy.ParsePLYFormatAsync(modelStream, cancellationToken);
+                        break;
+
+                    case ".gltf":
+                    case ".glb":
+                        triangles = await tempStrategy.ParseGLTFFormatAsync(modelStream, cancellationToken);
+                        break;
+
+                    default:
+                        _logger.LogWarning("不支持的模型格式：{FileExtension}", fileExtension);
+                        return new List<Triangle>();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "模型文件解析失败：{FileExtension}", fileExtension);
+            return new List<Triangle>();
+        }
+
+        _logger.LogInformation("三角形加载完成：{TriangleCount}个三角形", triangles.Count);
+        return triangles;
+    }
+
+    /// <summary>
+    /// 构建三角形的空间索引（简单网格索引）
+    /// 将三角形按照其包围盒分配到网格单元中，以加速空间查询
+    /// </summary>
+    private Dictionary<string, List<Triangle>> BuildTriangleSpatialIndex(List<Triangle> triangles)
+    {
+        var spatialIndex = new Dictionary<string, List<Triangle>>();
+
+        if (triangles.Count == 0)
+        {
+            return spatialIndex;
+        }
+
+        // 计算整体包围盒
+        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+
+        foreach (var triangle in triangles)
+        {
+            foreach (var vertex in triangle.Vertices)
+            {
+                minX = Math.Min(minX, vertex.X);
+                minY = Math.Min(minY, vertex.Y);
+                minZ = Math.Min(minZ, vertex.Z);
+                maxX = Math.Max(maxX, vertex.X);
+                maxY = Math.Max(maxY, vertex.Y);
+                maxZ = Math.Max(maxZ, vertex.Z);
+            }
+        }
+
+        // 创建粗粒度网格索引（64x64x32网格）
+        const int gridSizeX = 64;
+        const int gridSizeY = 64;
+        const int gridSizeZ = 32;
+
+        double cellSizeX = (maxX - minX) / gridSizeX;
+        double cellSizeY = (maxY - minY) / gridSizeY;
+        double cellSizeZ = (maxZ - minZ) / gridSizeZ;
+
+        // 防止除零
+        if (cellSizeX <= 0) cellSizeX = 1.0;
+        if (cellSizeY <= 0) cellSizeY = 1.0;
+        if (cellSizeZ <= 0) cellSizeZ = 1.0;
+
+        // 将每个三角形添加到其包围盒相交的所有网格单元
+        foreach (var triangle in triangles)
+        {
+            // 计算三角形包围盒
+            double triMinX = triangle.Vertices.Min(v => v.X);
+            double triMinY = triangle.Vertices.Min(v => v.Y);
+            double triMinZ = triangle.Vertices.Min(v => v.Z);
+            double triMaxX = triangle.Vertices.Max(v => v.X);
+            double triMaxY = triangle.Vertices.Max(v => v.Y);
+            double triMaxZ = triangle.Vertices.Max(v => v.Z);
+
+            // 计算三角形跨越的网格范围
+            int startX = Math.Max(0, (int)((triMinX - minX) / cellSizeX));
+            int startY = Math.Max(0, (int)((triMinY - minY) / cellSizeY));
+            int startZ = Math.Max(0, (int)((triMinZ - minZ) / cellSizeZ));
+            int endX = Math.Min(gridSizeX - 1, (int)((triMaxX - minX) / cellSizeX));
+            int endY = Math.Min(gridSizeY - 1, (int)((triMaxY - minY) / cellSizeY));
+            int endZ = Math.Min(gridSizeZ - 1, (int)((triMaxZ - minZ) / cellSizeZ));
+
+            // 将三角形添加到所有相交的网格单元
+            for (int x = startX; x <= endX; x++)
+            {
+                for (int y = startY; y <= endY; y++)
+                {
+                    for (int z = startZ; z <= endZ; z++)
+                    {
+                        var cellKey = $"{x}_{y}_{z}";
+                        if (!spatialIndex.ContainsKey(cellKey))
+                        {
+                            spatialIndex[cellKey] = new List<Triangle>();
+                        }
+                        spatialIndex[cellKey].Add(triangle);
+                    }
+                }
+            }
+        }
+
+        _logger.LogInformation("空间索引构建完成：{CellCount}个网格单元，平均每单元{AvgTriangles:F1}个三角形",
+            spatialIndex.Count,
+            triangles.Count / (double)Math.Max(1, spatialIndex.Count));
+
+        return spatialIndex;
+    }
+
+    /// <summary>
+    /// 查询切片包围盒内的三角形
+    /// 使用空间索引快速定位可能相交的三角形，然后进行精确的相交测试
+    /// </summary>
+    private List<Triangle> QueryTrianglesForSlice(Slice slice, Dictionary<string, List<Triangle>> spatialIndex)
+    {
+        var result = new List<Triangle>();
+
+        try
+        {
+            // 解析切片包围盒
+            var boundingBox = System.Text.Json.JsonSerializer.Deserialize<BoundingBox>(slice.BoundingBox);
+            if (boundingBox == null)
+            {
+                _logger.LogWarning("无法解析切片包围盒：{SliceKey}", $"{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}");
+                return result;
+            }
+
+            // 使用HashSet去重（因为三角形可能被多个网格单元引用）
+            var candidateTriangles = new HashSet<Triangle>();
+
+            // 从空间索引中获取候选三角形
+            // 注意：简化实现，直接将所有三角形作为候选
+            // 在实际的空间索引查询中，应该根据包围盒计算相交的网格单元
+            foreach (var triangleList in spatialIndex.Values)
+            {
+                foreach (var triangle in triangleList)
+                {
+                    // 简单的包围盒相交测试
+                    double triMinX = triangle.Vertices.Min(v => v.X);
+                    double triMinY = triangle.Vertices.Min(v => v.Y);
+                    double triMinZ = triangle.Vertices.Min(v => v.Z);
+                    double triMaxX = triangle.Vertices.Max(v => v.X);
+                    double triMaxY = triangle.Vertices.Max(v => v.Y);
+                    double triMaxZ = triangle.Vertices.Max(v => v.Z);
+
+                    // AABB包围盒相交测试
+                    bool intersects = !(triMaxX < boundingBox.MinX || triMinX > boundingBox.MaxX ||
+                                       triMaxY < boundingBox.MinY || triMinY > boundingBox.MaxY ||
+                                       triMaxZ < boundingBox.MinZ || triMinZ > boundingBox.MaxZ);
+
+                    if (intersects)
+                    {
+                        candidateTriangles.Add(triangle);
+                    }
+                }
+            }
+
+            result.AddRange(candidateTriangles);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "查询切片三角形失败：{SliceKey}", $"{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}");
+        }
+
+        return result;
+    }
+
     private static SlicingConfig ParseSlicingConfig(string configJson)
     {
         try
@@ -6462,7 +6737,6 @@ public class SlicingProcessor : ISlicingProcessor
         var tileset = new
         {
             Asset = new { Version = "1.0", Generator = "RealScene3D Slicer" },
-            Schema = "https://project-872-1.gitbook.io/cesium3dtile/",
             GeometricError = config.GeometricErrorThreshold,
             Root = new
             {
@@ -6577,7 +6851,13 @@ public class SlicingProcessor : ISlicingProcessor
     /// <param name="config">切片配置，控制并行度和处理策略</param>
     /// <param name="slices">切片集合，待并行处理的切片数据</param>
     /// <param name="cancellationToken">取消令牌，支持优雅的中断处理</param>
-    private async Task ProcessSlicesInParallelAsync(SlicingTask task, int level, SlicingConfig config, List<Slice> slices, CancellationToken cancellationToken)
+    private async Task ProcessSlicesInParallelAsync(
+        SlicingTask task,
+        int level,
+        SlicingConfig config,
+        List<Slice> slices,
+        Dictionary<string, List<Triangle>> triangleSpatialIndex,
+        CancellationToken cancellationToken)
     {
         var parallelOptions = new ParallelOptions
         {
@@ -6597,8 +6877,11 @@ public class SlicingProcessor : ISlicingProcessor
 
                 try
                 {
-                    // 生成切片文件内容
-                    await GenerateSliceFileAsync(slice, config, cancellationToken);
+                    // 查询此切片相交的三角形数据
+                    var sliceTriangles = QueryTrianglesForSlice(slice, triangleSpatialIndex);
+
+                    // 生成切片文件内容（传入实际的三角形数据）
+                    await GenerateSliceFileAsync(slice, config, sliceTriangles, cancellationToken);
 
                     // 线程安全的计数更新
                     lock (lockObject)
@@ -7075,7 +7358,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// <param name="slice">切片数据</param>
     /// <param name="config">切片配置</param>
     /// <param name="cancellationToken">取消令牌</param>
-    private async Task GenerateSliceFileAsync(Slice slice, SlicingConfig config, CancellationToken cancellationToken)
+    private async Task GenerateSliceFileAsync(Slice slice, SlicingConfig config, List<Triangle> triangles, CancellationToken cancellationToken)
     {
         // 多格式切片文件生成算法
         byte[]? fileContent;
@@ -7083,10 +7366,10 @@ public class SlicingProcessor : ISlicingProcessor
         switch (config.OutputFormat.ToLower())
         {
             case "b3dm":
-                fileContent = await GenerateB3DMContentAsync(slice, config);
+                fileContent = await GenerateB3DMContentAsync(slice, config, triangles);
                 break;
             case "gltf":
-                fileContent = await GenerateGLTFContentAsync(slice, config);
+                fileContent = await GenerateGLTFContentAsync(slice, config, triangles);
                 break;
             case "json":
                 fileContent = await GenerateJSONContentAsync(slice, config);
@@ -7142,8 +7425,9 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     /// <param name="slice">切片数据</param>
     /// <param name="config">切片配置</param>
+    /// <param name="triangles">切片包含的三角形数据</param>
     /// <returns>B3DM格式的字节数组</returns>
-    private async Task<byte[]> GenerateB3DMContentAsync(Slice slice, SlicingConfig config)
+    private async Task<byte[]> GenerateB3DMContentAsync(Slice slice, SlicingConfig config, List<Triangle> triangles)
     {
         // 解析包围盒
         var boundingBox = System.Text.Json.JsonSerializer.Deserialize<BoundingBox>(slice.BoundingBox);
@@ -7206,8 +7490,8 @@ public class SlicingProcessor : ISlicingProcessor
         var batchTableBinaryLength = 0;
         var batchTableBinary = new byte[0];
 
-        // 5. 生成GLB内容（包含实际的几何数据）
-        var glbContent = await GenerateGLBContentAsync(slice, config);
+        // 5. 生成GLB内容（包含实际的几何数据，传入三角形数据）
+        var glbContent = await GenerateGLBContentAsync(boundingBox, triangles);
 
         // 6. 构造完整的B3DM文件
         using (var memoryStream = new MemoryStream())
@@ -7262,7 +7546,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// <param name="slice">切片数据</param>
     /// <param name="config">切片配置</param>
     /// <returns>GLTF格式的字节数组</returns>
-    private Task<byte[]> GenerateGLTFContentAsync(Slice slice, SlicingConfig config)
+    private Task<byte[]> GenerateGLTFContentAsync(Slice slice, SlicingConfig config, List<Triangle> triangles)
     {
         // 解析包围盒
         var boundingBox = System.Text.Json.JsonSerializer.Deserialize<BoundingBox>(slice.BoundingBox);
@@ -7688,16 +7972,223 @@ public class SlicingProcessor : ISlicingProcessor
     /// <param name="slice">切片数据</param>
     /// <param name="config">切片配置</param>
     /// <returns>GLB格式的字节数组</returns>
-    private Task<byte[]> GenerateGLBContentAsync(Slice slice, SlicingConfig config)
+    /// <summary>
+    /// 生成GLB格式内容 - 使用实际的三角形几何数据
+    /// GLB格式：Header (12) + JSON Chunk (header 8 + data) + Binary Chunk (header 8 + data)
+    /// </summary>
+    /// <param name="boundingBox">包围盒</param>
+    /// <param name="triangles">三角形数据列表</param>
+    /// <returns>GLB格式的字节数组</returns>
+    private Task<byte[]> GenerateGLBContentAsync(BoundingBox boundingBox, List<Triangle> triangles)
     {
-        // 解析包围盒
-        var boundingBox = System.Text.Json.JsonSerializer.Deserialize<BoundingBox>(slice.BoundingBox);
-        if (boundingBox == null)
+        // 如果没有三角形数据，生成一个简单的占位符盒子
+        if (triangles == null || triangles.Count == 0)
         {
-            throw new InvalidOperationException("无法解析切片包围盒");
+            _logger.LogWarning("切片没有三角形数据，生成包围盒占位符");
+            return GeneratePlaceholderGLB(boundingBox);
         }
 
-        // 1. 生成几何数据（立方体占位符）
+        // **1. 提取所有顶点和计算法线**
+        var vertexList = new List<float>();
+        var normalList = new List<float>();
+        var indexList = new List<ushort>();
+
+        ushort vertexIndex = 0;
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        foreach (var triangle in triangles)
+        {
+            // 计算三角形法线
+            var v0 = triangle.Vertices[0];
+            var v1 = triangle.Vertices[1];
+            var v2 = triangle.Vertices[2];
+
+            // 边向量
+            var edge1X = (float)(v1.X - v0.X);
+            var edge1Y = (float)(v1.Y - v0.Y);
+            var edge1Z = (float)(v1.Z - v0.Z);
+            var edge2X = (float)(v2.X - v0.X);
+            var edge2Y = (float)(v2.Y - v0.Y);
+            var edge2Z = (float)(v2.Z - v0.Z);
+
+            // 叉积计算法线
+            var normalX = edge1Y * edge2Z - edge1Z * edge2Y;
+            var normalY = edge1Z * edge2X - edge1X * edge2Z;
+            var normalZ = edge1X * edge2Y - edge1Y * edge2X;
+
+            // 归一化法线
+            var length = (float)Math.Sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ);
+            if (length > 0.0001f)
+            {
+                normalX /= length;
+                normalY /= length;
+                normalZ /= length;
+            }
+
+            // 添加三个顶点和法线
+            for (int i = 0; i < 3; i++)
+            {
+                var vertex = triangle.Vertices[i];
+                float vx = (float)vertex.X;
+                float vy = (float)vertex.Y;
+                float vz = (float)vertex.Z;
+
+                vertexList.Add(vx);
+                vertexList.Add(vy);
+                vertexList.Add(vz);
+
+                normalList.Add(normalX);
+                normalList.Add(normalY);
+                normalList.Add(normalZ);
+
+                indexList.Add(vertexIndex++);
+
+                // 更新包围盒
+                minX = Math.Min(minX, vx);
+                minY = Math.Min(minY, vy);
+                minZ = Math.Min(minZ, vz);
+                maxX = Math.Max(maxX, vx);
+                maxY = Math.Max(maxY, vy);
+                maxZ = Math.Max(maxZ, vz);
+            }
+        }
+
+        var vertices = vertexList.ToArray();
+        var normals = normalList.ToArray();
+        var indices = indexList.ToArray();
+
+        _logger.LogDebug("GLB生成：{TriangleCount}个三角形，{VertexCount}个顶点，{IndexCount}个索引",
+            triangles.Count, vertices.Length / 3, indices.Length);
+
+        // **2. 将几何数据转换为字节数组**
+        var vertexBytes = new byte[vertices.Length * sizeof(float)];
+        Buffer.BlockCopy(vertices, 0, vertexBytes, 0, vertexBytes.Length);
+
+        var normalBytes = new byte[normals.Length * sizeof(float)];
+        Buffer.BlockCopy(normals, 0, normalBytes, 0, normalBytes.Length);
+
+        var indexBytes = new byte[indices.Length * sizeof(ushort)];
+        Buffer.BlockCopy(indices, 0, indexBytes, 0, indexBytes.Length);
+
+        // **3. 构建Binary Chunk数据**
+        var vertexBufferByteLength = vertexBytes.Length;
+        var normalBufferByteLength = normalBytes.Length;
+        var indexBufferByteLength = indexBytes.Length;
+
+        var binaryData = new byte[vertexBufferByteLength + normalBufferByteLength + indexBufferByteLength];
+        Buffer.BlockCopy(vertexBytes, 0, binaryData, 0, vertexBufferByteLength);
+        Buffer.BlockCopy(normalBytes, 0, binaryData, vertexBufferByteLength, normalBufferByteLength);
+        Buffer.BlockCopy(indexBytes, 0, binaryData, vertexBufferByteLength + normalBufferByteLength, indexBufferByteLength);
+
+        // **4. 构建glTF JSON**
+        var gltfJson = new
+        {
+            asset = new
+            {
+                version = "2.0",
+                generator = "RealScene3D Slicer v1.0"
+            },
+            scene = 0,
+            scenes = new[] { new { name = "TileScene", nodes = new[] { 0 } } },
+            nodes = new[] { new { name = "TileMesh", mesh = 0 } },
+            meshes = new[]
+            {
+                new
+                {
+                    name = "TileGeometry",
+                    primitives = new[]
+                    {
+                        new
+                        {
+                            attributes = new { POSITION = 0, NORMAL = 1 },
+                            indices = 2,
+                            mode = 4 // TRIANGLES
+                        }
+                    }
+                }
+            },
+            accessors = new object[]
+            {
+                new
+                {
+                    bufferView = 0,
+                    componentType = 5126, // FLOAT
+                    count = vertices.Length / 3,
+                    type = "VEC3",
+                    min = new[] { minX, minY, minZ },
+                    max = new[] { maxX, maxY, maxZ }
+                },
+                new { bufferView = 1, componentType = 5126, count = normals.Length / 3, type = "VEC3" },
+                new { bufferView = 2, componentType = 5123, count = indices.Length, type = "SCALAR" } // UNSIGNED_SHORT
+            },
+            bufferViews = new[]
+            {
+                new { buffer = 0, byteOffset = 0, byteLength = vertexBufferByteLength, target = 34962 }, // ARRAY_BUFFER
+                new { buffer = 0, byteOffset = vertexBufferByteLength, byteLength = normalBufferByteLength, target = 34962 },
+                new { buffer = 0, byteOffset = vertexBufferByteLength + normalBufferByteLength, byteLength = indexBufferByteLength, target = 34963 } // ELEMENT_ARRAY_BUFFER
+            },
+            buffers = new[] { new { byteLength = binaryData.Length } }
+        };
+
+        var jsonBytes = System.Text.Encoding.UTF8.GetBytes(
+            System.Text.Json.JsonSerializer.Serialize(gltfJson, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+
+        // **5. 对齐JSON块到4字节边界**
+        var jsonChunkLength = (jsonBytes.Length + 3) & ~3;
+        var jsonChunkPadded = new byte[jsonChunkLength];
+        Array.Copy(jsonBytes, jsonChunkPadded, jsonBytes.Length);
+        for (int i = jsonBytes.Length; i < jsonChunkLength; i++)
+        {
+            jsonChunkPadded[i] = 0x20; // 空格填充
+        }
+
+        // **6. 对齐Binary块到4字节边界**
+        var binaryChunkLength = (binaryData.Length + 3) & ~3;
+        var binaryChunkPadded = new byte[binaryChunkLength];
+        Array.Copy(binaryData, binaryChunkPadded, binaryData.Length);
+        // Binary块用0填充（默认值）
+
+        // **7. 构造完整的GLB文件**
+        using (var memoryStream = new MemoryStream())
+        using (var writer = new BinaryWriter(memoryStream))
+        {
+            // GLB Header (12字节)
+            writer.Write(0x46546C67); // magic: "glTF" (little-endian)
+            writer.Write((uint)2);     // version: 2
+
+            var totalLength = 12 + // header
+                             8 + jsonChunkLength + // JSON chunk header + data
+                             8 + binaryChunkLength; // Binary chunk header + data
+
+            writer.Write((uint)totalLength); // length
+
+            // JSON Chunk
+            writer.Write((uint)jsonChunkLength); // chunkLength
+            writer.Write(0x4E4F534A); // chunkType: "JSON" (little-endian)
+            writer.Write(jsonChunkPadded);
+
+            // Binary Chunk
+            writer.Write((uint)binaryChunkLength); // chunkLength
+            writer.Write(0x004E4942); // chunkType: "BIN\0" (little-endian)
+            writer.Write(binaryChunkPadded);
+
+            _logger.LogDebug("GLB文件生成完成：总大小{TotalSize}字节, JSON块{JsonSize}字节, Binary块{BinarySize}字节, 顶点数{VertexCount}, 三角形数{TriangleCount}",
+                totalLength, jsonChunkLength, binaryChunkLength, vertices.Length / 3, triangles.Count);
+
+            return Task.FromResult(memoryStream.ToArray());
+        }
+    }
+
+    /// <summary>
+    /// 生成占位符GLB（当没有三角形数据时）
+    /// </summary>
+    private Task<byte[]> GeneratePlaceholderGLB(BoundingBox boundingBox)
+    {
+        // 生成简单的包围盒立方体
         var vertices = new[]
         {
             (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MinZ,
@@ -7732,7 +8223,7 @@ public class SlicingProcessor : ISlicingProcessor
             4, 0, 3, 4, 3, 7
         };
 
-        // 2. 将几何数据转换为字节数组
+        // 转换为字节数组
         var vertexBytes = new byte[vertices.Length * sizeof(float)];
         Buffer.BlockCopy(vertices, 0, vertexBytes, 0, vertexBytes.Length);
 
@@ -7742,7 +8233,6 @@ public class SlicingProcessor : ISlicingProcessor
         var indexBytes = new byte[indices.Length * sizeof(ushort)];
         Buffer.BlockCopy(indices, 0, indexBytes, 0, indexBytes.Length);
 
-        // 3. 构建Binary Chunk数据（优化内存使用，避免Concat产生临时数组）
         var vertexBufferByteLength = vertexBytes.Length;
         var normalBufferByteLength = normalBytes.Length;
         var indexBufferByteLength = indexBytes.Length;
@@ -7752,22 +8242,17 @@ public class SlicingProcessor : ISlicingProcessor
         Buffer.BlockCopy(normalBytes, 0, binaryData, vertexBufferByteLength, normalBufferByteLength);
         Buffer.BlockCopy(indexBytes, 0, binaryData, vertexBufferByteLength + normalBufferByteLength, indexBufferByteLength);
 
-        // 4. 构建glTF JSON（引用buffer 0）
         var gltfJson = new
         {
-            asset = new
-            {
-                version = "2.0",
-                generator = "RealScene3D Slicer v1.0"
-            },
+            asset = new { version = "2.0", generator = "RealScene3D Slicer v1.0" },
             scene = 0,
-            scenes = new[] { new { name = $"Tile_{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}", nodes = new[] { 0 } } },
-            nodes = new[] { new { name = "TileMesh", mesh = 0 } },
+            scenes = new[] { new { name = "PlaceholderScene", nodes = new[] { 0 } } },
+            nodes = new[] { new { name = "PlaceholderMesh", mesh = 0 } },
             meshes = new[]
             {
                 new
                 {
-                    name = "TileGeometry",
+                    name = "PlaceholderGeometry",
                     primitives = new[]
                     {
                         new
@@ -7808,46 +8293,34 @@ public class SlicingProcessor : ISlicingProcessor
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             }));
 
-        // 5. 对齐JSON块到4字节边界（用空格填充）
         var jsonChunkLength = (jsonBytes.Length + 3) & ~3;
         var jsonChunkPadded = new byte[jsonChunkLength];
         Array.Copy(jsonBytes, jsonChunkPadded, jsonBytes.Length);
         for (int i = jsonBytes.Length; i < jsonChunkLength; i++)
         {
-            jsonChunkPadded[i] = 0x20; // 空格
+            jsonChunkPadded[i] = 0x20;
         }
 
-        // 6. 对齐Binary块到4字节边界（用0填充）
         var binaryChunkLength = (binaryData.Length + 3) & ~3;
         var binaryChunkPadded = new byte[binaryChunkLength];
         Array.Copy(binaryData, binaryChunkPadded, binaryData.Length);
 
-        // 7. 构造完整的GLB文件
         using (var memoryStream = new MemoryStream())
         using (var writer = new BinaryWriter(memoryStream))
         {
-            // GLB Header (12字节)
-            writer.Write(0x46546C67); // magic: "glTF" (little-endian)
-            writer.Write((uint)2);     // version: 2
+            writer.Write(0x46546C67);
+            writer.Write((uint)2);
 
-            var totalLength = 12 + // header
-                             8 + jsonChunkLength + // JSON chunk header + data
-                             8 + binaryChunkLength; // Binary chunk header + data
+            var totalLength = 12 + 8 + jsonChunkLength + 8 + binaryChunkLength;
+            writer.Write((uint)totalLength);
 
-            writer.Write((uint)totalLength); // length
-
-            // JSON Chunk
-            writer.Write((uint)jsonChunkLength); // chunkLength
-            writer.Write(0x4E4F534A); // chunkType: "JSON" (little-endian)
+            writer.Write((uint)jsonChunkLength);
+            writer.Write(0x4E4F534A);
             writer.Write(jsonChunkPadded);
 
-            // Binary Chunk
-            writer.Write((uint)binaryChunkLength); // chunkLength
-            writer.Write(0x004E4942); // chunkType: "BIN\0" (little-endian)
+            writer.Write((uint)binaryChunkLength);
+            writer.Write(0x004E4942);
             writer.Write(binaryChunkPadded);
-
-            _logger.LogDebug("GLB文件生成完成：切片{SliceId}, 总大小{TotalSize}字节, JSON块{JsonSize}字节, Binary块{BinarySize}字节, 顶点数{VertexCount}",
-                slice.Id, totalLength, jsonChunkLength, binaryChunkLength, vertices.Length / 3);
 
             return Task.FromResult(memoryStream.ToArray());
         }

@@ -48,8 +48,8 @@ public class SceneObjectsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating scene object");
-            return StatusCode(500, new { message = "An error occurred while creating the object" });
+            _logger.LogError(ex, "创建场景对象时发生错误");
+            return StatusCode(500, new { message = "创建场景对象时发生错误" });
         }
     }
 
@@ -69,14 +69,14 @@ public class SceneObjectsController : ControllerBase
             var obj = await _objectService.GetObjectByIdAsync(id);
             if (obj == null)
             {
-                return NotFound(new { message = "Object not found" });
+                return NotFound(new { message = "对象未找到" });
             }
             return Ok(obj);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting object {ObjectId}", id);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取场景对象 {ObjectId} 时发生错误", id);
+            return StatusCode(500, new { message = "获取场景对象时发生错误" });
         }
     }
 
@@ -95,8 +95,8 @@ public class SceneObjectsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting objects for scene {SceneId}", sceneId);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取场景 {SceneId} 的对象列表时发生错误", sceneId);
+            return StatusCode(500, new { message = "获取场景对象列表时发生错误" });
         }
     }
 
@@ -117,14 +117,14 @@ public class SceneObjectsController : ControllerBase
             var obj = await _objectService.UpdateObjectAsync(id, request);
             if (obj == null)
             {
-                return NotFound(new { message = "Object not found" });
+                return NotFound(new { message = "对象未找到" });
             }
             return Ok(obj);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating object {ObjectId}", id);
-            return StatusCode(500, new { message = "An error occurred while updating the object" });
+            _logger.LogError(ex, "更新场景对象 {ObjectId} 时发生错误", id);
+            return StatusCode(500, new { message = "更新场景对象时发生错误" });
         }
     }
 
@@ -139,14 +139,14 @@ public class SceneObjectsController : ControllerBase
             var result = await _objectService.DeleteObjectAsync(id);
             if (!result)
             {
-                return NotFound(new { message = "Object not found" });
+                return NotFound(new { message = "对象未找到" });
             }
             return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting object {ObjectId}", id);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "删除场景对象 {ObjectId} 时发生错误", id);
+            return StatusCode(500, new { message = "删除场景对象时发生错误" });
         }
     }
 }

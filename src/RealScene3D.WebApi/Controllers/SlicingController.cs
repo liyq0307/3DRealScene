@@ -50,12 +50,12 @@ public class SlicingController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to create slicing task");
+            _logger.LogWarning(ex, "创建切片任务失败");
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating slicing task");
+            _logger.LogError(ex, "创建切片任务时发生错误");
             return StatusCode(500, new { message = "创建切片任务时发生错误" });
         }
     }
@@ -82,7 +82,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slicing task {TaskId}", id);
+            _logger.LogError(ex, "获取切片任务时发生错误：任务ID {TaskId}", id);
             return StatusCode(500, new { message = "获取切片任务时发生错误" });
         }
     }
@@ -104,7 +104,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slicing tasks for user {UserId}", userId);
+            _logger.LogError(ex, "获取用户切片任务列表时发生错误：用户ID {UserId}", userId);
             return StatusCode(500, new { message = "获取切片任务列表时发生错误" });
         }
     }
@@ -128,7 +128,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slicing progress for task {TaskId}", id);
+            _logger.LogError(ex, "获取切片进度时发生错误：任务ID {TaskId}", id);
             return StatusCode(500, new { message = "获取切片进度时发生错误" });
         }
     }
@@ -150,7 +150,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error cancelling slicing task {TaskId}", id);
+            _logger.LogError(ex, "取消切片任务时发生错误：任务ID {TaskId}", id);
             return StatusCode(500, new { message = "取消切片任务时发生错误" });
         }
     }
@@ -172,7 +172,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting slicing task {TaskId}", id);
+            _logger.LogError(ex, "删除切片任务时发生错误：任务ID {TaskId}", id);
             return StatusCode(500, new { message = "删除切片任务时发生错误" });
         }
     }
@@ -203,7 +203,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slice for task {TaskId}, level {Level}, coordinates ({X}, {Y}, {Z})", taskId, level, x, y, z);
+            _logger.LogError(ex, "获取切片数据时发生错误：任务ID {TaskId}, 级别 {Level}, 坐标 ({X}, {Y}, {Z})", taskId, level, x, y, z);
             return StatusCode(500, new { message = "获取切片数据时发生错误" });
         }
     }
@@ -224,7 +224,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slice metadata for task {TaskId}, level {Level}", taskId, level);
+            _logger.LogError(ex, "获取切片元数据时发生错误：任务ID {TaskId}, 级别 {Level}", taskId, level);
             return StatusCode(500, new { message = "获取切片元数据时发生错误" });
         }
     }
@@ -256,7 +256,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error downloading slice for task {TaskId}, level {Level}, coordinates ({X}, {Y}, {Z})", taskId, level, x, y, z);
+            _logger.LogError(ex, "下载切片文件时发生错误：任务ID {TaskId}, 级别 {Level}, 坐标 ({X}, {Y}, {Z})", taskId, level, x, y, z);
             return StatusCode(500, new { message = "下载切片文件时发生错误" });
         }
     }
@@ -281,7 +281,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slices batch for task {TaskId}, level {Level}", taskId, level);
+            _logger.LogError(ex, "批量获取切片时发生错误：任务ID {TaskId}, 级别 {Level}", taskId, level);
             return StatusCode(500, new { message = "批量获取切片时发生错误" });
         }
     }
@@ -351,7 +351,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error performing frustum culling for task {TaskId}", taskId);
+            _logger.LogError(ex, "执行视锥剔除时发生错误：任务ID {TaskId}", taskId);
             return StatusCode(500, new { message = "执行视锥剔除时发生错误" });
         }
     }
@@ -414,7 +414,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error predicting loading for task {TaskId}", taskId);
+            _logger.LogError(ex, "执行预测加载时发生错误：任务ID {TaskId}", taskId);
             return StatusCode(500, new { message = "执行预测加载时发生错误" });
         }
     }
@@ -443,7 +443,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting slicing strategies");
+            _logger.LogError(ex, "获取切片策略信息时发生错误");
             return StatusCode(500, new { message = "获取切片策略信息时发生错误" });
         }
     }
@@ -472,7 +472,7 @@ public class SlicingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting incremental update index for task {TaskId}", taskId);
+            _logger.LogError(ex, "获取增量更新索引时发生错误：任务ID {TaskId}", taskId);
             return StatusCode(500, new { message = "获取增量更新索引时发生错误" });
         }
     }

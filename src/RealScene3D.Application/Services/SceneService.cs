@@ -278,6 +278,13 @@ public class SceneService : ISceneService
                     displayPath = so.ModelPath;
                 }
 
+                Console.WriteLine($"[SceneService] 场景对象: {so.Name}");
+                Console.WriteLine($"[SceneService]   ModelPath: {so.ModelPath}");
+                Console.WriteLine($"[SceneService]   SlicingTask: {(so.SlicingTask != null ? so.SlicingTask.Id.ToString() : "null")}");
+                Console.WriteLine($"[SceneService]   SlicingStatus: {so.SlicingTask?.Status.ToString() ?? "null"}");
+                Console.WriteLine($"[SceneService]   SlicingOutputPath: {slicingOutputPath ?? "null"}");
+                Console.WriteLine($"[SceneService]   DisplayPath: {displayPath ?? "null"}");
+
                 return new SceneDtos.SceneObjectDto
                 {
                     Id = so.Id,
@@ -320,7 +327,19 @@ public class SceneService : ISceneService
             // 使用后端代理路径访问MinIO对象
             try
             {
-                const string bucketName = MinioBuckets.MODELS_3D;
+                // 根据场景对象是否有完成的切片任务来决定使用哪个存储桶
+                string bucketName;
+                if (obj.SlicingTaskStatus == SlicingTaskStatus.Completed.ToString() && !string.IsNullOrEmpty(obj.SlicingOutputPath))
+                {
+                    // 切片输出使用 slices 存储桶
+                    bucketName = MinioBuckets.SLICES;
+                }
+                else
+                {
+                    // 原始模型使用 models-3d 存储桶
+                    bucketName = MinioBuckets.MODELS_3D;
+                }
+
                 obj.DisplayPath = $"/api/files/proxy/{bucketName}/{obj.DisplayPath}";
             }
             catch (Exception ex)

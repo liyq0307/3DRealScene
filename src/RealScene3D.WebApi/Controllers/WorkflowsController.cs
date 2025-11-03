@@ -49,12 +49,12 @@ public class WorkflowsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to create workflow");
+            _logger.LogWarning(ex, "创建工作流失败");
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating workflow");
+            _logger.LogError(ex, "创建工作流时发生错误");
             return StatusCode(500, new { message = "创建工作流时发生错误" });
         }
     }
@@ -83,12 +83,12 @@ public class WorkflowsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to update workflow {WorkflowId}", id);
+            _logger.LogWarning(ex, "更新工作流失败：工作流ID {WorkflowId}", id);
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating workflow {WorkflowId}", id);
+            _logger.LogError(ex, "更新工作流时发生错误：工作流ID {WorkflowId}", id);
             return StatusCode(500, new { message = "更新工作流时发生错误" });
         }
     }
@@ -112,7 +112,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting workflow {WorkflowId}", id);
+            _logger.LogError(ex, "获取工作流时发生错误：工作流ID {WorkflowId}", id);
             return StatusCode(500, new { message = "获取工作流时发生错误" });
         }
     }
@@ -132,7 +132,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting workflows for user {UserId}", userId);
+            _logger.LogError(ex, "获取用户工作流列表时发生错误：用户ID {UserId}", userId);
             return StatusCode(500, new { message = "获取工作流列表时发生错误" });
         }
     }
@@ -151,7 +151,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting all workflows");
+            _logger.LogError(ex, "获取所有工作流时发生错误");
             return StatusCode(500, new { message = "获取所有工作流时发生错误" });
         }
     }
@@ -173,7 +173,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting workflow {WorkflowId}", id);
+            _logger.LogError(ex, "删除工作流时发生错误：工作流ID {WorkflowId}", id);
             return StatusCode(500, new { message = "删除工作流时发生错误" });
         }
     }
@@ -198,12 +198,12 @@ public class WorkflowsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to start workflow instance for workflow {WorkflowId}", workflowId);
+            _logger.LogWarning(ex, "启动工作流实例失败：工作流ID {WorkflowId}", workflowId);
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error starting workflow instance for workflow {WorkflowId}", workflowId);
+            _logger.LogError(ex, "启动工作流实例时发生错误：工作流ID {WorkflowId}", workflowId);
             return StatusCode(500, new { message = "启动工作流实例时发生错误" });
         }
     }
@@ -227,7 +227,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting workflow instance {InstanceId}", id);
+            _logger.LogError(ex, "获取工作流实例时发生错误：实例ID {InstanceId}", id);
             return StatusCode(500, new { message = "获取工作流实例时发生错误" });
         }
     }
@@ -250,7 +250,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting workflow instances");
+            _logger.LogError(ex, "获取工作流实例列表时发生错误");
             return StatusCode(500, new { message = "获取工作流实例列表时发生错误" });
         }
     }
@@ -272,7 +272,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error suspending workflow instance {InstanceId}", id);
+            _logger.LogError(ex, "暂停工作流实例时发生错误：实例ID {InstanceId}", id);
             return StatusCode(500, new { message = "暂停工作流实例时发生错误" });
         }
     }
@@ -294,7 +294,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error resuming workflow instance {InstanceId}", id);
+            _logger.LogError(ex, "恢复工作流实例时发生错误：实例ID {InstanceId}", id);
             return StatusCode(500, new { message = "恢复工作流实例时发生错误" });
         }
     }
@@ -316,7 +316,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error cancelling workflow instance {InstanceId}", id);
+            _logger.LogError(ex, "取消工作流实例时发生错误：实例ID {InstanceId}", id);
             return StatusCode(500, new { message = "取消工作流实例时发生错误" });
         }
     }
@@ -339,7 +339,7 @@ public class WorkflowsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting workflow execution history for instance {InstanceId}", id);
+            _logger.LogError(ex, "获取工作流执行历史时发生错误：实例ID {InstanceId}", id);
             return StatusCode(500, new { message = "获取执行历史时发生错误" });
         }
     }

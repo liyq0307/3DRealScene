@@ -43,13 +43,13 @@ public class ScenesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to create scene");
+            _logger.LogWarning(ex, "创建场景失败");
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating scene");
-            return StatusCode(500, new { message = "An error occurred while creating the scene" });
+            _logger.LogError(ex, "创建场景时发生错误");
+            return StatusCode(500, new { message = "创建场景时发生错误" });
         }
     }
 
@@ -75,8 +75,8 @@ public class ScenesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting scene {SceneId}", id);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取场景 {SceneId} 时发生错误", id);
+            return StatusCode(500, new { message = "获取场景时发生错误" });
         }
     }
 
@@ -95,8 +95,8 @@ public class ScenesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting scenes for user {UserId}", userId);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取用户 {UserId} 的场景列表时发生错误", userId);
+            return StatusCode(500, new { message = "获取场景列表时发生错误" });
         }
     }
 
@@ -114,8 +114,8 @@ public class ScenesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting all scenes");
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取所有场景时发生错误");
+            return StatusCode(500, new { message = "获取场景列表时发生错误" });
         }
     }
 
@@ -136,8 +136,8 @@ public class ScenesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting scene {SceneId}", id);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "删除场景 {SceneId} 时发生错误", id);
+            return StatusCode(500, new { message = "删除场景时发生错误" });
         }
     }
 
@@ -165,13 +165,13 @@ public class ScenesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to update scene {SceneId}", id);
+            _logger.LogWarning(ex, "更新场景 {SceneId} 失败", id);
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating scene {SceneId}", id);
-            return StatusCode(500, new { message = "An error occurred while updating the scene" });
+            _logger.LogError(ex, "更新场景 {SceneId} 时发生错误", id);
+            return StatusCode(500, new { message = "更新场景时发生错误" });
         }
     }
 }

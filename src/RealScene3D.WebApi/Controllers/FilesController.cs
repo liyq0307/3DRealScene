@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 using RealScene3D.Infrastructure.MinIO;
 using RealScene3D.Infrastructure.Utilities;
 using System.Security.Claims;
-using Swashbuckle.AspNetCore.Annotations;
 
 namespace RealScene3D.WebApi.Controllers;
 
@@ -252,32 +251,81 @@ public class FilesController : ControllerBase
         try
         {
             // 验证bucket是否在允许列表中
-            var allowedBuckets = new[] { MinioBuckets.MODELS_3D, MinioBuckets.TEXTURES, MinioBuckets.THUMBNAILS };
+            var allowedBuckets = new[] { MinioBuckets.MODELS_3D, MinioBuckets.TEXTURES, MinioBuckets.THUMBNAILS, MinioBuckets.SLICES };
             if (!allowedBuckets.Contains(bucket))
             {
                 return BadRequest(new { message = "不支持的存储桶" });
             }
 
+            // 使用原始路径，保持文件名完整性
+            var decodedObjectPath = objectPath;
+
             // 检查文件是否存在
-            var exists = await _storageService.FileExistsAsync(bucket, objectPath);
+            var exists = await _storageService.FileExistsAsync(bucket, decodedObjectPath);
             if (!exists)
             {
-                _logger.LogWarning("代理访问文件不存在: {Bucket}/{ObjectPath}", bucket, objectPath);
+                _logger.LogWarning("代理访问文件不存在: {Bucket}/{ObjectPath} (原始路径: {RawPath})", bucket, decodedObjectPath, objectPath);
                 return NotFound();
             }
 
             // 获取文件流
-            var stream = await _storageService.DownloadFileAsync(bucket, objectPath);
+            var stream = await _storageService.DownloadFileAsync(bucket, decodedObjectPath);
 
             // 根据文件扩展名确定Content-Type
-            var contentType = GetContentTypeFromPath(objectPath);
+            var contentType = GetContentTypeFromPath(decodedObjectPath);
 
-            _logger.LogInformation("代理访问文件成功: {Bucket}/{ObjectPath}", bucket, objectPath);
+            // 修复tileset.json的schema字段问题
+            if (decodedObjectPath.EndsWith("tileset.json", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using var reader = new StreamReader(stream);
+                    var jsonContent = await reader.ReadToEndAsync();
+
+                    // 解析JSON并移除字符串类型的schema字段
+                    var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonContent);
+                    var memoryStream = new MemoryStream();
+                    using (var writer = new System.Text.Json.Utf8JsonWriter(memoryStream, new System.Text.Json.JsonWriterOptions { SkipValidation = false }))
+                    {
+                        writer.WriteStartObject();
+
+                        foreach (var property in jsonDoc.RootElement.EnumerateObject())
+                        {
+                            // 跳过字符串类型的schema字段
+                            if (property.Name.Equals("schema", StringComparison.OrdinalIgnoreCase) &&
+                                property.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                _logger.LogDebug("移除tileset.json中的字符串schema字段: {Path}", decodedObjectPath);
+                                continue;
+                            }
+
+                            // 复制其他属性
+                            property.WriteTo(writer);
+                        }
+
+                        writer.WriteEndObject();
+                        writer.Flush();
+                    }
+
+                    memoryStream.Position = 0;
+                    stream = memoryStream;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "处理tileset.json时出错，返回原始文件: {Path}", decodedObjectPath);
+                    // 如果处理失败，重新获取原始流
+                    stream = await _storageService.DownloadFileAsync(bucket, decodedObjectPath);
+                }
+            }
+
+            _logger.LogInformation("代理访问文件成功: {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
 
             // 设置CORS头，允许Cesium跨域访问
-            Response.Headers.Add("Access-Control-Allow-Origin", "*");
-            Response.Headers.Add("Access-Control-Allow-Methods", "GET, OPTIONS");
-            Response.Headers.Add("Access-Control-Allow-Headers", "*");
+            Response.Headers["Access-Control-Allow-Origin"] = "*";
+            Response.Headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+            Response.Headers["Access-Control-Allow-Headers"] = "*";
+            // 添加缓存控制，避免重复请求
+            Response.Headers["Cache-Control"] = "public, max-age=3600"; // 1小时缓存
 
             return File(stream, contentType);
         }

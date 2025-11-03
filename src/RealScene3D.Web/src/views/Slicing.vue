@@ -112,6 +112,13 @@
                   查看切片
                 </button>
                 <button
+                  v-if="task.status === 'completed'"
+                  @click="previewSlices(task)"
+                  class="btn btn-sm btn-success"
+                >
+                  预览
+                </button>
+                <button
                   @click="deleteTask(task.id)"
                   class="btn btn-sm btn-danger"
                 >
@@ -162,33 +169,85 @@
           </div>
         </div>
 
+        <!-- LOD层级概览统计 -->
+        <div v-if="selectedTaskId && lodLevelStats.size > 0" class="lod-stats-panel">
+          <h3>📊 LOD层级统计</h3>
+          <div class="lod-stats-grid">
+            <div
+              v-for="[level, stats] in Array.from(lodLevelStats.entries())"
+              :key="level"
+              :class="['lod-stat-card', { active: selectedLevel === level }]"
+              @click="selectedLevel = level; loadSliceMetadata()"
+            >
+              <div class="lod-level-badge">L{{ level }}</div>
+              <div class="lod-stat-content">
+                <div class="lod-stat-item">
+                  <span class="lod-stat-label">切片数:</span>
+                  <span class="lod-stat-value">{{ stats.count }}</span>
+                </div>
+                <div class="lod-stat-item">
+                  <span class="lod-stat-label">总大小:</span>
+                  <span class="lod-stat-value">{{ formatFileSize(stats.totalSize) }}</span>
+                </div>
+                <div class="lod-stat-item">
+                  <span class="lod-stat-label">平均大小:</span>
+                  <span class="lod-stat-value">{{ formatFileSize(stats.avgSize) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 切片元数据网格 -->
-        <div v-if="sliceMetadata.length > 0" class="slice-grid">
-          <div
-            v-for="slice in sliceMetadata"
-            :key="`${selectedLevel}_${slice.x}_${slice.y}_${slice.z}`"
-            class="slice-item"
-          >
-            <div class="slice-coord">
-              ({{ slice.x }}, {{ slice.y }}, {{ slice.z }})
-            </div>
-            <div class="slice-info">
-              <span>文件大小: {{ formatFileSize(slice.fileSize) }}</span>
-              <span>顶点数: {{ slice.vertexCount }}</span>
-            </div>
-            <div class="slice-actions">
-              <button
-                @click="downloadSlice(selectedTaskId, selectedLevel, slice.x, slice.y, slice.z)"
-                class="btn btn-sm"
-              >
-                下载
-              </button>
+        <div v-if="sliceMetadata.length > 0" class="slice-grid-section">
+          <div class="slice-grid-header">
+            <h3>Level {{ selectedLevel }} - 切片详情 ({{ sliceMetadata.length }}个)</h3>
+          </div>
+          <div class="slice-grid">
+            <div
+              v-for="slice in sliceMetadata"
+              :key="`${selectedLevel}_${slice.x}_${slice.y}_${slice.z}`"
+              class="slice-card-enhanced"
+            >
+              <div class="slice-card-header">
+                <span class="slice-coord">
+                  ({{ slice.x }}, {{ slice.y }}, {{ slice.z }})
+                </span>
+                <span class="slice-level-badge">L{{ selectedLevel }}</span>
+              </div>
+
+              <div class="slice-card-body">
+                <div class="slice-info-row">
+                  <span class="slice-info-label">文件大小:</span>
+                  <span class="slice-info-value">{{ formatFileSize(slice.fileSize) }}</span>
+                </div>
+
+                <div v-if="slice.vertexCount" class="slice-info-row">
+                  <span class="slice-info-label">顶点数:</span>
+                  <span class="slice-info-value">{{ slice.vertexCount.toLocaleString() }}</span>
+                </div>
+
+                <div v-if="slice.boundingBox" class="slice-info-row">
+                  <span class="slice-info-label">包围盒:</span>
+                  <span class="slice-info-value bbox">{{ formatBoundingBox(slice.boundingBox) }}</span>
+                </div>
+              </div>
+
+              <div class="slice-card-actions">
+                <button
+                  @click="downloadSlice(selectedTaskId, selectedLevel, slice.x, slice.y, slice.z)"
+                  class="btn-icon-small"
+                  title="下载切片"
+                >
+                  📥
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         <div v-else-if="selectedTaskId" class="empty-state">
-          <p>该任务暂无切片数据</p>
+          <p>该任务在Level {{ selectedLevel }}暂无切片数据</p>
         </div>
       </div>
     </div>
@@ -459,6 +518,26 @@
         </div>
       </div>
     </div>
+
+    <!-- 切片预览对话框 -->
+    <div v-if="showPreviewDialog" class="modal-overlay" @click="closePreviewDialog">
+      <div class="modal-content fullscreen" @click.stop>
+        <div class="modal-header">
+          <h3>切片预览: {{ previewTask?.name }}</h3>
+          <button @click="closePreviewDialog" class="btn-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <SlicePreview
+            v-if="previewTask"
+            :taskId="previewTask.id"
+            :outputPath="previewTask.outputPath"
+            :autoLoad="true"
+            @loaded="onPreviewLoaded"
+            @error="onPreviewError"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -468,6 +547,7 @@ import { slicingService } from '@/services/api'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Badge from '@/components/Badge.vue'
 import Pagination from '@/components/Pagination.vue'
+import SlicePreview from '@/components/SlicePreview.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -513,6 +593,7 @@ const selectedTaskId = ref('')
 const selectedLevel = ref(0)
 const sliceMetadata = ref<any[]>([])
 const availableLevels = ref<number[]>([0, 1, 2, 3, 4])
+const lodLevelStats = ref<Map<number, { count: number; totalSize: number; avgSize: number }>>(new Map())
 
 // 切片策略
 const strategies = ref<any[]>([])
@@ -520,12 +601,14 @@ const strategies = ref<any[]>([])
 // 对话框状态
 const showCreateTaskDialog = ref(false)
 const showTaskDetailDialog = ref(false)
+const showPreviewDialog = ref(false)
 
 const currentTask = ref<any>(null)
 const taskProgress = ref<any>(null)
 const totalDataSize = ref<number>(0)
 const totalSliceCount = ref<number>(0)
 const processedSliceCount = ref<number>(0)
+const previewTask = ref<any>(null)
 
 // 任务表单
 const taskForm = ref({
@@ -660,6 +743,18 @@ const getStrategyFeatures = (name: string) => {
   return featuresMap[name] || []
 }
 
+const formatBoundingBox = (bbox: any): string => {
+  try {
+    const box = typeof bbox === 'string' ? JSON.parse(bbox) : bbox
+    if (box && box.minX !== undefined) {
+      return `[${box.minX.toFixed(1)}, ${box.minY.toFixed(1)}, ${box.minZ.toFixed(1)}] - [${box.maxX.toFixed(1)}, ${box.maxY.toFixed(1)}, ${box.maxZ.toFixed(1)}]`
+    }
+    return String(bbox || 'N/A')
+  } catch {
+    return String(bbox || 'N/A')
+  }
+}
+
 // 数据加载方法
 const loadTasks = async () => {
   try {
@@ -677,11 +772,55 @@ const refreshTasks = async () => {
 const loadSliceMetadata = async () => {
   // 清空旧数据，避免UI显示累积
   sliceMetadata.value = []
+
   if (!selectedTaskId.value) {
+    lodLevelStats.value.clear()
     return
   }
 
   try {
+    // 获取任务信息以确定最大LOD层级
+    const taskInfo = await slicingService.getSlicingTask(selectedTaskId.value)
+    const maxLevel = taskInfo?.slicingConfig?.maxLevel || 5
+
+    // 更新可用层级列表
+    availableLevels.value = Array.from({ length: maxLevel + 1 }, (_, i) => i)
+
+    // 并行加载所有层级的统计信息
+    const statsPromises = availableLevels.value.map(async (level) => {
+      try {
+        const slices = await slicingService.getSliceMetadata(selectedTaskId.value, level)
+        if (slices && slices.length > 0) {
+          const totalSize = slices.reduce((sum: number, s: any) => sum + (s.fileSize || 0), 0)
+          return {
+            level,
+            count: slices.length,
+            totalSize,
+            avgSize: totalSize / slices.length
+          }
+        }
+        return null
+      } catch (error) {
+        console.warn(`加载Level ${level}统计失败:`, error)
+        return null
+      }
+    })
+
+    const statsResults = await Promise.all(statsPromises)
+
+    // 更新LOD统计Map
+    lodLevelStats.value.clear()
+    statsResults.forEach(stat => {
+      if (stat) {
+        lodLevelStats.value.set(stat.level, {
+          count: stat.count,
+          totalSize: stat.totalSize,
+          avgSize: stat.avgSize
+        })
+      }
+    })
+
+    // 加载当前选中层级的详细数据
     const result = await slicingService.getSliceMetadata(
       selectedTaskId.value,
       selectedLevel.value
@@ -692,6 +831,7 @@ const loadSliceMetadata = async () => {
     console.error('加载切片元数据失败:', error)
     // 确保出错时也清空数据
     sliceMetadata.value = []
+    lodLevelStats.value.clear()
   }
 }
 
@@ -986,6 +1126,26 @@ const downloadSlice = async (taskId: string, level: number, x: number, y: number
   } catch (error) {
     console.error('下载切片失败:', error)
   }
+}
+
+// 预览切片
+const previewSlices = (task: any) => {
+  previewTask.value = task
+  showPreviewDialog.value = true
+}
+
+const closePreviewDialog = () => {
+  showPreviewDialog.value = false
+  previewTask.value = null
+}
+
+const onPreviewLoaded = (sliceCount: number) => {
+  console.log(`切片预览加载完成，共${sliceCount}个切片`)
+}
+
+const onPreviewError = (error: string) => {
+  console.error('切片预览加载失败:', error)
+  alert(`切片预览加载失败: ${error}`)
 }
 
 // 文件路径选择方法
@@ -1333,10 +1493,205 @@ onMounted(async () => {
   font-weight: 500;
 }
 
+/* LOD层级统计面板 */
+.lod-stats-panel {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e1e5e9;
+}
+
+.lod-stats-panel h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.lod-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.lod-stat-card {
+  padding: 1.25rem;
+  background: white;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lod-stat-card:hover {
+  border-color: #007acc;
+  box-shadow: 0 4px 8px rgba(0, 122, 204, 0.2);
+  transform: translateY(-2px);
+}
+
+.lod-stat-card.active {
+  border-color: #007acc;
+  background: #f0f8ff;
+  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.3);
+}
+
+.lod-level-badge {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: #007acc;
+  color: white;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.lod-stat-card.active .lod-level-badge {
+  background: #005999;
+}
+
+.lod-stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lod-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.lod-stat-label {
+  color: #666;
+}
+
+.lod-stat-value {
+  font-weight: 600;
+  color: #333;
+}
+
+/* 切片网格增强样式 */
+.slice-grid-section {
+  margin-top: 2rem;
+}
+
+.slice-grid-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e1e5e9;
+}
+
+.slice-grid-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
 .slice-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1rem;
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.slice-card-enhanced {
+  padding: 1.25rem;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  background: #fafafa;
+  transition: all 0.2s ease;
+}
+
+.slice-card-enhanced:hover {
+  border-color: #007acc;
+  box-shadow: 0 4px 8px rgba(0, 122, 204, 0.2);
+  transform: translateY(-2px);
+}
+
+.slice-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e1e5e9;
+}
+
+.slice-coord {
+  font-weight: bold;
+  color: #333;
+  font-family: 'Courier New', monospace;
+  font-size: 0.95rem;
+}
+
+.slice-level-badge {
+  padding: 0.25rem 0.6rem;
+  background: #007acc;
+  color: white;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.slice-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.slice-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 0.9rem;
+}
+
+.slice-info-label {
+  color: #666;
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.slice-info-value {
+  color: #333;
+  font-weight: 600;
+  text-align: right;
+  flex: 1;
+}
+
+.slice-info-value.bbox {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  word-break: break-word;
+}
+
+.slice-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e1e5e9;
+}
+
+.btn-icon-small {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e1e5e9;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: all 0.2s ease;
+}
+
+.btn-icon-small:hover {
+  background: #007acc;
+  border-color: #007acc;
+  transform: scale(1.1);
 }
 
 .slice-item {
@@ -1669,6 +2024,48 @@ onMounted(async () => {
 
 .modal-content.large {
   width: 800px;
+}
+
+.modal-content.fullscreen {
+  width: 95vw;
+  height: 90vh;
+  max-width: none;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e1e5e9;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.btn-close {
+  padding: 0.5rem;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  transition: color 0.2s ease;
+}
+
+.btn-close:hover {
+  color: #dc3545;
+}
+
+.modal-body {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
 }
 
 .modal-content h3 {

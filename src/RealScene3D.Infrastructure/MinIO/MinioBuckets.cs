@@ -44,6 +44,11 @@ public static class MinioBuckets
     /// 文档存储桶
     /// </summary>
     public const string DOCUMENTS = "documents";
+
+    /// <summary>
+    /// 切片输出存储桶
+    /// </summary>
+    public const string SLICES = "slices";
 }
 
 /// <summary>

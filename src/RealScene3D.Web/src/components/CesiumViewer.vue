@@ -52,64 +52,273 @@
 /**
  * Cesium 3D地球查看器组件
  *
- * 功能说明：
+ * 功能特性：
  * - 基于Cesium的专业级3D地球展示
- * - 支持真实地形和卫星影像
- * - 相机控制和视图操作
- * - 性能监控和信息显示
+ * - 支持多种3D模型格式（3D Tiles、GLTF/GLB）
+ * - 实时性能监控（FPS、内存使用）
+ * - 智能相机控制和视图操作
+ * - 异步对象加载和错误处理
+ * - 响应式设计，支持移动端
  *
- * 技术栈：Vue 3 + TypeScript + Cesium
+ * 支持的文件格式：
+ * - 本地支持：GLTF, GLB, JSON (3D Tiles)
+ * - 可转换格式：OBJ, FBX, DAE, STL, 3DS, BLEND, PLY, LAS, LAZ, E57
+ *
+ * 技术栈：Vue 3 Composition API + TypeScript + Cesium
  * 作者：liyq
  * 创建时间：2025-10-22
+ * 最后更新：2025-11-03
  */
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
+import { useMessage } from '@/composables/useMessage'
 import * as Cesium from 'cesium'
+
+// ==================== 类型定义 ====================
+
+/**
+ * Cesium渲染配置接口
+ * 提供类型安全的渲染设置，支持性能优化和自适应渲染
+ */
+interface CesiumRenderConfig {
+  /** 是否启用阴影渲染 */
+  shadows: boolean
+  /** 是否启用自动动画 */
+  shouldAnimate: boolean
+  /** 是否启用请求渲染模式（性能优化） */
+  requestRenderMode: boolean
+  /** 最大渲染时间变化阈值 */
+  maximumRenderTimeChange: number
+  /** 是否启用MSAA抗锯齿 */
+  msaaSamples: number
+  /** 是否启用FXAA后处理抗锯齿 */
+  fxaa: boolean
+  /** 阴影映射尺寸 */
+  shadowMapSize: number
+  /** 是否启用大气效果 */
+  globe: {
+    enableLighting: boolean
+    dynamicAtmosphereLighting: boolean
+    dynamicAtmosphereLightingFromSun: boolean
+  }
+}
+
+/**
+ * 性能监控配置
+ */
+interface PerformanceConfig {
+  /** 目标FPS */
+  targetFPS: number
+  /** FPS监控间隔(ms) */
+  fpsMonitorInterval: number
+  /** 低性能阈值FPS */
+  lowPerformanceThreshold: number
+  /** 是否启用自适应质量调整 */
+  enableAdaptiveQuality: boolean
+}
+
+/**
+ * 变换参数接口
+ */
+interface TransformParams {
+  x: number
+  y: number
+  z: number
+}
+
+/**
+ * 场景对象接口
+ */
+interface SceneObject {
+  id: string
+  name: string
+  displayPath: string
+  position: [number, number, number] // 经度、纬度、高度
+  rotation: TransformParams | string
+  scale: TransformParams | string
+  slicingTaskId?: string
+  slicingTaskStatus?: string
+  slicingOutputPath?: string
+  modelPath?: string
+}
+
+/**
+ * 相机信息接口
+ */
+interface CameraInfo {
+  longitude: number
+  latitude: number
+  height: number
+}
+
+/**
+ * 影像源配置接口
+ */
+interface ImageryProviderConfig {
+  url: string
+  subdomains?: readonly string[]
+  credit: string
+}
+
+/**
+ * 加载的模型信息接口
+ */
+interface LoadedModel {
+  type: '3dtiles' | 'model'
+  object: Cesium.Cesium3DTileset | Cesium.Model
+  position: Cesium.Cartesian3
+}
+
+
+// ==================== 常量和配置 ====================
+
+/**
+ * 应用配置常量
+ */
+const APP_CONFIG = Object.freeze({
+  /** 默认相机位置（北京天安门广场） */
+  DEFAULT_POSITION: Object.freeze({
+    longitude: 116.397128,
+    latitude: 39.908802,
+    height: 100
+  }),
+
+  /** 支持的文件格式 */
+  SUPPORTED_FORMATS: Object.freeze({
+    nativelySupported: Object.freeze(['gltf', 'glb', 'json']),
+    convertible: Object.freeze(['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57'])
+  }),
+
+  /** MinIO存储bucket名称 */
+  MINIO_BUCKETS: Object.freeze(['models-3d', 'slices', 'textures', 'thumbnails', 'videos']),
+
+  /** 影像源配置 */
+  IMAGERY_SOURCES: Object.freeze({
+    cartodb: Object.freeze({
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+      subdomains: Object.freeze(['a', 'b', 'c', 'd']),
+      credit: 'Map tiles by CartoDB'
+    }),
+    esri: Object.freeze({
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      subdomains: undefined,
+      credit: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+    })
+  } as Record<string, ImageryProviderConfig>),
+
+  /** 相机飞行配置 */
+  CAMERA_FLIGHT_CONFIG: Object.freeze({
+    duration: 2.0,
+    heading: 0,
+    pitch: -45,
+    roll: 0
+  }),
+
+  /** 性能配置 */
+  PERFORMANCE: Object.freeze({
+    TILES_LOAD_TIMEOUT: 30000,
+    MODEL_LOAD_TIMEOUT: 10000,
+    BATCH_SIZE: 3,
+    MIN_DISTANCE: 500,
+    SCALE_FACTOR: 50
+  }),
+
+  /** UI配置 */
+  UI: Object.freeze({
+    FPS_MONITOR_INTERVAL: 1000,
+    CAMERA_UPDATE_DEBOUNCE: 100
+  })
+})
 
 // ==================== Props 定义 ====================
 
 interface Props {
-  showInfo?: boolean          // 是否显示信息面板
-  initialPosition?: {         // 初始相机位置
+  /** 是否显示信息面板 */
+  showInfo?: boolean
+  /** 初始相机位置 */
+  initialPosition?: {
     longitude: number
     latitude: number
     height: number
   }
-  terrainProvider?: string    // 地形数据源
-  imageryProvider?: string    // 影像数据源
-  sceneObjects?: any[]        // 场景对象列表
+  /** 地形数据源 */
+  terrainProvider?: string
+  /** 影像数据源 */
+  imageryProvider?: string
+  /** 场景对象列表 */
+  sceneObjects?: SceneObject[]
+  /** 自定义渲染配置 */
+  renderConfig?: Partial<CesiumRenderConfig>
+  /** 性能配置 */
+  performanceConfig?: Partial<PerformanceConfig>
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showInfo: true,
   initialPosition: () => ({
-    longitude: 116.39,  // 北京
+    longitude: 116.39, // 北京
     latitude: 39.91,
-    height: 15000000    // 15000km高度
+    height: 15000000 // 15000km高度
   }),
-  sceneObjects: () => []
+  sceneObjects: () => [],
+  renderConfig: () => ({
+    shadows: false,
+    shouldAnimate: true,
+    requestRenderMode: false,
+    maximumRenderTimeChange: Infinity,
+    msaaSamples: 4,
+    fxaa: true,
+    shadowMapSize: 2048,
+    globe: {
+      enableLighting: true,
+      dynamicAtmosphereLighting: true,
+      dynamicAtmosphereLightingFromSun: true
+    }
+  }),
+  performanceConfig: () => ({
+    targetFPS: 60,
+    fpsMonitorInterval: 1000,
+    lowPerformanceThreshold: 30,
+    enableAdaptiveQuality: true
+  })
 })
 
 // ==================== Emits 定义 ====================
 
 const emit = defineEmits<{
+  /** 查看器初始化完成 */
   ready: [viewer: Cesium.Viewer]
+  /** 初始化错误 */
   error: [error: Error]
+  /** 对象加载完成 */
+  objectLoaded: [object: SceneObject, success: boolean]
 }>()
 
 // ==================== DOM引用 ====================
 
 const cesiumContainer = ref<HTMLDivElement>()
 
+// ==================== 组合式API ====================
+
+const { error: showError, success: showSuccess } = useMessage()
+
 // ==================== 响应式状态 ====================
 
 const loading = ref(true)
 const terrainEnabled = ref(true)
-const currentImagerySource = ref('cartodb') // 'cartodb' 或 'esri'
+const currentImagerySource = ref<'cartodb' | 'esri'>('cartodb')
 const fps = ref(60)
-const cameraInfo = ref({
+const cameraInfo = ref<CameraInfo>({
   longitude: 0,
   latitude: 0,
   height: 0
+})
+
+// ==================== 计算属性 ====================
+
+/** API基础URL */
+const apiBaseUrl = computed(() => {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+  return baseUrl.replace('/api', '')
 })
 
 // ==================== Cesium对象 ====================
@@ -117,524 +326,1164 @@ const cameraInfo = ref({
 let viewer: Cesium.Viewer | null = null
 let frameCount = 0
 let lastTime = performance.now()
-const loadedModels = new Map<string, any>() // Store references to loaded models/tilesets
+const loadedModels = new Map<string, LoadedModel>()
+// 存储模型的相机监听器清理函数
+const modelCameraListeners = new WeakMap<Cesium.Model, () => void>()
+
+// ==================== 工具函数 ====================
+
+/**
+ * 获取文件扩展名
+ * @param filePath 文件路径
+ * @returns 小写的文件扩展名，如果没有则返回空字符串
+ */
+const getFileExtension = (filePath: string): string => {
+  if (!filePath || typeof filePath !== 'string') {
+    console.warn('[getFileExtension] 无效的文件路径:', filePath)
+    return ''
+  }
+
+  const pathWithoutQuery = filePath.split('?')[0]
+  return pathWithoutQuery.split('.').pop()?.toLowerCase() || ''
+}
+
+/**
+ * 判断是否为绝对URL
+ * @param url URL字符串
+ * @returns 是否为绝对URL
+ */
+const isAbsoluteUrl = (url: string): boolean => {
+  if (!url || typeof url !== 'string') {
+    return false
+  }
+  return url.startsWith('http://') || url.startsWith('https://')
+}
+
+/**
+ * 解析旋转和缩放参数
+ * @param rotation 旋转参数
+ * @param scale 缩放参数
+ * @returns 解析后的参数对象
+ */
+const parseTransformParams = (rotation: SceneObject['rotation'], scale: SceneObject['scale']) => {
+  try {
+    const parsedRotation = typeof rotation === 'string' ? JSON.parse(rotation) : rotation || { x: 0, y: 0, z: 0 }
+    const parsedScale = typeof scale === 'string' ? JSON.parse(scale) : scale || { x: 1, y: 1, z: 1 }
+    return { parsedRotation, parsedScale }
+  } catch (error) {
+    console.error('[parseTransformParams] 解析变换参数失败:', error)
+    // 返回默认值
+    return {
+      parsedRotation: { x: 0, y: 0, z: 0 },
+      parsedScale: { x: 1, y: 1, z: 1 }
+    }
+  }
+}
+
+/**
+ * 创建模型矩阵
+ */
+const createModelMatrix = (position: number[], rotation: { x: number; y: number; z: number }, scale: { x: number; y: number; z: number }): Cesium.Matrix4 => {
+  const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
+  const heading = Cesium.Math.toRadians(rotation.y)
+  const pitch = Cesium.Math.toRadians(rotation.x)
+  const roll = Cesium.Math.toRadians(rotation.z)
+  const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll)
+  const orientation = Cesium.Transforms.headingPitchRollQuaternion(cartesian, hpr)
+
+  return Cesium.Matrix4.fromTranslationQuaternionRotationScale(
+    cartesian,
+    orientation,
+    new Cesium.Cartesian3(scale.x, scale.y, scale.z)
+  )
+}
+
+/**
+ * 添加调试标记
+ */
+const addDebugMarker = (position: number[], name: string): void => {
+  if (!viewer) return
+
+  const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
+
+  viewer.entities.add({
+    position: cartesian,
+    point: {
+      pixelSize: 20,
+      color: Cesium.Color.RED,
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 2
+    },
+    label: {
+      text: name,
+      font: '14px sans-serif',
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+      pixelOffset: new Cesium.Cartesian2(0, -20)
+    }
+  })
+}
+
+/**
+ * 添加调试球体（用于模型中心位置标记，仅开发环境）
+ */
+const addDebugSphere = (viewer: Cesium.Viewer, position: number[]): void => {
+  if (!import.meta.env.DEV) return
+
+  console.log('[addDebugSphere] 添加调试球体，位置:', position)
+  viewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2]),
+    ellipsoid: {
+      radii: new Cesium.Cartesian3(50, 50, 50), // 50米半径的球体
+      material: Cesium.Color.YELLOW.withAlpha(0.3),
+      outline: true,
+      outlineColor: Cesium.Color.YELLOW,
+      outlineWidth: 2.0
+    },
+    label: {
+      text: '调试球体 - 模型中心',
+      font: '16px sans-serif',
+      fillColor: Cesium.Color.YELLOW,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+      pixelOffset: new Cesium.Cartesian2(0, -60)
+    }
+  })
+}
+
+/**
+ * 飞行到指定位置
+ */
+const flyToPosition = async (position: number[], duration: number = APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration): Promise<void> => {
+  if (!viewer) return
+
+  const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
+
+  await viewer.camera.flyTo({
+    destination: cartesian,
+    orientation: {
+      heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+      pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+      roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+    },
+    duration
+  })
+}
 
 // ==================== 监听 Props 变化 ====================
 
+// 使用防抖处理场景对象变化，避免频繁加载
+let sceneObjectsDebounceTimer: number | null = null
+
 watch(
   () => props.sceneObjects,
-  (newVal) => {
-    console.log('[CesiumViewer] sceneObjects prop changed, newVal:', newVal)
-    console.log('[CesiumViewer] Viewer initialized:', !!viewer)
-
+  (newObjects) => {
     if (!viewer) {
-      console.warn('[CesiumViewer] Viewer not ready yet, will load objects when ready')
+      console.warn('查看器尚未准备就绪，将在准备就绪时加载对象')
       return
     }
 
-    loadSceneObjects(newVal || [])
+    // 清除之前的定时器
+    if (sceneObjectsDebounceTimer) {
+      clearTimeout(sceneObjectsDebounceTimer)
+    }
+
+    // 延迟执行，避免频繁调用
+    sceneObjectsDebounceTimer = window.setTimeout(async () => {
+      try {
+        await loadSceneObjects(newObjects || [])
+      } catch (error) {
+        console.error('[watch sceneObjects] 加载场景对象失败:', error)
+        showError('加载场景对象失败')
+      }
+      sceneObjectsDebounceTimer = null
+    }, 300) // 300ms防抖延迟
   },
   { deep: true, immediate: false }
 )
 
 // ==================== 场景对象加载 ====================
 
-const loadSceneObjects = async (objects: any[]) => {
-  if (!viewer) {
-    console.error('[CesiumViewer] Viewer not initialized yet!')
-    return
+/**
+ * 处理对象URL路径
+ */
+const resolveObjectUrl = (displayPath: string): string => {
+  let fullPath = displayPath
+
+  // 如果是后端代理路径（以 /api/ 开头），添加完整的API基础URL
+  if (fullPath.startsWith('/api/')) {
+    fullPath = `${apiBaseUrl.value}${fullPath}`
   }
+  // 处理MinIO存储路径
+  else if (!isAbsoluteUrl(fullPath)) {
+    const pathParts = fullPath.split('/').filter((p: string) => p)
+    const firstPart = pathParts[0]
 
-  // 清除之前加载的所有模型
-  clearLoadedObjects()
-
-  console.log(`[CesiumViewer] ========== Loading Scene Objects ==========`)
-  console.log(`[CesiumViewer] Received ${objects?.length || 0} scene objects`)
-  console.log(`[CesiumViewer] Objects data:`, JSON.stringify(objects, null, 2))
-
-  // 如果没有场景对象，直接返回
-  if (!objects || objects.length === 0) {
-    console.warn('[CesiumViewer] No scene objects to load - viewer will show default earth')
-    return
-  }
-
-  // API基础URL - 用于非MinIO资源
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
-  const BASE_URL = API_BASE_URL.replace('/api', '')
-
-  for (const obj of objects) {
-    try {
-      if (!obj.displayPath) {
-        console.warn(`[CesiumViewer] Object ${obj.name} has no displayPath, skipping.`)
-        continue
-      }
-
-      // 构建完整的URL路径
-      let fullPath = obj.displayPath
-
-      // 如果是后端代理路径（以 /api/ 开头），需要添加完整的API基础URL
-      if (fullPath.startsWith('/api/')) {
-        fullPath = `${BASE_URL}${fullPath}`
-        console.log(`[CesiumViewer] Using backend proxy path for ${obj.name}: ${fullPath}`)
-      }
-      // 判断是否为MinIO存储的路径（相对路径且不包含协议）
-      else if (!fullPath.startsWith('http://') && !fullPath.startsWith('https://')) {
-        // 如果路径中包含MinIO已知的bucket名称，说明是MinIO路径
-        const minioBuckets = ['models-3d', 'textures', 'thumbnails', 'videos']
-        const pathParts = fullPath.split('/').filter((p: string) => p)
-        const firstPart = pathParts[0]
-
-        if (minioBuckets.includes(firstPart)) {
-          // 格式：models-3d/object-name/file
-          // 使用后端代理路径而不是直接访问MinIO
-          fullPath = `${BASE_URL}/api/files/proxy/${fullPath}`
-          console.log(`[CesiumViewer] Using backend proxy path for MinIO object: ${fullPath}`)
-        } else {
-          // 假设是MinIO对象名称（没有bucket前缀）
-          // 默认使用models-3d bucket，通过后端代理访问
-          fullPath = `${BASE_URL}/api/files/proxy/models-3d/${fullPath.replace(/^\//, '')}`
-          console.log(`[CesiumViewer] Using backend proxy path for MinIO object (default bucket): ${fullPath}`)
-        }
-      }
-
-      // 如果displayPath已经是完整的MinIO签名URL，直接使用
-      // MinIO签名URL包含X-Amz参数
-      if (fullPath.includes('X-Amz-Algorithm')) {
-        console.log(`[CesiumViewer] Using presigned MinIO URL for ${obj.name}`)
-      }
-
-      // 检查文件扩展名
-      const fileExt = fullPath.split('?')[0].split('.').pop()?.toLowerCase()
-
-      // Cesium原生支持的格式
-      const nativelySupportedFormats = ['gltf', 'glb', 'json'] // json for tileset.json
-
-      // 需要转换的格式（通过切片服务转换为3D Tiles）
-      const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
-
-      // 检查是否为不支持的格式
-      if (!nativelySupportedFormats.includes(fileExt || '') && convertibleFormats.includes(fileExt || '')) {
-        console.warn(`[CesiumViewer] ⚠ Format .${fileExt} requires conversion for Cesium display`)
-
-        // 优先使用已完成的切片输出
-        if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
-          console.info(`[CesiumViewer] ✓ Using completed slicing output: ${obj.slicingOutputPath}`)
-          // 使用切片输出路径
-          fullPath = obj.slicingOutputPath
-
-          // 构建切片代理URL
-          if (!fullPath.startsWith('http://') && !fullPath.startsWith('https://')) {
-            fullPath = `${BASE_URL}/api/files/proxy/${fullPath}`
-          }
-
-          // 确保路径指向tileset.json
-          if (!fullPath.endsWith('tileset.json')) {
-            if (fullPath.endsWith('/') || fullPath.endsWith('\\')) {
-              fullPath = fullPath + 'tileset.json'
-            } else {
-              fullPath = fullPath + '/tileset.json'
-            }
-          }
-
-          console.log(`[CesiumViewer] Using 3D Tiles path: ${fullPath}`)
-        } else {
-          // 如果没有完成的切片，显示提示信息
-          const statusMsg = obj.slicingTaskId
-            ? `Slicing task status: ${obj.slicingTaskStatus || 'Unknown'}`
-            : 'No slicing task found'
-
-          console.warn(`[CesiumViewer] Cannot display .${fileExt} file directly. ${statusMsg}`)
-          console.info(`[CesiumViewer] Tip: Create a slicing task to convert this model to 3D Tiles format for viewing`)
-
-          // 在地图上显示占位符标记，但不加载模型
-          const position = obj.position || [116.397128, 39.908802, 100]
-          const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
-
-          viewer.entities.add({
-            position: cartesian,
-            point: {
-              pixelSize: 20,
-              color: Cesium.Color.ORANGE,
-              outlineColor: Cesium.Color.WHITE,
-              outlineWidth: 2
-            },
-            label: {
-              text: `${obj.name}\n(${fileExt?.toUpperCase()} - 需要切片转换)`,
-              font: '14px sans-serif',
-              fillColor: Cesium.Color.WHITE,
-              outlineColor: Cesium.Color.BLACK,
-              outlineWidth: 2,
-              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-              pixelOffset: new Cesium.Cartesian2(0, -20)
-            }
-          })
-
-          // 飞向该位置
-          viewer.camera.flyTo({
-            destination: cartesian,
-            orientation: {
-              heading: Cesium.Math.toRadians(0),
-              pitch: Cesium.Math.toRadians(-45),
-              roll: 0.0
-            },
-            duration: 2.0
-          })
-
-          continue
-        }
-      } else if (!nativelySupportedFormats.includes(fileExt || '') && !convertibleFormats.includes(fileExt || '')) {
-        console.error(`[CesiumViewer] ✗ Unsupported file format: .${fileExt}`)
-        continue
-      }
-
-      console.log(`[CesiumViewer] Loading object ${obj.name} from ${fullPath}`)
-
-      // 解析位置、旋转、缩放
-      let position = obj.position || [0, 0, 0]
-      const rotation = typeof obj.rotation === 'string' ? JSON.parse(obj.rotation) : obj.rotation || { x: 0, y: 0, z: 0 }
-      const scale = typeof obj.scale === 'string' ? JSON.parse(obj.scale) : obj.scale || { x: 1, y: 1, z: 1 }
-
-      // 检查位置是否有效，如果是[0,0,0]则自动使用默认位置（北京天安门广场）
-      if (position[0] === 0 && position[1] === 0 && position[2] === 0) {
-        const DEFAULT_POSITION = [116.397128, 39.908802, 100]  // 北京天安门广场
-        console.warn(`[CesiumViewer] ⚠ Object ${obj.name} has invalid position [0,0,0]!`)
-        console.warn(`[CesiumViewer] Auto-fixing: Using default position (Beijing Tiananmen Square): [${DEFAULT_POSITION.join(', ')}]`)
-        console.warn(`[CesiumViewer] Tip: Update the object's position in the database to set a permanent custom location.`)
-        position = DEFAULT_POSITION
-      }
-
-      // 输出位置信息，帮助调试
-      console.log(`[CesiumViewer] Object ${obj.name} position:`, position)
-      console.log(`[CesiumViewer]   - Longitude: ${position[0]}°`)
-      console.log(`[CesiumViewer]   - Latitude: ${position[1]}°`)
-      console.log(`[CesiumViewer]   - Height: ${position[2]}m`)
-      console.log(`[CesiumViewer] Object ${obj.name} rotation:`, rotation)
-      console.log(`[CesiumViewer] Object ${obj.name} scale:`, scale)
-
-      // 创建模型矩阵（位置 + 旋转 + 缩放）
-      const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
-      const heading = Cesium.Math.toRadians(rotation.y) // Y轴旋转对应偏航角
-      const pitch = Cesium.Math.toRadians(rotation.x)   // X轴旋转对应俯仰角
-      const roll = Cesium.Math.toRadians(rotation.z)    // Z轴旋转对应翻滚角
-      const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll)
-      const orientation = Cesium.Transforms.headingPitchRollQuaternion(cartesian, hpr)
-
-      const modelMatrix = Cesium.Matrix4.fromTranslationQuaternionRotationScale(
-        cartesian,
-        orientation,
-        new Cesium.Cartesian3(scale.x, scale.y, scale.z)
-      )
-
-      // 添加调试标记点（Entity）- 无论模型是否加载成功都会显示
-      viewer.entities.add({
-        position: cartesian,
-        point: {
-          pixelSize: 20,
-          color: Cesium.Color.RED,
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2
-        },
-        label: {
-          text: obj.name,
-          font: '14px sans-serif',
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -20)
-        }
-      })
-      console.log(`[CesiumViewer] ✓ Added debug marker for ${obj.name}`)
-
-      // 首先飞向标记点位置，确保用户能看到正确的位置
-      console.log(`[CesiumViewer] Flying to position [${position.join(', ')}]...`)
-      viewer.camera.flyTo({
-        destination: cartesian,
-        orientation: {
-          heading: Cesium.Math.toRadians(0),
-          pitch: Cesium.Math.toRadians(-45),
-          roll: 0.0
-        },
-        duration: 2.0
-      })
-
-      // 根据文件类型选择加载方式
-      const isGltfModel = ['gltf', 'glb'].includes(fileExt || '')
-      const is3DTiles = fullPath.endsWith('tileset.json') || fullPath.includes('/tileset.json')
-
-      if (is3DTiles) {
-        // 加载3D Tiles (包括从其他格式切片转换的)
-        console.log(`[CesiumViewer] Loading 3D Tileset from: ${fullPath}`)
-        try {
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(fullPath)
-
-          // 应用变换矩阵
-          tileset.modelMatrix = modelMatrix
-
-          // 添加到场景
-          viewer.scene.primitives.add(tileset)
-          loadedModels.set(obj.id, { type: '3dtiles', object: tileset, position: cartesian })
-
-          console.log(`[CesiumViewer] ✓ Loaded 3D Tileset for ${obj.name} at position [${position.join(', ')}]`)
-
-          // 飞向切片集
-          console.log(`[CesiumViewer] Flying to tileset ${obj.name}...`)
-          try {
-            await viewer.flyTo(tileset, {
-              duration: 2.0,
-              offset: new Cesium.HeadingPitchRange(0, -0.5, tileset.boundingSphere.radius * 2.0)
-            })
-          } catch (flyError) {
-            console.warn(`[CesiumViewer] Failed to fly to tileset, flying to position instead:`, flyError)
-            // 如果flyTo失败，使用相机直接飞向位置
-            viewer.camera.flyTo({
-              destination: cartesian,
-              orientation: {
-                heading: Cesium.Math.toRadians(0),
-                pitch: Cesium.Math.toRadians(-45),
-                roll: 0.0
-              },
-              duration: 2.0
-            })
-          }
-        } catch (tilesetError) {
-          console.error(`[CesiumViewer] ✗ Failed to load 3D Tileset:`, tilesetError)
-          console.error(`[CesiumViewer] Tileset URL was: ${fullPath}`)
-          if (tilesetError instanceof Error) {
-            console.error(`[CesiumViewer] Error message: ${tilesetError.message}`)
-            console.error(`[CesiumViewer] Error stack:`, tilesetError.stack)
-          }
-        }
-      } else if (isGltfModel) {
-        // 加载glTF/GLB模型
-        console.log(`[CesiumViewer] Loading glTF/GLB model from: ${fullPath}`)
-        try {
-          const model = await Cesium.Model.fromGltfAsync({
-            url: fullPath,
-            modelMatrix: modelMatrix,
-            // 启用颜色混合和透明度
-            colorBlendMode: Cesium.ColorBlendMode.MIX,
-            // 增加最大纹理大小
-            maximumScale: 20000
-          })
-
-          viewer.scene.primitives.add(model)
-          loadedModels.set(obj.id, { type: 'model', object: model, position: cartesian })
-
-          console.log(`[CesiumViewer] ✓ Loaded glTF/GLB model for ${obj.name} at position [${position.join(', ')}]`)
-
-          // 飞向模型位置
-          console.log(`[CesiumViewer] Flying to model ${obj.name}...`)
-          viewer.camera.flyTo({
-            destination: cartesian,
-            orientation: {
-              heading: Cesium.Math.toRadians(0),
-              pitch: Cesium.Math.toRadians(-45),
-              roll: 0.0
-            },
-            duration: 2.0
-          })
-        } catch (modelError) {
-          console.error(`[CesiumViewer] ✗ Failed to load glTF/GLB model:`, modelError)
-          console.error(`[CesiumViewer] Model URL was: ${fullPath}`)
-          if (modelError instanceof Error) {
-            console.error(`[CesiumViewer] Error message: ${modelError.message}`)
-            console.error(`[CesiumViewer] Error stack:`, modelError.stack)
-          }
-        }
-      } else {
-        console.warn(`[CesiumViewer] Unknown format for ${obj.name}, skipping`)
-        continue
-      }
-    } catch (error) {
-      console.error(`[CesiumViewer] ✗ Failed to load object ${obj.name} (${obj.id}):`, error)
+    if (APP_CONFIG.MINIO_BUCKETS.includes(firstPart)) {
+      fullPath = `${apiBaseUrl.value}/api/files/proxy/${fullPath}`
+    } else {
+      fullPath = `${apiBaseUrl.value}/api/files/proxy/slices/${fullPath.replace(/^\//, '')}`
     }
   }
 
-  console.log(`[CesiumViewer] Successfully loaded ${loadedModels.size} objects`)
+  return fullPath
+}
 
-  // 如果加载了模型，调整相机视图以包含所有模型
-  if (loadedModels.size > 0) {
-    console.log(`[CesiumViewer] Adjusting camera to show all loaded objects...`)
+/**
+ * 处理需要转换的文件格式
+ */
+const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
+  const fileExt = getFileExtension(obj.displayPath)
 
-    // 如果只有一个模型，已经在上面飞向了
-    if (loadedModels.size === 1) {
-      console.log(`[CesiumViewer] Single object loaded, camera already adjusted`)
-    } else {
-      // 多个模型时，计算边界并调整视图
-      try {
-        // 收集所有模型的位置，计算中心点
-        const positions: Cesium.Cartesian3[] = []
-        loadedModels.forEach((item) => {
-          positions.push(item.position)
-        })
+  // 检查是否有完成的切片输出
+  if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
+    // 使用切片输出
+    let tilesetPath = obj.slicingOutputPath
+    if (!isAbsoluteUrl(tilesetPath)) {
+      tilesetPath = `${apiBaseUrl.value}/api/files/proxy/${tilesetPath}`
+    }
 
-        // 计算边界球体
-        const boundingSphere = Cesium.BoundingSphere.fromPoints(positions)
+    // 确保路径指向tileset.json
+    if (!tilesetPath.endsWith('tileset.json')) {
+      tilesetPath = tilesetPath.replace(/\/$|\\$/, '') + '/tileset.json'
+    }
 
-        // 飞向边界球体中心
-        viewer.camera.flyToBoundingSphere(boundingSphere, {
-          duration: 2.0,
-          offset: new Cesium.HeadingPitchRange(0, -0.5, boundingSphere.radius * 3.0)
-        })
+    // 加载3D Tiles
+    return await loadTileset(obj, tilesetPath)
+  } else {
+    // 显示占位符标记
+    const position = obj.position.every(coord => coord === 0) ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height] : obj.position
 
-        console.log(`[CesiumViewer] Camera adjusted to show all ${loadedModels.size} objects`)
-      } catch (error) {
-        console.warn(`[CesiumViewer] Failed to adjust camera for multiple objects:`, error)
+    if (!viewer) return false
+
+    const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
+
+    viewer.entities.add({
+      position: cartesian,
+      point: {
+        pixelSize: 20,
+        color: Cesium.Color.ORANGE,
+        outlineColor: Cesium.Color.WHITE,
+        outlineWidth: 2
+      },
+      label: {
+        text: `${obj.name}\n(${fileExt.toUpperCase()} - 需要切片转换)`,
+        font: '14px sans-serif',
+        fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        pixelOffset: new Cesium.Cartesian2(0, -20)
       }
+    })
+
+    await flyToPosition(position)
+    emit('objectLoaded', obj, false)
+    return false
+  }
+}
+
+/**
+ * 创建3D Tiles数据集的配置选项
+ */
+const createTilesetOptions = () => ({
+  // 设置最大屏幕空间误差，优化加载性能
+  maximumScreenSpaceError: 16,
+  // 禁用一些可能导致问题的特性
+  skipLevelOfDetail: true,
+  // 确保模型始终可见
+  show: true,
+  // 动态屏幕空间错误，根据相机距离自动调整细节
+  dynamicScreenSpaceError: true,
+  // 动态屏幕空间错误密度
+  dynamicScreenSpaceErrorDensity: 0.00278,
+  // 动态屏幕空间错误因子
+  dynamicScreenSpaceErrorFactor: 4.0,
+  // 动态屏幕空间错误高度回退
+  dynamicScreenSpaceErrorHeightFalloff: 0.25,
+  // 预加载当视野
+  preloadWhenHidden: false,
+  // 预加载兄弟节点
+  preloadFlightDestinations: true,
+  // 立即加载
+  immediatelyLoadDesiredLevelOfDetail: false,
+  // 加载兄弟节点
+  loadSiblings: true
+})
+
+/**
+ * 检查是否需要应用自定义变换
+ */
+const hasCustomTransform = (obj: SceneObject, parsedRotation: any, parsedScale: any): boolean => {
+  return (obj.position && (obj.position[0] !== 116.39 || obj.position[1] !== 39.91 || obj.position[2] !== 100)) ||
+         (parsedRotation.x !== 0 || parsedRotation.y !== 0 || parsedRotation.z !== 0) ||
+         (parsedScale.x !== 1 || parsedScale.y !== 1 || parsedScale.z !== 1)
+}
+
+/**
+ * 处理本地坐标系的tileset
+ */
+const handleLocalCoordinateTileset = async (
+  tileset: Cesium.Cesium3DTileset,
+  obj: SceneObject,
+  parsedRotation: any,
+  parsedScale: any
+): Promise<number[]> => {
+  const originalRadius = tileset.boundingSphere?.radius ?? 0
+  console.log('[loadTileset] 模型原始包围球半径:', originalRadius)
+
+  // 如果模型太小（半径小于10米），自动放大
+  let adjustedScale = { ...parsedScale }
+  if (originalRadius > 0 && originalRadius < 10) {
+    const scaleFactor = APP_CONFIG.PERFORMANCE.SCALE_FACTOR / originalRadius
+    adjustedScale = {
+      x: parsedScale.x * scaleFactor,
+      y: parsedScale.y * scaleFactor,
+      z: parsedScale.z * scaleFactor
+    }
+    console.log('[loadTileset] 模型太小，自动放大scale:', scaleFactor, '倍，新scale:', adjustedScale)
+  }
+
+  // 对于本地坐标系的模型，强制应用modelMatrix
+  const modelMatrix = createModelMatrix(obj.position, parsedRotation, adjustedScale)
+  tileset.modelMatrix = modelMatrix
+  console.log('[loadTileset] 已强制应用modelMatrix')
+
+  // 确保tileset可见性设置
+  tileset.show = true
+  tileset.style = new Cesium.Cesium3DTileStyle({ show: true })
+  console.log('[loadTileset] 已设置tileset可见性')
+
+  // 等待一下让boundingSphere更新
+  await new Promise(resolve => setTimeout(resolve, 200))
+
+  return obj.position
+}
+
+
+/**
+ * 加载3D Tiles数据集
+ */
+const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
+  if (!viewer) return false
+
+  console.log('[loadTileset] 开始加载 tileset，URL:', url)
+
+  try {
+    // 创建带超时的Promise来避免异步响应消息通道关闭问题
+    const loadTilesetPromise = Cesium.Cesium3DTileset.fromUrl(url, createTilesetOptions())
+    console.log('[loadTileset] 等待 tileset 加载...')
+
+    // 添加超时控制
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Tileset加载超时')), APP_CONFIG.PERFORMANCE.TILES_LOAD_TIMEOUT)
+    })
+
+    const tileset = await Promise.race([loadTilesetPromise, timeoutPromise])
+    console.log('[loadTileset] Tileset 加载成功:', tileset)
+
+    // 在开发环境下获取tileset.json的元数据用于调试
+    if (import.meta.env.DEV) {
+      try {
+        const response = await fetch(url)
+        const tilesetJson = await response.json()
+        console.log('[loadTileset] Tileset.json内容:', tilesetJson)
+        console.log('[loadTileset] Root content URI:', tilesetJson.root?.content?.uri)
+        console.log('[loadTileset] Root geometricError:', tilesetJson.root?.geometricError)
+      } catch (e) {
+        console.warn('[loadTileset] 无法获取tileset.json内容:', e)
+      }
+    }
+
+    // 解析旋转和缩放参数
+    const { parsedRotation, parsedScale } = parseTransformParams(obj.rotation, obj.scale)
+    const customTransform = hasCustomTransform(obj, parsedRotation, parsedScale)
+
+    console.log('[loadTileset] 是否有自定义变换:', customTransform)
+
+    // 只有在有自定义变换时才应用modelMatrix，否则使用tileset自带的transform
+    if (customTransform) {
+      const modelMatrix = createModelMatrix(obj.position, parsedRotation, parsedScale)
+      tileset.modelMatrix = modelMatrix
+      console.log('[loadTileset] 应用了自定义modelMatrix')
+    } else {
+      console.log('[loadTileset] 使用tileset自带的transform')
+    }
+
+    viewer.scene.primitives.add(tileset)
+    console.log('[loadTileset] Tileset 已添加到场景')
+
+    // 等待tileset初始加载完成，确保boundingSphere已经计算
+    let attempts = 0
+    const maxAttempts = 20
+    while (attempts < maxAttempts && (!tileset.boundingSphere || tileset.boundingSphere.radius === 0)) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      attempts++
+    }
+
+    console.log('[loadTileset] BoundingSphere状态:', {
+      exists: !!tileset.boundingSphere,
+      radius: tileset.boundingSphere?.radius ?? 'undefined',
+      center: tileset.boundingSphere?.center ?? 'undefined'
+    })
+
+    // 获取tileset的实际中心位置
+    let actualPosition: number[]
+    let center: Cesium.Cartesian3
+
+    if (tileset.boundingSphere && tileset.boundingSphere.radius > 0) {
+      center = tileset.boundingSphere.center
+      console.log('[loadTileset] BoundingSphere center:', center ?? 'undefined')
+
+      // 检查center是否有效（不是NaN或0,0,0）
+      const isValidCenter = center &&
+                           !isNaN(center.x) && !isNaN(center.y) && !isNaN(center.z) &&
+                           (center.x !== 0 || center.y !== 0 || center.z !== 0)
+
+      if (isValidCenter) {
+        const cartographic = Cesium.Cartographic.fromCartesian(center)
+        if (cartographic) {
+          actualPosition = [
+            Cesium.Math.toDegrees(cartographic.longitude),
+            Cesium.Math.toDegrees(cartographic.latitude),
+            cartographic.height
+          ]
+          console.log('[loadTileset] Tileset实际中心位置:', actualPosition)
+        } else {
+          console.warn('[loadTileset] Cartographic转换返回null，使用默认位置')
+          actualPosition = obj.position
+          center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+        }
+      } else {
+        console.warn('[loadTileset] BoundingSphere center无效，tileset可能使用本地坐标系')
+        actualPosition = await handleLocalCoordinateTileset(tileset, obj, parsedRotation, parsedScale)
+        center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+      }
+    } else {
+      console.warn('[loadTileset] BoundingSphere未就绪，使用对象指定位置')
+      actualPosition = obj.position
+      center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+    }
+
+    const cartesian = customTransform
+      ? Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+      : center
+
+    loadedModels.set(obj.id, { type: '3dtiles', object: tileset, position: cartesian })
+
+    // 使用实际位置添加调试标记
+    addDebugMarker(actualPosition, obj.name)
+
+    // 添加调试球体（仅用于切片预览）
+    if (obj.name === '切片预览') {
+      addDebugSphere(viewer, actualPosition)
+    }
+
+    // 强制加载瓦片
+    tileset.maximumScreenSpaceError = 1024
+
+    // 添加延迟避免异步响应问题
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await flyToTileset(tileset, cartesian)
+
+    console.log('[loadTileset] Tileset 加载完成')
+    emit('objectLoaded', obj, true)
+    return true
+  } catch (error) {
+    const errorMessage = `加载 ${obj.name} 的 3D 瓦片数据集失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error('[loadTileset] 错误:', errorMessage)
+    console.error('[loadTileset] 错误详情:', error)
+    showError(errorMessage)
+    emit('objectLoaded', obj, false)
+    return false
+  }
+}
+
+/**
+ * 创建GLTF模型的加载选项
+ */
+const createModelOptions = (url: string, modelMatrix: Cesium.Matrix4) => ({
+  url,
+  modelMatrix,
+  // 混合模式
+  colorBlendMode: Cesium.ColorBlendMode.MIX,
+  // 大幅增加最大缩放以确保模型可见
+  maximumScale: Number.MAX_VALUE,
+  // 设置最小像素大小，确保即使很远也能看到
+  minimumPixelSize: 128,
+  // 允许选取（用于交互）
+  allowPicking: true,
+  // 模型始终可见，不受视距影响
+  show: true,
+  // 禁用距离显示条件，确保始终渲染
+  distanceDisplayCondition: undefined,
+  // 启用深度测试，确保正确的遮挡关系
+  scene: viewer!.scene
+})
+
+/**
+ * 等待模型就绪
+ */
+const waitForModelReady = (model: Cesium.Model): Promise<void> => {
+  return new Promise<void>((resolve, reject) => {
+    if (model.ready) {
+      console.log('[loadGltfModel] 模型已经就绪')
+      resolve()
+    } else {
+      const removeListener = model.readyEvent.addEventListener(() => {
+        console.log('[loadGltfModel] 模型就绪事件触发')
+        removeListener()
+        resolve()
+      })
+
+      // 设置超时
+      setTimeout(() => {
+        console.warn('[loadGltfModel] 等待模型就绪超时')
+        removeListener()
+        reject(new Error('Model ready timeout'))
+      }, APP_CONFIG.PERFORMANCE.MODEL_LOAD_TIMEOUT)
+    }
+  })
+}
+
+/**
+ * 处理模型的相机飞行
+ */
+const flyToModel = async (model: Cesium.Model, obj: SceneObject): Promise<void> => {
+  try {
+    const boundingSphere = model.boundingSphere
+    if (boundingSphere && boundingSphere.radius > 0) {
+      // 计算相机距离：包围球半径的3倍
+      const distance = boundingSphere.radius * 3.0
+      console.log('[loadGltfModel] 计算的相机距离:', distance)
+
+      await viewer!.camera.flyToBoundingSphere(boundingSphere, {
+        duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+        offset: new Cesium.HeadingPitchRange(0, -0.5, distance)
+      })
+      console.log('[loadGltfModel] 已飞向模型')
+    } else {
+      console.warn('[loadGltfModel] 包围球无效，使用备用方案')
+      await flyToPosition(obj.position)
+    }
+  } catch (flyError) {
+    console.warn('[loadGltfModel] 飞向模型失败，使用备用方案:', flyError)
+    await flyToPosition(obj.position)
+  }
+}
+
+/**
+ * 添加模型相机监听器
+ */
+const addModelCameraListener = (model: Cesium.Model): void => {
+  const cameraListener = viewer!.camera.moveEnd.addEventListener(() => {
+    if (model && !model.isDestroyed()) {
+      model.show = true
+    }
+  })
+  modelCameraListeners.set(model, cameraListener)
+}
+
+/**
+ * 加载glTF/GLB模型
+ */
+const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> => {
+  if (!viewer) return false
+
+  console.log('[loadGltfModel] 开始加载 GLB/GLTF 模型，URL:', url)
+
+  try {
+    console.log('[loadGltfModel] 解析变换参数...')
+    const { parsedRotation, parsedScale } = parseTransformParams(obj.rotation, obj.scale)
+    console.log('[loadGltfModel] 位置:', obj.position)
+    console.log('[loadGltfModel] 旋转:', parsedRotation)
+    console.log('[loadGltfModel] 缩放:', parsedScale)
+
+    const modelMatrix = createModelMatrix(obj.position, parsedRotation, parsedScale)
+    console.log('[loadGltfModel] ModelMatrix 创建完成')
+
+    console.log('[loadGltfModel] 开始从 URL 加载模型...')
+    const model = await Cesium.Model.fromGltfAsync(createModelOptions(url, modelMatrix))
+
+    console.log('[loadGltfModel] 模型加载成功:', model)
+
+    viewer.scene.primitives.add(model)
+    console.log('[loadGltfModel] 模型已添加到场景')
+
+    const cartesian = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+    loadedModels.set(obj.id, { type: 'model', object: model, position: cartesian })
+
+    addDebugMarker(obj.position, obj.name)
+    console.log('[loadGltfModel] 准备飞向模型位置...')
+
+    try {
+      await waitForModelReady(model)
+      console.log('[loadGltfModel] 模型已就绪')
+
+      // 确保模型始终可见
+      model.show = true
+      console.log('[loadGltfModel] 设置模型可见性: true')
+
+      // 添加相机移动监听，确保模型始终可见
+      addModelCameraListener(model)
+
+      // 飞向模型位置
+      await flyToModel(model, obj)
+    } catch (readyError) {
+      console.error('[loadGltfModel] 模型就绪等待失败:', readyError)
+      // 备用：直接飞向位置
+      await flyToPosition(obj.position)
+    }
+
+    console.log('[loadGltfModel] GLB/GLTF 模型加载完成')
+    emit('objectLoaded', obj, true)
+    return true
+  } catch (error) {
+    const errorMessage = `加载 ${obj.name} 的 glTF/GLB 模型失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error('[loadGltfModel] 错误:', errorMessage)
+    console.error('[loadGltfModel] 错误详情:', error)
+    showError(errorMessage)
+    emit('objectLoaded', obj, false)
+    return false
+  }
+}
+
+/**
+ * 飞向3D Tiles数据集
+ */
+const flyToTileset = async (tileset: Cesium.Cesium3DTileset, fallbackPosition: Cesium.Cartesian3): Promise<void> => {
+  if (!viewer) return
+
+  try {
+    const radius = tileset.boundingSphere.radius
+    console.log('[flyToTileset] BoundingSphere半径:', radius)
+
+    // 对于小模型或本地坐标系模型，使用更大的距离
+    const minDistance = APP_CONFIG.PERFORMANCE.MIN_DISTANCE
+    const distance = Math.max(radius * 3.0, minDistance)
+    console.log('[flyToTileset] 计算的相机距离:', distance)
+
+    await viewer.flyTo(tileset, {
+      duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+      offset: new Cesium.HeadingPitchRange(0, -0.5, distance)
+    })
+    console.log('[flyToTileset] 飞行完成')
+  } catch (error) {
+    console.warn('[flyToTileset] 飞向瓦片数据集失败，使用备用位置:', error)
+    try {
+      viewer.camera.flyTo({
+        destination: fallbackPosition,
+        orientation: {
+          heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+          pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+          roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+        },
+        duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration
+      })
+    } catch (fallbackError) {
+      console.error('备用相机飞行也失败:', fallbackError)
     }
   }
 }
 
-const clearLoadedObjects = () => {
+/**
+ * 验证场景对象的基本属性
+ * @param obj 场景对象
+ * @returns 验证结果
+ */
+const validateSceneObject = (obj: SceneObject): { isValid: boolean; error?: string } => {
+  if (!obj) {
+    return { isValid: false, error: '对象为空' }
+  }
+
+  if (!obj.id || typeof obj.id !== 'string') {
+    return { isValid: false, error: '对象ID无效' }
+  }
+
+  if (!obj.name || typeof obj.name !== 'string') {
+    return { isValid: false, error: '对象名称无效' }
+  }
+
+  if (!obj.displayPath || typeof obj.displayPath !== 'string') {
+    return { isValid: false, error: '显示路径无效' }
+  }
+
+  if (!Array.isArray(obj.position) || obj.position.length !== 3) {
+    return { isValid: false, error: '位置信息无效' }
+  }
+
+  return { isValid: true }
+}
+
+/**
+ * 规范化对象位置
+ * @param obj 场景对象
+ * @returns 规范化后的位置
+ */
+const normalizeObjectPosition = (obj: SceneObject): [number, number, number] => {
+  const position = obj.position
+
+  // 检查位置是否有效
+  if (position.every(coord => coord === 0)) {
+    console.warn(`对象 ${obj.name} 的位置无效 [0,0,0]，使用默认位置`)
+    return [
+      APP_CONFIG.DEFAULT_POSITION.longitude,
+      APP_CONFIG.DEFAULT_POSITION.latitude,
+      APP_CONFIG.DEFAULT_POSITION.height
+    ]
+  }
+
+  // 检查位置坐标是否在合理范围内
+  const [longitude, latitude, height] = position
+  if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90 || height < -1000) {
+    console.warn(`对象 ${obj.name} 的位置超出合理范围，使用默认位置`, position)
+    return [
+      APP_CONFIG.DEFAULT_POSITION.longitude,
+      APP_CONFIG.DEFAULT_POSITION.latitude,
+      APP_CONFIG.DEFAULT_POSITION.height
+    ]
+  }
+
+  return position
+}
+
+/**
+ * 确定对象加载策略
+ * @param fullPath 完整路径
+ * @param fileExt 文件扩展名
+ * @returns 加载策略
+ */
+const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | 'gltf' | 'convertible' | null => {
+  if (APP_CONFIG.SUPPORTED_FORMATS.convertible.includes(fileExt)) {
+    return 'convertible'
+  }
+
+  if (!APP_CONFIG.SUPPORTED_FORMATS.nativelySupported.includes(fileExt)) {
+    return null
+  }
+
+  if (fullPath.endsWith('tileset.json') || fullPath.includes('/tileset.json')) {
+    return 'tileset'
+  }
+
+  if (['gltf', 'glb'].includes(fileExt)) {
+    return 'gltf'
+  }
+
+  return null
+}
+
+/**
+ * 加载单个场景对象
+ * @param obj 场景对象
+ */
+const loadSceneObject = async (obj: SceneObject): Promise<void> => {
+  try {
+    console.log('[CesiumViewer] 开始加载场景对象:', obj.name)
+
+    // 验证对象
+    const validation = validateSceneObject(obj)
+    if (!validation.isValid) {
+      console.error(`[CesiumViewer] 对象验证失败: ${validation.error}`)
+      addDebugMarker(
+        [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height],
+        `${obj.name} (无效对象)`
+      )
+      emit('objectLoaded', obj, false)
+      return
+    }
+
+    // 规范化位置
+    obj.position = normalizeObjectPosition(obj)
+
+    // 解析URL
+    const fullPath = resolveObjectUrl(obj.displayPath)
+    console.log('[CesiumViewer] fullPath:', fullPath)
+
+    // 检查文件格式
+    const fileExt = getFileExtension(fullPath)
+    console.log('[CesiumViewer] fileExt:', fileExt)
+
+    // 确定加载策略
+    const strategy = determineLoadStrategy(fullPath, fileExt)
+
+    switch (strategy) {
+      case 'convertible':
+        console.log('[CesiumViewer] 格式需要转换，调用 handleConvertibleFormat')
+        await handleConvertibleFormat(obj)
+        break
+      case 'tileset':
+        console.log('[CesiumViewer] 检测到 tileset.json，开始加载 3D Tiles')
+        await loadTileset(obj, fullPath)
+        break
+      case 'gltf':
+        console.log('[CesiumViewer] 检测到 GLTF/GLB 模型，开始加载')
+        await loadGltfModel(obj, fullPath)
+        break
+      default:
+        console.error(`不支持的文件格式: .${fileExt}`)
+        addDebugMarker(obj.position, `${obj.name} (不支持格式)`)
+        emit('objectLoaded', obj, false)
+    }
+  } catch (error) {
+    const errorMessage = `加载对象 ${obj.name} 失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error('[loadSceneObject] 错误:', errorMessage, error)
+    showError(errorMessage)
+
+    // 添加错误标记
+    try {
+      addDebugMarker(obj.position || [
+        APP_CONFIG.DEFAULT_POSITION.longitude,
+        APP_CONFIG.DEFAULT_POSITION.latitude,
+        APP_CONFIG.DEFAULT_POSITION.height
+      ], `${obj.name} (加载失败)`)
+    } catch (markerError) {
+      console.error('[loadSceneObject] 添加错误标记失败:', markerError)
+    }
+
+    emit('objectLoaded', obj, false)
+  }
+}
+
+/**
+ * 加载场景对象列表（优化版本）
+ */
+const loadSceneObjects = async (objects: SceneObject[]): Promise<void> => {
+  if (!viewer) {
+    throw new Error('查看器未初始化')
+  }
+
+  // 清除之前加载的对象
+  clearLoadedObjects()
+
+  if (!objects || objects.length === 0) {
+    console.log('没有场景对象需要加载')
+    return
+  }
+
+  console.log(`[loadSceneObjects] 开始加载 ${objects.length} 个场景对象`)
+
+  // 过滤和验证对象
+  const validObjects = objects.filter(obj => {
+    const validation = validateSceneObject(obj)
+    if (!validation.isValid) {
+      console.warn(`[loadSceneObjects] 跳过无效对象 ${obj.name}: ${validation.error}`)
+      return false
+    }
+    return true
+  })
+
+  if (validObjects.length === 0) {
+    console.warn('[loadSceneObjects] 没有有效的场景对象')
+    return
+  }
+
+  // 批量并发加载对象（限制并发数量避免性能问题）
+  const batchSize = APP_CONFIG.PERFORMANCE.BATCH_SIZE
+  const batches = []
+
+  for (let i = 0; i < validObjects.length; i += batchSize) {
+    batches.push(validObjects.slice(i, i + batchSize))
+  }
+
+  // 串行处理批次，避免过多的并发请求
+  for (const batch of batches) {
+    try {
+      await Promise.all(batch.map(loadSceneObject))
+      // 在批次间添加小延迟，避免资源竞争
+      if (batches.length > 1) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+    } catch (error) {
+      console.error('[loadSceneObjects] 批次加载失败:', error)
+      // 继续处理下一批次，不中断整个加载过程
+    }
+  }
+
+  // 调整相机以显示所有对象
+  try {
+    await adjustCameraForLoadedObjects()
+  } catch (error) {
+    console.warn('[loadSceneObjects] 调整相机失败:', error)
+  }
+
+  console.log(`[loadSceneObjects] 成功加载 ${loadedModels.size} 个对象`)
+}
+
+/**
+ * 为已加载的对象调整相机视角
+ */
+const adjustCameraForLoadedObjects = async (): Promise<void> => {
+  if (!viewer || loadedModels.size === 0) return
+
+  if (loadedModels.size === 1) {
+    // 单个对象已经通过flyTo处理过了
+    return
+  }
+
+  try {
+    const positions = Array.from(loadedModels.values()).map(item => item.position)
+    const boundingSphere = Cesium.BoundingSphere.fromPoints(positions)
+
+    await viewer.camera.flyToBoundingSphere(boundingSphere, {
+      duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+      offset: new Cesium.HeadingPitchRange(0, -0.5, boundingSphere.radius * 3.0)
+    })
+  } catch (error) {
+    const errorMessage = `为多个对象调整相机失败: ${error instanceof Error ? error.message : String(error)}`
+    console.warn(errorMessage)
+    showError(errorMessage)
+  }
+}
+
+/**
+ * 清除已加载的对象
+ */
+const clearLoadedObjects = (): void => {
   if (!viewer) return
+
   loadedModels.forEach((item) => {
-    viewer?.scene.primitives.remove(item.object)
+    // 清除相机监听器（如果是Model）
+    if (item.type === 'model') {
+      const model = item.object as Cesium.Model
+      const listener = modelCameraListeners.get(model)
+      if (listener) {
+        listener() // 调用清理函数
+        modelCameraListeners.delete(model)
+      }
+    }
+    // 从场景中移除对象
+    viewer!.scene.primitives.remove(item.object)
   })
   loadedModels.clear()
+
   // 清除所有Entity标记
-  viewer.entities.removeAll()
+  viewer!.entities.removeAll()
 }
 
 // ==================== 初始化Cesium ====================
 
 /**
+ * 创建Cesium查看器的配置选项
+ */
+const createViewerOptions = () => ({
+  // 使用椭球地形（平面地球，无需令牌）
+  terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+
+  // 时间轴和动画控件
+  animation: false,
+  timeline: false,
+
+  // 其他UI控件
+  baseLayerPicker: false,    // 基础图层选择器
+  fullscreenButton: false,   // 全屏按钮
+  geocoder: false,           // 地理编码搜索
+  homeButton: false,         // 主页按钮
+  infoBox: false,            // 信息框
+  sceneModePicker: false,    // 场景模式选择器
+  selectionIndicator: false, // 选择指示器
+  navigationHelpButton: false, // 导航帮助按钮
+
+  // 渲染设置
+  shadows: false,             // 启用阴影
+  shouldAnimate: true,        // 自动动画
+
+  // 请求渲染模式（优化性能）
+  requestRenderMode: false,   // 设为false以持续渲染
+  maximumRenderTimeChange: Infinity
+})
+
+/**
+ * 设置初始相机位置
+ */
+const setupInitialCamera = (viewer: Cesium.Viewer): void => {
+  try {
+    const position = props.initialPosition
+    if (!position || typeof position.longitude !== 'number' || typeof position.latitude !== 'number' || typeof position.height !== 'number') {
+      throw new Error('初始相机位置无效')
+    }
+
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(
+        position.longitude,
+        position.latitude,
+        position.height
+      ),
+      orientation: {
+        heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+        pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+        roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+      }
+    })
+  } catch (error) {
+    console.warn('[setupInitialCamera] 设置初始相机位置失败，使用默认位置:', error)
+    // 使用默认位置
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(
+        APP_CONFIG.DEFAULT_POSITION.longitude,
+        APP_CONFIG.DEFAULT_POSITION.latitude,
+        APP_CONFIG.DEFAULT_POSITION.height
+      ),
+      orientation: {
+        heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+        pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+        roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+      }
+    })
+  }
+}
+
+/**
+ * 隐藏Cesium Logo
+ */
+const hideCesiumLogo = (viewer: Cesium.Viewer): void => {
+  try {
+    const creditContainer = viewer.cesiumWidget.creditContainer as HTMLElement
+    if (creditContainer) {
+      creditContainer.style.display = 'none'
+    }
+  } catch (error) {
+    console.warn('[hideCesiumLogo] 隐藏Cesium Logo失败:', error)
+  }
+}
+
+/**
  * 初始化Cesium查看器
  */
-const initCesium = async () => {
-   if (!cesiumContainer.value) return
+const initCesium = async (): Promise<void> => {
+  if (!cesiumContainer.value) {
+    throw new Error('Cesium容器未找到')
+  }
 
-   try {
-     // 注意：不再使用Cesium Ion，完全使用开源免费数据源
-     // 如需使用Cesium Ion，请到 https://ion.cesium.com/ 注册获取令牌
+  try {
+    console.log('[initCesium] 开始初始化Cesium查看器')
 
-     // 创建Cesium查看器
-     viewer = new Cesium.Viewer(cesiumContainer.value, {
-       // 使用椭球地形（平面地球，无需令牌）
-       terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+    // 创建Cesium查看器
+    viewer = new Cesium.Viewer(cesiumContainer.value, createViewerOptions())
 
-       // 时间轴和动画控件
-       animation: false,
-       timeline: false,
+    // 隐藏Cesium Logo
+    hideCesiumLogo(viewer)
 
-       // 其他UI控件
-       baseLayerPicker: false,    // 基础图层选择器
-       fullscreenButton: false,   // 全屏按钮
-       geocoder: false,           // 地理编码搜索
-       homeButton: false,         // 主页按钮
-       infoBox: false,            // 信息框
-       sceneModePicker: false,    // 场景模式选择器
-       selectionIndicator: false, // 选择指示器
-       navigationHelpButton: false, // 导航帮助按钮
+    // 设置初始相机位置
+    setupInitialCamera(viewer)
 
-       // 渲染设置
-       shadows: false,             // 阴��（性能考虑）
-       shouldAnimate: true,        // 自动动画
+    // 设置相机运动事件监听
+    viewer.camera.moveEnd.addEventListener(updateCameraInfo)
 
-       // 请求渲染模式（优化性能）
-       requestRenderMode: false,   // 设为false以持续渲染
-       maximumRenderTimeChange: Infinity
-     })
+    // 初始化相机信息
+    updateCameraInfo()
 
-     // 注意：不再移除默认影像图层，直接使用构造函数中设置的自定义影像提供者
+    // 启动性能监控
+    startPerformanceMonitoring()
 
-     // 移除Cesium Logo（可选）
-     const creditContainer = viewer.cesiumWidget.creditContainer as HTMLElement
-     if (creditContainer) {
-       creditContainer.style.display = 'none'
-     }
+    // 初始加载场景对象
+    if (props.sceneObjects && Array.isArray(props.sceneObjects) && props.sceneObjects.length > 0) {
+      console.log(`[initCesium] 开始加载 ${props.sceneObjects.length} 个场景对象`)
+      await loadSceneObjects(props.sceneObjects)
+    }
 
-     // 设置初始相机位置
-     viewer.camera.setView({
-       destination: Cesium.Cartesian3.fromDegrees(
-         props.initialPosition.longitude,
-         props.initialPosition.latitude,
-         props.initialPosition.height
-       ),
-       orientation: {
-         heading: Cesium.Math.toRadians(0),
-         pitch: Cesium.Math.toRadians(-90),
-         roll: 0.0
-       }
-     })
+    loading.value = false
+    console.log('[initCesium] Cesium查看器初始化完成')
+    emit('ready', viewer)
+  } catch (error) {
+    const errorMessage = `Cesium 初始化失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error('[initCesium] 初始化失败:', error)
 
-     // 设置相机运动事件监听
-     viewer.camera.moveEnd.addEventListener(updateCameraInfo)
+    loading.value = false
 
-     // 初始化相机信息
-     updateCameraInfo()
+    // 清理失败的查看器实例
+    if (viewer) {
+      try {
+        viewer.destroy()
+        viewer = null
+      } catch (destroyError) {
+        console.error('[initCesium] 清理失败的查看器时出错:', destroyError)
+      }
+    }
 
-     // 启动FPS监控
-     startFPSMonitor()
-
-     // 初始加载场景对象
-     console.log('[CesiumViewer] Checking for initial scene objects...')
-     console.log('[CesiumViewer] props.sceneObjects:', props.sceneObjects)
-     console.log('[CesiumViewer] props.sceneObjects length:', props.sceneObjects?.length || 0)
-
-     if (props.sceneObjects && props.sceneObjects.length > 0) {
-       console.log('[CesiumViewer] Loading initial scene objects...')
-       await loadSceneObjects(props.sceneObjects)
-     } else {
-       console.warn('[CesiumViewer] No initial scene objects to load')
-     }
-
-     loading.value = false
-     emit('ready', viewer)
-
-     console.log('Cesium地球初始化成功')
-   } catch (error: any) {
-     console.error('Cesium初始化失败:', error)
-     loading.value = false
-     emit('error', error)
-   }
+    showError(errorMessage)
+    emit('error', error instanceof Error ? error : new Error(String(error)))
+  }
 }
 
 // ==================== 相机控制 ====================
 
 /**
- * 更新相机信息
+ * 更新相机信息（带防抖优化）
  */
+let cameraUpdateTimer: number | null = null
+
 const updateCameraInfo = () => {
   if (!viewer) return
 
-  const cameraPosition = viewer.camera.positionCartographic
-
-  cameraInfo.value = {
-    longitude: parseFloat(Cesium.Math.toDegrees(cameraPosition.longitude).toFixed(4)),
-    latitude: parseFloat(Cesium.Math.toDegrees(cameraPosition.latitude).toFixed(4)),
-    height: Math.round(cameraPosition.height)
+  // 清除之前的定时器
+  if (cameraUpdateTimer) {
+    clearTimeout(cameraUpdateTimer)
   }
+
+  // 延迟更新，避免频繁计算
+  cameraUpdateTimer = window.setTimeout(() => {
+    try {
+      const cameraPosition = viewer!.camera.positionCartographic
+
+      if (cameraPosition) {
+        cameraInfo.value = {
+          longitude: parseFloat(Cesium.Math.toDegrees(cameraPosition.longitude).toFixed(4)),
+          latitude: parseFloat(Cesium.Math.toDegrees(cameraPosition.latitude).toFixed(4)),
+          height: Math.round(cameraPosition.height)
+        }
+      }
+    } catch (error) {
+      console.warn('[updateCameraInfo] 更新相机信息失败:', error)
+    }
+    cameraUpdateTimer = null
+  }, APP_CONFIG.UI.CAMERA_UPDATE_DEBOUNCE)
 }
 
 /**
  * 重置视图到初始位置
  */
-const resetView = () => {
-  if (!viewer) return
+const resetView = (): void => {
+  if (!viewer) {
+    showError('Cesium 查看器未初始化')
+    return
+  }
 
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(
-      props.initialPosition.longitude,
-      props.initialPosition.latitude,
-      props.initialPosition.height
-    ),
-    orientation: {
-      heading: Cesium.Math.toRadians(0),
-      pitch: Cesium.Math.toRadians(-90),
-      roll: 0.0
-    },
-    duration: 2
-  })
+  try {
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(
+        props.initialPosition.longitude,
+        props.initialPosition.latitude,
+        props.initialPosition.height
+      ),
+      orientation: {
+        heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+        pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+        roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+      },
+      duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration
+    })
+  } catch (error) {
+    const errorMessage = `重置视图失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error(errorMessage)
+    showError(errorMessage)
+  }
 }
 
 /**
  * 切换地形
  */
-const toggleTerrain = async () => {
-  if (!viewer) return
+const toggleTerrain = async (): Promise<void> => {
+  if (!viewer) {
+    showError('Cesium 查看器未初始化')
+    return
+  }
 
   terrainEnabled.value = !terrainEnabled.value
 
@@ -643,106 +1492,137 @@ const toggleTerrain = async () => {
       // 启用真实地形（需要Cesium Ion令牌）
       // 暂时使用椭球地形作为替代
       viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider()
-      console.log('地形已启用（椭球模式）- 如需真实地形请配置Cesium Ion令牌')
+      showSuccess('地形已启用（椭球模式）- 配置 Cesium Ion 令牌可获得真实地形')
     } else {
       // 禁用地形（使用椭球地形提供者 - 平坦表面）
       viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider()
-      console.log('地形已禁用（平面模式）')
+      showSuccess('地形已禁用（平坦模式）')
     }
   } catch (error) {
-    console.error('切换地形失败:', error)
+    const errorMessage = `切换地形失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error(errorMessage)
+    showError(errorMessage)
+    // 恢复状态
+    terrainEnabled.value = !terrainEnabled.value
   }
 }
 
 /**
  * 切换影像图层
  */
-const toggleImagery = async () => {
+const toggleImagery = async (): Promise<void> => {
   if (!viewer) return
 
   try {
     const layers = viewer.imageryLayers
+    const newSource = currentImagerySource.value === 'cartodb' ? 'esri' : 'cartodb'
+    const imageryConfig = APP_CONFIG.IMAGERY_SOURCES[newSource]
 
     // 移除所有现有图层
     layers.removeAll()
 
-    // 在CartoDB和ESRI之间切换
-    let newProvider
-
-    if (currentImagerySource.value === 'cartodb') {
-      // 切换到ESRI World Imagery (卫星影像)
-      newProvider = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        credit: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-      })
-      currentImagerySource.value = 'esri'
-      console.log('切换到ESRI卫星影像')
-    } else {
-      // 切换回CartoDB Voyager
-      newProvider = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        subdomains: ['a', 'b', 'c', 'd'],
-        credit: 'Map tiles by CartoDB'
-      })
-      currentImagerySource.value = 'cartodb'
-      console.log('切换到CartoDB地图')
+    // 添加新的影像提供者
+    const providerOptions: Cesium.UrlTemplateImageryProvider.ConstructorOptions = {
+      url: imageryConfig.url,
+      credit: imageryConfig.credit
     }
 
+    if (imageryConfig.subdomains) {
+      providerOptions.subdomains = [...imageryConfig.subdomains]
+    }
+
+    const newProvider = new Cesium.UrlTemplateImageryProvider(providerOptions)
+
     layers.addImageryProvider(newProvider)
+    currentImagerySource.value = newSource
+
   } catch (error) {
-    console.error('切换影像失败:', error)
+    const errorMessage = `切换影像失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error(errorMessage)
+    showError(errorMessage)
   }
 }
 
 /**
  * 截图
  */
-const takeScreenshot = () => {
-  if (!viewer) return
+const takeScreenshot = (): void => {
+  if (!viewer) {
+    showError('Cesium 查看器未初始化')
+    return
+  }
 
-  viewer.render()
+  try {
+    viewer.render()
 
-  const canvas = viewer.scene.canvas
-  const image = canvas.toDataURL('image/png')
+    const canvas = viewer.scene.canvas
+    const image = canvas.toDataURL('image/png')
 
-  const link = document.createElement('a')
-  link.download = `cesium-screenshot-${Date.now()}.png`
-  link.href = image
-  link.click()
+    const link = document.createElement('a')
+    link.download = `cesium-screenshot-${Date.now()}.png`
+    link.href = image
+    link.click()
+
+    showSuccess('Screenshot saved successfully')
+  } catch (error) {
+    const errorMessage = `截图失败: ${error instanceof Error ? error.message : String(error)}`
+    console.error(errorMessage)
+    showError(errorMessage)
+  }
 }
 
 // ==================== FPS监控 ====================
 
+let fpsAnimationId: number | null = null
+
 /**
- * 启动FPS监控
+ * 启动性能监控
  */
-const startFPSMonitor = () => {
-  const updateFPS = () => {
+const startPerformanceMonitoring = (): void => {
+  const updatePerformance = () => {
     frameCount++
     const currentTime = performance.now()
 
-    if (currentTime >= lastTime + 1000) {
+    if (currentTime >= lastTime + APP_CONFIG.UI.FPS_MONITOR_INTERVAL) {
       fps.value = Math.round((frameCount * 1000) / (currentTime - lastTime))
       frameCount = 0
       lastTime = currentTime
     }
 
     if (viewer) {
-      requestAnimationFrame(updateFPS)
+      fpsAnimationId = requestAnimationFrame(updatePerformance)
     }
   }
 
-  updateFPS()
+  updatePerformance()
+}
+
+/**
+ * 停止性能监控
+ */
+const stopPerformanceMonitoring = (): void => {
+  if (fpsAnimationId !== null) {
+    cancelAnimationFrame(fpsAnimationId)
+    fpsAnimationId = null
+  }
 }
 
 // ==================== 生命周期 ====================
 
-onMounted(() => {
-  initCesium()
+onMounted(async () => {
+  await nextTick()
+  await initCesium()
 })
 
 onUnmounted(() => {
   if (viewer) {
+    // 停止性能监控
+    stopPerformanceMonitoring()
+
+    // 清理加载的模型
+    clearLoadedObjects()
+
+    // 销毁查看器
     viewer.destroy()
     viewer = null
   }

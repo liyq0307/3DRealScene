@@ -78,13 +78,13 @@ public class UsersController : ControllerBase
         }
         catch (UnauthorizedAccessException ex)
         {
-            _logger.LogWarning(ex, "Login failed for {Email}", request.Email);
+            _logger.LogWarning(ex, "登录失败: {Email} - {Message}", request.Email, ex.Message);
             return Unauthorized(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during login");
-            return StatusCode(500, new { message = "An error occurred during login" });
+            _logger.LogError(ex, "登录时发生错误");
+            return StatusCode(500, new { message = "登录时发生错误" });
         }
     }
 
@@ -115,13 +115,13 @@ public class UsersController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Registration failed for {Email}", request.Email);
+            _logger.LogWarning(ex, "注册失败: {Email} - {Message}", request.Email, ex.Message);
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during registration");
-            return StatusCode(500, new { message = "An error occurred during registration" });
+            _logger.LogError(ex, "注册时发生错误");
+            return StatusCode(500, new { message = "注册时发生错误" });
         }
     }
 
@@ -144,8 +144,8 @@ public class UsersController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting user {UserId}", id);
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取用户 {UserId} 时发生错误", id);
+            return StatusCode(500, new { message = "获取用户信息时发生错误" });
         }
     }
 
@@ -163,8 +163,8 @@ public class UsersController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting all users");
-            return StatusCode(500, new { message = "An error occurred" });
+            _logger.LogError(ex, "获取所有用户时发生错误");
+            return StatusCode(500, new { message = "获取用户列表时发生错误" });
         }
     }
 
