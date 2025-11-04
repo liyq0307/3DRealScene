@@ -269,7 +269,56 @@ public class FilesController : ControllerBase
             }
 
             // 获取文件流
-            var stream = await _storageService.DownloadFileAsync(bucket, decodedObjectPath);
+            Stream? stream = null;
+            var fileFound = false;
+
+            // 首先尝试从MinIO获取
+            try
+            {
+                var minioExists = await _storageService.FileExistsAsync(bucket, decodedObjectPath);
+                if (minioExists)
+                {
+                    stream = await _storageService.DownloadFileAsync(bucket, decodedObjectPath);
+                    fileFound = true;
+                    _logger.LogDebug("从MinIO获取文件成功：{Bucket}/{ObjectPath}", bucket, decodedObjectPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "从MinIO获取文件失败，尝试从本地文件系统读取：{Bucket}/{ObjectPath}", bucket, decodedObjectPath);
+            }
+
+            // 如果MinIO中没有找到文件，尝试从本地文件系统读取
+            if (!fileFound)
+            {
+                var localPath = decodedObjectPath;
+                // 如果路径是Windows绝对路径，尝试直接读取
+                if (System.IO.Path.IsPathRooted(localPath) && System.IO.File.Exists(localPath))
+                {
+                    stream = System.IO.File.OpenRead(localPath);
+                    fileFound = true;
+                    _logger.LogInformation("从本地文件系统加载文件成功：{LocalPath}", localPath);
+                }
+                else
+                {
+                    // 尝试在slices目录下查找
+                    var slicesDir = System.IO.Path.Combine(Directory.GetCurrentDirectory(), "slices");
+                    var relativePath = decodedObjectPath.TrimStart('/');
+                    var fullLocalPath = System.IO.Path.Combine(slicesDir, relativePath);
+                    if (System.IO.File.Exists(fullLocalPath))
+                    {
+                        stream = System.IO.File.OpenRead(fullLocalPath);
+                        fileFound = true;
+                        _logger.LogInformation("从slices目录加载文件成功：{LocalPath}", fullLocalPath);
+                    }
+                }
+            }
+
+            if (!fileFound || stream == null)
+            {
+                _logger.LogWarning("文件不存在：MinIO {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
+                return NotFound();
+            }
 
             // 根据文件扩展名确定Content-Type
             var contentType = GetContentTypeFromPath(decodedObjectPath);
@@ -326,6 +375,12 @@ public class FilesController : ControllerBase
             Response.Headers["Access-Control-Allow-Headers"] = "*";
             // 添加缓存控制，避免重复请求
             Response.Headers["Cache-Control"] = "public, max-age=3600"; // 1小时缓存
+
+            // 确保Content-Type正确设置，特别是对于JSON文件
+            if (decodedObjectPath.EndsWith("tileset.json", StringComparison.OrdinalIgnoreCase))
+            {
+                Response.ContentType = "application/json";
+            }
 
             return File(stream, contentType);
         }
