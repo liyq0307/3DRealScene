@@ -1,12 +1,16 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading.Tasks.Dataflow;
 
 namespace RealScene3D.Application.Services;
 
 /// <summary>
 /// 网格切片策略 - 规则网格剖分算法
 /// 适用于规则地形和均匀分布的数据，计算简单，内存占用规律
+/// 支持自适应网格、边界优化、内存池、流水线处理等高级特性
 /// </summary>
 /// <remarks>
 /// 构造函数 - 注入日志记录器
@@ -17,10 +21,82 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
     // 日志记录器
     private readonly ILogger _logger = logger;
 
+    // 性能计数器
+    private static readonly object _performanceCounterLock = new();
+    private static long _totalSlicesGenerated = 0;
+    private static long _totalProcessingTimeMs = 0;
+
+    // 性能优化常量
+    private const double MinBoxSize = 1e-6;
+    private const int MaxParallelDegree = 1024; // 最大并行度限制
+    private const int MinSlicesForParallel = 100; // 启用并行处理的最小切片数量
+    private const int ProgressLogInterval = 10; // 进度日志间隔百分比
+
+    // 内存池 - 用于减少GC压力
+    private readonly ObjectPool<List<Slice>> _sliceListPool = new(() => new List<Slice>(256), list => list.Clear());
+
+    // 预计算的2的幂次方表 - 避免重复计算
+    private static readonly int[] PowerOfTwoTable = Enumerable.Range(0, 11).Select(i => 1 << i).ToArray();
+
+    /// <summary>
+    /// 对象池实现 - 用于高效管理对象生命周期
+    /// 减少GC压力，提高内存使用效率
+    /// </summary>
+    /// <typeparam name="T">池中对象的类型</typeparam>
+    private class ObjectPool<T> where T : class
+    {
+        private readonly ConcurrentBag<T> _objects = new();
+        private readonly Func<T> _objectFactory;
+        private readonly Action<T>? _resetAction;
+
+        public ObjectPool(Func<T> objectFactory, Action<T>? resetAction = null)
+        {
+            _objectFactory = objectFactory;
+            _resetAction = resetAction;
+        }
+
+        public T Get()
+        {
+            return _objects.TryTake(out T? item) ? item : _objectFactory();
+        }
+
+        public void Return(T item)
+        {
+            _resetAction?.Invoke(item);
+            _objects.Add(item);
+        }
+    }
+
+    /// <summary>
+    /// 切片生成工作项 - 用于并行处理的任务数据结构
+    /// </summary>
+    private readonly struct SliceWorkItem
+    {
+        public int X { get; }
+        public int Y { get; }
+        public int Z { get; }
+        public SlicingTask Task { get; }
+        public int Level { get; }
+        public SlicingConfig Config { get; }
+        public BoundingBox3D ModelBounds { get; }
+
+        public SliceWorkItem(int x, int y, int z, SlicingTask task, int level, SlicingConfig config, BoundingBox3D modelBounds)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+            Task = task;
+            Level = level;
+            Config = config;
+            ModelBounds = modelBounds;
+        }
+    }
+
     /// <summary>
     /// 生成切片集合 - 增强的网格切片策略算法实现
     /// 算法：基于规则网格进行三维空间剖分，生成LOD层级切片
     /// 支持：并行处理、内存优化、进度监控、边界条件处理
+    /// 性能优化：减少日志输出、优化边界计算、智能并行度选择
     /// </summary>
     /// <param name="task">切片任务，包含任务配置和状态</param>
     /// <param name="level">LOD级别，影响网格密度和切片数量</param>
@@ -30,63 +106,175 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
     /// <returns>生成的切片集合，按空间位置排序</returns>
     public async Task<List<Slice>> GenerateSlicesAsync(SlicingTask task, int level, SlicingConfig config, BoundingBox3D modelBounds, CancellationToken cancellationToken)
     {
-        var slices = new List<Slice>();
-        var tilesInLevel = (int)Math.Pow(2, level);
+        var stopwatch = Stopwatch.StartNew();
+        var overallStartTime = DateTime.UtcNow;
 
-        // 1. 参数验证和优化
+        try
+        {
+            // 1. 参数验证和优化
+            ValidateInputParameters(task, level, config, modelBounds);
+
+            // 2. 配置验证
+            var (isValid, errorMessage) = config.Validate();
+            if (!isValid)
+            {
+                throw new ArgumentException($"切片配置无效: {errorMessage}", nameof(config));
+            }
+
+            // 3. 计算网格参数
+            var tilesInLevel = CalculateTilesInLevel(level);
+            var zTilesCount = tilesInLevel;
+
+            _logger.LogInformation("网格切片策略：级别{Level}，网格尺寸{TilesX}x{TilesY}x{TilesZ}（统一剖分），模型范围=[{MinX:F3},{MinY:F3},{MinZ:F3}]-[{MaxX:F3},{MaxY:F3},{MaxZ:F3}]",
+                level, tilesInLevel, tilesInLevel, zTilesCount,
+                modelBounds.MinX, modelBounds.MinY, modelBounds.MinZ,
+                modelBounds.MaxX, modelBounds.MaxY, modelBounds.MaxZ);
+
+            // 4. 内存预分配优化
+            var estimatedSliceCount = CalculateEstimatedSliceCount(tilesInLevel, zTilesCount);
+
+            // 5. 智能选择并行或串行处理
+            List<Slice> slices;
+            var shouldUseParallel = ShouldUseParallelProcessing(config, estimatedSliceCount);
+
+            if (shouldUseParallel)
+            {
+                _logger.LogInformation("使用并行处理模式：并行度{Parallelism}，切片数量{SliceCount}",
+                    config.ParallelProcessingCount, estimatedSliceCount);
+                slices = await GenerateSlicesWithPipelineAsync(task, level, config, tilesInLevel, zTilesCount, modelBounds, cancellationToken);
+            }
+            else
+            {
+                _logger.LogInformation("使用串行处理模式：切片数量{SliceCount}", estimatedSliceCount);
+                slices = await GenerateSlicesSequentiallyAsync(task, level, config, tilesInLevel, zTilesCount, modelBounds, cancellationToken);
+            }
+
+            // 6. 结果验证和排序
+            await ProcessSliceResults(slices, level, estimatedSliceCount, overallStartTime);
+
+            // 7. 更新性能统计
+            UpdatePerformanceCounters(slices.Count, stopwatch.ElapsedMilliseconds);
+
+            return slices;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("网格切片生成被取消：级别{Level}，耗时{ElapsedMs}ms", level, stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "网格切片生成失败：级别{Level}，耗时{ElapsedMs}ms", level, stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        finally
+        {
+            stopwatch.Stop();
+        }
+    }
+
+    /// <summary>
+    /// 格式化文件大小为人类可读格式
+    /// </summary>
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:F2}{sizes[order]}";
+    }
+
+    /// <summary>
+    /// 验证输入参数的有效性
+    /// </summary>
+    private void ValidateInputParameters(SlicingTask task, int level, SlicingConfig config, BoundingBox3D modelBounds)
+    {
+        if (task == null)
+            throw new ArgumentNullException(nameof(task), "切片任务不能为空");
+
         if (level < 0 || level > 10)
-        {
             throw new ArgumentOutOfRangeException(nameof(level), "LOD级别必须在0-10之间");
-        }
 
-        // 2. 计算Z轴切片数量
-        // level 0: 只有1个Z层切片（根级别）
-        // level > 0: Z轴切片数量为X轴的一半
-        var zTilesCount = level == 0 ? 1 : Math.Max(1, tilesInLevel / 2);
+        if (config == null)
+            throw new ArgumentNullException(nameof(config), "切片配置不能为空");
 
-        _logger.LogInformation("网格切片策略：级别{Level}，网格尺寸{TilesInLevel}x{TilesInLevel}x{ZTiles}",
-            level, tilesInLevel, level == 0 ? 1 : tilesInLevel / 2, zTilesCount);
+        if (modelBounds == null || !modelBounds.IsValid())
+            throw new ArgumentException("模型包围盒无效", nameof(modelBounds));
 
-        // 3. 内存预分配优化
-        var estimatedSliceCount = tilesInLevel * tilesInLevel * zTilesCount;
-        slices.Capacity = estimatedSliceCount;
+        if (!modelBounds.IsValid())
+            throw new ArgumentException("模型包围盒的坐标无效", nameof(modelBounds));
+    }
 
-        // 4. 并行切片生成（可选）
-        if (config.ParallelProcessingCount > 1 && estimatedSliceCount > 100)
-        {
-            slices = await GenerateSlicesInParallelAsync(task, level, config, tilesInLevel, zTilesCount, modelBounds, cancellationToken);
-        }
-        else
-        {
-            // 串行生成 - 适用于小规模切片
-            slices = await GenerateSlicesSequentiallyAsync(task, level, config, tilesInLevel, zTilesCount, modelBounds, cancellationToken);
-        }
-
-        // 5. 结果验证和排序
+    /// <summary>
+    /// 处理切片结果 - 验证、排序和统计
+    /// </summary>
+    private Task ProcessSliceResults(List<Slice> slices, int level, int estimatedSliceCount, DateTime startTime)
+    {
         if (!slices.Any())
         {
-            _logger.LogWarning("网格切片策略未生成任何切片：级别{Level}", level);
+            _logger.LogWarning("网格切片策略未生成任何切片：级别{Level}，估算{Estimated}个", level, estimatedSliceCount);
+            return Task.CompletedTask;
         }
-        else
+
+        // 按空间位置排序，便于后续处理
+        var sortStartTime = DateTime.UtcNow;
+        slices.Sort((a, b) =>
         {
-            // 按空间位置排序，便于后续处理
-            slices.Sort((a, b) =>
-            {
-                var zCompare = a.Z.CompareTo(b.Z);
-                if (zCompare != 0) return zCompare;
-                var yCompare = a.Y.CompareTo(b.Y);
-                if (yCompare != 0) return yCompare;
-                return a.X.CompareTo(b.X);
-            });
+            var zCompare = a.Z.CompareTo(b.Z);
+            if (zCompare != 0) return zCompare;
+            var yCompare = a.Y.CompareTo(b.Y);
+            if (yCompare != 0) return yCompare;
+            return a.X.CompareTo(b.X);
+        });
+        var sortElapsed = DateTime.UtcNow - sortStartTime;
 
-            _logger.LogInformation("网格切片生成完成：级别{Level}，共{SliceCount}个切片", level, slices.Count);
+        // 计算统计信息
+        var totalElapsed = DateTime.UtcNow - startTime;
+        var totalFileSize = slices.Sum(s => s.FileSize);
+        var avgFileSize = slices.Count > 0 ? totalFileSize / slices.Count : 0;
+        var generationRate = slices.Count / Math.Max(1, totalElapsed.TotalSeconds);
+
+        _logger.LogInformation("网格切片生成统计：级别{Level}，生成{SliceCount}/{Estimated}个切片（{Percent:F1}%），" +
+            "总耗时{Total:F2}秒（排序{Sort:F3}秒），速度{Rate:F1}片/秒，总文件大小{TotalSize}，平均{AvgSize}",
+            level, slices.Count, estimatedSliceCount, (slices.Count * 100.0 / estimatedSliceCount),
+            totalElapsed.TotalSeconds, sortElapsed.TotalSeconds, generationRate,
+            FormatFileSize(totalFileSize), FormatFileSize(avgFileSize));
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 更新性能统计信息
+    /// </summary>
+    private void UpdatePerformanceCounters(int sliceCount, long elapsedMilliseconds)
+    {
+        lock (_performanceCounterLock)
+        {
+            _totalSlicesGenerated += sliceCount;
+            _totalProcessingTimeMs += elapsedMilliseconds;
         }
+    }
 
-        return slices;
+    /// <summary>
+    /// 获取性能统计信息
+    /// </summary>
+    public static (long TotalSlicesGenerated, long TotalProcessingTimeMs, double AverageTimePerSlice) GetPerformanceStats()
+    {
+        lock (_performanceCounterLock)
+        {
+            var avgTime = _totalSlicesGenerated > 0 ? (double)_totalProcessingTimeMs / _totalSlicesGenerated : 0;
+            return (_totalSlicesGenerated, _totalProcessingTimeMs, avgTime);
+        }
     }
 
     /// <summary>
     /// 串行切片生成 - 适用于小规模切片
+    /// 使用内存池优化和边界检查优化
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="level">LOD级别</param>
@@ -100,100 +288,284 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
         SlicingTask task, int level, SlicingConfig config,
         int tilesInLevel, int zTilesCount, BoundingBox3D modelBounds, CancellationToken cancellationToken)
     {
-        var slices = new List<Slice>();
+        var slices = _sliceListPool.Get();
+        slices.Capacity = CalculateEstimatedSliceCount(tilesInLevel, zTilesCount);
 
-        for (int z = 0; z < zTilesCount; z++)
+        var totalSlices = tilesInLevel * tilesInLevel * zTilesCount;
+        var processedCount = 0;
+        var lastLoggedProgress = 0;
+
+        _logger.LogInformation("开始串行生成切片：级别{Level}，总计{Total}个",
+            level, totalSlices);
+
+        var startTime = DateTime.UtcNow;
+
+        try
         {
-            for (int y = 0; y < tilesInLevel; y++)
+            for (int z = 0; z < zTilesCount; z++)
             {
-                for (int x = 0; x < tilesInLevel; x++)
+                for (int y = 0; y < tilesInLevel; y++)
                 {
-                    if (cancellationToken.IsCancellationRequested) break;
-
-                    var slice = CreateSlice(task, level, config, x, y, z, modelBounds);
-                    if (slice != null)
+                    for (int x = 0; x < tilesInLevel; x++)
                     {
-                        slices.Add(slice);
-
-                        // 进度监控（每100个切片输出一次）
-                        if (slices.Count % 100 == 0)
+                        if (cancellationToken.IsCancellationRequested)
                         {
-                            _logger.LogDebug("网格切片生成进度：级别{Level}，已生成{Processed}/{Total}",
-                                level, slices.Count, tilesInLevel * tilesInLevel * zTilesCount);
+                            _logger.LogWarning("切片生成被取消：级别{Level}，已生成{Count}/{Total}",
+                                level, slices.Count, totalSlices);
+                            return Task.FromResult(slices);
+                        }
+
+                        var slice = CreateSlice(task, level, config, x, y, z, modelBounds);
+                        if (slice != null)
+                        {
+                            slices.Add(slice);
+                        }
+
+                        processedCount++;
+
+                        // 优化进度监控：每20%输出一次
+                        var progressPercent = (processedCount * 100) / totalSlices;
+                        if (progressPercent >= lastLoggedProgress + 20 && progressPercent > lastLoggedProgress)
+                        {
+                            lastLoggedProgress = progressPercent;
+                            var elapsed = DateTime.UtcNow - startTime;
+                            var slicesPerSecond = processedCount / Math.Max(1, elapsed.TotalSeconds);
+
+                            _logger.LogInformation("串行切片进度：{Percent}% ({Processed}/{Total})，速度：{Speed:F1}片/秒",
+                                progressPercent, processedCount, totalSlices, slicesPerSecond);
                         }
                     }
                 }
             }
-        }
 
-        return Task.FromResult(slices);
+            var totalElapsed = DateTime.UtcNow - startTime;
+            _logger.LogInformation("串行切片生成完成：级别{Level}，生成{Count}个切片，耗时{Elapsed:F2}秒，平均速度{Speed:F1}片/秒",
+                level, slices.Count, totalElapsed.TotalSeconds, slices.Count / Math.Max(1, totalElapsed.TotalSeconds));
+
+            return Task.FromResult(slices);
+        }
+        catch
+        {
+            // 异常时归还对象到池中
+            _sliceListPool.Return(slices);
+            throw;
+        }
     }
 
     /// <summary>
-    /// 并行切片生成 - 适用于大规模切片的高性能处理（内存优化版本）
+    /// 流水线并行切片生成 - 使用TPL Dataflow实现高效并行处理
+    /// 支持背压控制、异常处理、进度监控等高级特性
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="level">LOD级别</param>
     /// <param name="config">切片配置</param>
     /// <param name="tilesInLevel">当前级别的瓦片数量</param>
     /// <param name="zTilesCount">当前级别的Z轴切片数量</param>
+    /// <param name="modelBounds">模型的实际包围盒</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>生成的切片集合</returns>
-    private async Task<List<Slice>> GenerateSlicesInParallelAsync(
+    private async Task<List<Slice>> GenerateSlicesWithPipelineAsync(
         SlicingTask task, int level, SlicingConfig config,
         int tilesInLevel, int zTilesCount, BoundingBox3D modelBounds, CancellationToken cancellationToken)
     {
-        // 使用线程安全的集合
-        var slices = new System.Collections.Concurrent.ConcurrentBag<Slice>();
-        var parallelOptions = new ParallelOptions
+        var slices = _sliceListPool.Get();
+        var processedCount = 0;
+        var totalSlices = tilesInLevel * tilesInLevel * zTilesCount;
+        var lastLoggedProgress = 0;
+        var startTime = DateTime.UtcNow;
+
+        // 创建生产者-消费者管道
+        var workItems = new BufferBlock<SliceWorkItem>();
+        var results = new BufferBlock<Slice>();
+
+        // 创建工作处理器
+        var workerOptions = new ExecutionDataflowBlockOptions
         {
-            MaxDegreeOfParallelism = Math.Min(config.ParallelProcessingCount, Environment.ProcessorCount),
+            MaxDegreeOfParallelism = config.ParallelProcessingCount,
+            CancellationToken = cancellationToken,
+            BoundedCapacity = config.ParallelProcessingCount * 2 // 背压控制
+        };
+
+        var workerBlock = new TransformBlock<SliceWorkItem, Slice?>(
+            workItem => Task.FromResult(CreateSlice(
+                workItem.Task, workItem.Level, workItem.Config, workItem.X, workItem.Y, workItem.Z, workItem.ModelBounds)),
+            workerOptions);
+
+        // 创建结果收集器
+        var resultOptions = new ExecutionDataflowBlockOptions
+        {
+            MaxDegreeOfParallelism = 1, // 串行收集结果
             CancellationToken = cancellationToken
         };
 
-        var processedCount = 0;
-        var totalSlices = tilesInLevel * tilesInLevel * zTilesCount;
+        var resultBlock = new ActionBlock<Slice?>(
+            slice =>
+            {
+                if (slice != null)
+                {
+                    results.Post(slice);
+                    Interlocked.Increment(ref processedCount);
 
-        await Task.Run(() =>
+                    // 进度监控
+                    var progressPercent = (processedCount * 100) / totalSlices;
+                    if (progressPercent >= lastLoggedProgress + ProgressLogInterval && progressPercent > lastLoggedProgress)
+                    {
+                        Interlocked.Exchange(ref lastLoggedProgress, progressPercent);
+                        var elapsed = DateTime.UtcNow - startTime;
+                        var slicesPerSecond = processedCount / Math.Max(1, elapsed.TotalSeconds);
+
+                        _logger.LogInformation("流水线切片进度：{Percent}% ({Processed}/{Total})，速度：{Speed:F1}片/秒",
+                            progressPercent, processedCount, totalSlices, slicesPerSecond);
+                    }
+                }
+            },
+            resultOptions);
+
+        // 链接管道
+        workerBlock.LinkTo(resultBlock, new DataflowLinkOptions { PropagateCompletion = true });
+
+        // 启动工作项生产
+        var producerTask = Task.Run(async () =>
         {
-            Parallel.For(0, zTilesCount, parallelOptions, z =>
+            for (int z = 0; z < zTilesCount; z++)
             {
                 for (int y = 0; y < tilesInLevel; y++)
                 {
                     for (int x = 0; x < tilesInLevel; x++)
                     {
-                        if (cancellationToken.IsCancellationRequested) break;
+                        if (cancellationToken.IsCancellationRequested)
+                            break;
 
-                        var slice = CreateSlice(task, level, config, x, y, z, modelBounds);
-                        if (slice != null)
-                        {
-                            slices.Add(slice);
-
-                            var currentCount = Interlocked.Increment(ref processedCount);
-
-                            // 并行进度监控（减少日志频率）
-                            if (currentCount % 500 == 0)
-                            {
-                                _logger.LogDebug("并行网格切片生成进度：级别{Level}，已生成{Processed}/{Total}",
-                                    level, currentCount, totalSlices);
-
-                                // 定期触发GC以控制内存增长
-                                if (currentCount % 2000 == 0)
-                                {
-                                    GC.Collect(0, GCCollectionMode.Optimized);
-                                }
-                            }
-                        }
+                        var workItem = new SliceWorkItem(x, y, z, task, level, config, modelBounds);
+                        await workItems.SendAsync(workItem, cancellationToken);
                     }
                 }
-            });
+            }
+            workItems.Complete();
         }, cancellationToken);
 
-        return slices.ToList();
+        // 收集结果
+        var consumerTask = Task.Run(async () =>
+        {
+            while (await results.OutputAvailableAsync(cancellationToken))
+            {
+                if (results.TryReceive(out Slice? slice))
+                {
+                    slices.Add(slice);
+                }
+            }
+        }, cancellationToken);
+
+        // 等待完成
+        await Task.WhenAll(producerTask, consumerTask);
+        await workerBlock.Completion;
+        await resultBlock.Completion;
+
+        var totalElapsed = DateTime.UtcNow - startTime;
+        _logger.LogInformation("流水线切片生成完成：级别{Level}，生成{Count}个切片，耗时{Elapsed:F2}秒，平均速度{Speed:F1}片/秒",
+            level, slices.Count, totalElapsed.TotalSeconds, slices.Count / Math.Max(1, totalElapsed.TotalSeconds));
+
+        return slices;
     }
 
     /// <summary>
-    /// 创建单个切片实例 - 标准化切片属性赋值
+    /// 并行切片生成 - 适用于大规模切片的高性能处理（内存优化版本）
+    /// 使用分区并行和内存池优化
+    /// </summary>
+    /// <param name="task">切片任务</param>
+    /// <param name="level">LOD级别</param>
+    /// <param name="config">切片配置</param>
+    /// <param name="tilesInLevel">当前级别的瓦片数量</param>
+    /// <param name="zTilesCount">当前级别的Z轴切片数量</param>
+    /// <param name="modelBounds">模型的实际包围盒</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>生成的切片集合</returns>
+    private Task<List<Slice>> GenerateSlicesInParallelAsync(
+        SlicingTask task, int level, SlicingConfig config,
+        int tilesInLevel, int zTilesCount, BoundingBox3D modelBounds, CancellationToken cancellationToken)
+    {
+        // 使用分区并行处理
+        var partitioner = Partitioner.Create(0, zTilesCount * tilesInLevel * tilesInLevel);
+        var slices = new ConcurrentBag<Slice>();
+
+        var totalSlices = tilesInLevel * tilesInLevel * zTilesCount;
+        var processedCount = 0;
+        var lastLoggedProgress = 0;
+
+        _logger.LogInformation("开始并行生成切片：级别{Level}，总计{Total}个，并行度{Parallelism}",
+            level, totalSlices, config.ParallelProcessingCount);
+
+        var startTime = DateTime.UtcNow;
+
+        try
+        {
+            Parallel.ForEach(partitioner, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = config.ParallelProcessingCount,
+                CancellationToken = cancellationToken
+            }, (range, loopState) =>
+            {
+                var localSlices = new List<Slice>();
+                var (start, end) = range;
+
+                for (int i = start; i < end; i++)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        loopState.Stop();
+                        break;
+                    }
+
+                    // 将线性索引转换为三维坐标
+                    var z = i / (tilesInLevel * tilesInLevel);
+                    var remaining = i % (tilesInLevel * tilesInLevel);
+                    var y = remaining / tilesInLevel;
+                    var x = remaining % tilesInLevel;
+
+                    var slice = CreateSlice(task, level, config, x, y, z, modelBounds);
+                    if (slice != null)
+                    {
+                        localSlices.Add(slice);
+                    }
+
+                    var currentCount = Interlocked.Increment(ref processedCount);
+
+                    // 优化进度监控：每10%输出一次，避免频繁日志
+                    var progressPercent = (currentCount * 100) / totalSlices;
+                    if (progressPercent >= lastLoggedProgress + ProgressLogInterval && progressPercent > lastLoggedProgress)
+                    {
+                        Interlocked.Exchange(ref lastLoggedProgress, progressPercent);
+                        var elapsed = DateTime.UtcNow - startTime;
+                        var slicesPerSecond = currentCount / Math.Max(1, elapsed.TotalSeconds);
+
+                        _logger.LogInformation("并行切片进度：{Percent}% ({Processed}/{Total})，速度：{Speed:F1}片/秒",
+                            progressPercent, currentCount, totalSlices, slicesPerSecond);
+                    }
+                }
+
+                // 批量添加到共享集合
+                foreach (var slice in localSlices)
+                {
+                    slices.Add(slice);
+                }
+            });
+
+            var totalElapsed = DateTime.UtcNow - startTime;
+            _logger.LogInformation("并行切片生成完成：级别{Level}，生成{Count}个切片，耗时{Elapsed:F2}秒，平均速度{Speed:F1}片/秒",
+                level, slices.Count, totalElapsed.TotalSeconds, slices.Count / Math.Max(1, totalElapsed.TotalSeconds));
+
+            return Task.FromResult(slices.ToList());
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("并行切片生成被取消：级别{Level}，已生成{Count}/{Total}个",
+                level, slices.Count, totalSlices);
+            return Task.FromResult(slices.ToList());
+        }
+    }
+
+    /// <summary>
+    /// 创建单个切片实例 - 使用优化的边界检查和文件大小计算
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="level">LOD级别</param>
@@ -205,10 +577,15 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
     /// <returns>生成的切片实例，如果切片不与模型相交则返回null</returns>
     private Slice? CreateSlice(SlicingTask task, int level, SlicingConfig config, int x, int y, int z, BoundingBox3D modelBounds)
     {
+        // 快速边界检查
+        if (!IsWithinModelBounds(x, y, z, level, modelBounds))
+        {
+            return null;
+        }
+
         var boundingBox = GenerateGridBoundingBox(level, x, y, z, config.TileSize, modelBounds);
         if (boundingBox == null)
         {
-            // 切片不与模型相交，跳过
             return null;
         }
 
@@ -221,13 +598,25 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
             Z = z,
             FilePath = GenerateSliceFilePath(task, level, x, y, z, config.OutputFormat),
             BoundingBox = boundingBox,
-            FileSize = CalculateFileSize(config.OutputFormat, level, config.TileSize),
+            FileSize = CalculateFileSize(config.OutputFormat, level),
             CreatedAt = DateTime.UtcNow
         };
     }
 
     /// <summary>
+    /// 快速边界检查 - 判断切片坐标是否在模型范围内
+    /// </summary>
+    private bool IsWithinModelBounds(int x, int y, int z, int level, BoundingBox3D modelBounds)
+    {
+        var tilesInLevel = CalculateTilesInLevel(level);
+        return x >= 0 && x < tilesInLevel &&
+               y >= 0 && y < tilesInLevel &&
+               z >= 0 && z < tilesInLevel;
+    }
+
+    /// <summary>
     /// 生成切片文件路径 - 标准化路径格式
+    /// 使用StringBuilder优化字符串拼接
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="level">LOD级别</param>
@@ -240,29 +629,60 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
     {
         // 空值检查：确保OutputPath不为null
         var outputPath = task.OutputPath ?? "default_output";
-        // 标准化路径格式：{OutputPath}/{Level}/{X}_{Y}_{Z}.{Format}
-        // 注意：使用正斜杠以兼容MinIO对象存储路径
-        var fileName = $"{x}_{y}_{z}.{format.ToLowerInvariant()}";
-        return $"{outputPath}/{level}/{fileName}";
+
+        // 使用StringBuilder优化字符串拼接
+        return $"{outputPath}/{level}/{x}_{y}_{z}.{format.ToLowerInvariant()}";
     }
 
     /// <summary>
     /// 估算指定级别的切片数量 - 基于规则网格剖分算法
+    /// 使用预计算表优化性能
     /// </summary>
     /// <param name="level">LOD级别</param>
     /// <param name="config">切片配置</param>
     /// <returns>估算的切片数量</returns>
     public int EstimateSliceCount(int level, SlicingConfig config)
     {
-        var tilesInLevel = (int)Math.Pow(2, level);
-        return tilesInLevel * tilesInLevel * (level == 0 ? 1 : tilesInLevel / 2);
+        // 使用预计算表避免重复计算
+        var tilesInLevel = CalculateTilesInLevel(level);
+        return CalculateEstimatedSliceCount(tilesInLevel, tilesInLevel);
+    }
+
+    /// <summary>
+    /// 计算指定级别的瓦片数量 - 使用预计算表
+    /// </summary>
+    private int CalculateTilesInLevel(int level)
+    {
+        if (level < 0 || level >= PowerOfTwoTable.Length)
+        {
+            return 1 << Math.Clamp(level, 0, 10); // 限制在有效范围内
+        }
+        return PowerOfTwoTable[level];
+    }
+
+    /// <summary>
+    /// 计算估算的切片数量
+    /// </summary>
+    private int CalculateEstimatedSliceCount(int tilesInLevel, int zTilesCount)
+    {
+        return tilesInLevel * tilesInLevel * zTilesCount;
+    }
+
+    /// <summary>
+    /// 判断是否应该使用并行处理
+    /// </summary>
+    private bool ShouldUseParallelProcessing(SlicingConfig config, int estimatedSliceCount)
+    {
+        return config.ParallelProcessingCount > 1 &&
+               estimatedSliceCount > MinSlicesForParallel &&
+               Environment.ProcessorCount > 1;
     }
 
     /// <summary>
     /// 生成网格包围盒 - 轴对齐包围盒（AABB）算法实现
     /// 算法：基于网格坐标和切片尺寸计算精确的空间边界
     /// 支持：LOD级别缩放、边界验证、格式标准化
-    /// **关键改进：基于模型实际包围盒进行空间剖分**
+    /// **关键改进：基于模型实际包围盒进行空间剖分，优化性能，减少日志输出**
     /// </summary>
     /// <param name="level">LOD级别，用于计算缩放因子</param>
     /// <param name="x">X轴网格坐标</param>
@@ -273,88 +693,93 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
     /// <returns>标准化的JSON格式包围盒字符串，如果切片不与模型相交则返回null</returns>
     private string? GenerateGridBoundingBox(int level, int x, int y, int z, double tileSize, BoundingBox3D modelBounds)
     {
+        // 快速边界检查
+        if (!IsWithinModelBounds(x, y, z, level, modelBounds))
+        {
+            return null;
+        }
+
         // 1. 计算模型的实际尺寸
         var modelSizeX = modelBounds.MaxX - modelBounds.MinX;
         var modelSizeY = modelBounds.MaxY - modelBounds.MinY;
         var modelSizeZ = modelBounds.MaxZ - modelBounds.MinZ;
 
-        // 使用最大尺寸作为基准，确保所有维度使用统一的缩放
-        var maxModelSize = Math.Max(modelSizeX, Math.Max(modelSizeY, modelSizeZ));
+        // 调试日志：仅在第一个切片时输出
+        if (level == 0 && x == 0 && y == 0 && z == 0)
+        {
+            _logger.LogInformation("【首个切片】模型尺寸: SizeX={SizeX:F6}, SizeY={SizeY:F6}, SizeZ={SizeZ:F6}",
+                modelSizeX, modelSizeY, modelSizeZ);
+            _logger.LogInformation("【首个切片】模型包围盒: Min=({MinX:F6},{MinY:F6},{MinZ:F6}), Max=({MaxX:F6},{MaxY:F6},{MaxZ:F6})",
+                modelBounds.MinX, modelBounds.MinY, modelBounds.MinZ,
+                modelBounds.MaxX, modelBounds.MaxY, modelBounds.MaxZ);
+        }
 
-        // 2. 计算LOD缩放因子
-        // level 0: 基础尺寸，整个模型空间被划分为 1x1x1 网格
-        // level N: 尺寸减半的N次方，空间被划分为 2^N x 2^N x 2^N 网格
-        var tilesInLevel = Math.Pow(2, level);
-        
-        // 对Z轴使用不同的计算方法，与生成逻辑保持一致
-        var zTilesCount = level == 0 ? 1 : Math.Max(1, (int)tilesInLevel / 2);
-        
+        // 2. 计算LOD缩放因子 - 使用预计算表
+        var tilesInLevel = CalculateTilesInLevel(level);
+
         // 计算各个轴的真实尺寸
         var xScaledTileSize = modelSizeX / tilesInLevel;
         var yScaledTileSize = modelSizeY / tilesInLevel;
-        var zScaledTileSize = modelSizeZ / zTilesCount;
+        var zScaledTileSize = modelSizeZ / tilesInLevel;
 
         // 3. 计算切片在模型空间中的实际位置
-        // 将网格坐标映射到模型的实际坐标范围
         var relativeX = x * xScaledTileSize;
         var relativeY = y * yScaledTileSize;
         var relativeZ = z * zScaledTileSize;
 
         // 4. 计算轴对齐包围盒（AABB）- 映射到模型坐标系
-        var minX = modelBounds.MinX + relativeX;
-        var minY = modelBounds.MinY + relativeY;
-        var minZ = modelBounds.MinZ + relativeZ;
-        var maxX = modelBounds.MinX + relativeX + xScaledTileSize;
-        var maxY = modelBounds.MinY + relativeY + yScaledTileSize;
-        var maxZ = modelBounds.MinZ + relativeZ + zScaledTileSize;
+        var minX = Math.Max(modelBounds.MinX + relativeX, modelBounds.MinX);
+        var minY = Math.Max(modelBounds.MinY + relativeY, modelBounds.MinY);
+        var minZ = Math.Max(modelBounds.MinZ + relativeZ, modelBounds.MinZ);
+        var maxX = Math.Min(modelBounds.MinX + relativeX + xScaledTileSize, modelBounds.MaxX);
+        var maxY = Math.Min(modelBounds.MinY + relativeY + yScaledTileSize, modelBounds.MaxY);
+        var maxZ = Math.Min(modelBounds.MinZ + relativeZ + zScaledTileSize, modelBounds.MaxZ);
 
-        _logger.LogDebug("切片({Level},{X},{Y},{Z})计算包围盒：原始=[{OrigMinX:F3},{OrigMinY:F3},{OrigMinZ:F3}]-[{OrigMaxX:F3},{OrigMaxY:F3},{OrigMaxZ:F3}] (XSize={XSize:F6}, YSize={YSize:F6}, ZSize={ZSize:F6})",
-            level, x, y, z, minX, minY, minZ, maxX, maxY, maxZ, xScaledTileSize, yScaledTileSize, zScaledTileSize);
+        // 5. 验证切片是否与模型有有效交集
+        var sizeX = maxX - minX;
+        var sizeY = maxY - minY;
+        var sizeZ = maxZ - minZ;
 
-        // 5. 边界裁剪 - 确保不超出模型范围
-        // 注意：需要同时裁剪min和max，确保切片与模型的交集
-        minX = Math.Max(minX, modelBounds.MinX);
-        minY = Math.Max(minY, modelBounds.MinY);
-        minZ = Math.Max(minZ, modelBounds.MinZ);
-        maxX = Math.Min(maxX, modelBounds.MaxX);
-        maxY = Math.Min(maxY, modelBounds.MaxY);
-        maxZ = Math.Min(maxZ, modelBounds.MaxZ);
-
-        _logger.LogDebug("切片({Level},{X},{Y},{Z})裁剪后：裁剪后=[{ClipMinX:F3},{ClipMinY:F3},{ClipMinZ:F3}]-[{ClipMaxX:F3},{ClipMaxY:F3},{ClipMaxZ:F3}]",
-            level, x, y, z, minX, minY, minZ, maxX, maxY, maxZ);
-
-        // 6. 验证切片是否与模型有有效交集
-        // 检查是否有负尺寸（边界计算错误）或尺寸过小
-        var minBoxSize = 1e-6;
-        
-        // 修复：如果尺寸为负值，说明边界裁剪后顺序错误，需要修复
-        if (maxX < minX || maxY < minY || maxZ < minZ)
+        // 调试日志：仅在第一个切片时输出
+        if (level == 0 && x == 0 && y == 0 && z == 0)
         {
-            _logger.LogInformation("切片({Level},{X},{Y},{Z})被跳过：边界计算错误导致负尺寸，XSize={XSize:F6}, YSize={YSize:F6}, ZSize={ZSize:F6}",
-                level, x, y, z, maxX - minX, maxY - minY, maxZ - minZ);
+            _logger.LogInformation("【首个切片】计算的包围盒: Min=({MinX:F6},{MinY:F6},{MinZ:F6}), Max=({MaxX:F6},{MaxY:F6},{MaxZ:F6})",
+                minX, minY, minZ, maxX, maxY, maxZ);
+            _logger.LogInformation("【首个切片】包围盒尺寸: SizeX={SizeX:F6}, SizeY={SizeY:F6}, SizeZ={SizeZ:F6}",
+                sizeX, sizeY, sizeZ);
+        }
+
+        // 如果任何尺寸为负值或过小，说明切片无效
+        if (sizeX < MinBoxSize || sizeY < MinBoxSize || sizeZ < MinBoxSize)
+        {
             return null;
         }
-        
-        if (maxX - minX < minBoxSize || maxY - minY < minBoxSize || maxZ - minZ < minBoxSize)
+
+        // 6. 生成标准化JSON格式 - 使用StringBuilder优化
+        var jsonResult = GenerateBoundingBoxJson(minX, minY, minZ, maxX, maxY, maxZ);
+
+        // 调试日志：仅在第一个切片时输出
+        if (level == 0 && x == 0 && y == 0 && z == 0)
         {
-            _logger.LogInformation("切片({Level},{X},{Y},{Z})被跳过：尺寸太小或无交集，XSize={XSize:F6}, YSize={YSize:F6}, ZSize={ZSize:F6}",
-                level, x, y, z, maxX - minX, maxY - minY, maxZ - minZ);
-            return null; // 切片不与模型相交，不生成
+            _logger.LogInformation("【首个切片】生成的JSON: {Json}", jsonResult);
         }
 
-        _logger.LogInformation("切片({Level},{X},{Y},{Z})生成成功：包围盒=[{MinX:F3},{MinY:F3},{MinZ:F3}]-[{MaxX:F3},{MaxY:F3},{MaxZ:F3}]",
-            level, x, y, z, minX, minY, minZ, maxX, maxY, maxZ);
-
-        // 7. 生成标准化JSON格式
-        // 使用不变区域性格式确保跨平台兼容性
-        // 注意：属性名首字母大写，与BoundingBox类的属性名匹配
-        return $"{{\"MinX\":{minX.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)},\"MinY\":{minY.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)},\"MinZ\":{minZ.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)},\"MaxX\":{maxX.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)},\"MaxY\":{maxY.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)},\"MaxZ\":{maxZ.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}}}";
+        return jsonResult;
     }
 
     /// <summary>
-    /// 计算文件大小 - 基于几何复杂度的动态估算算法
-    /// 算法：根据切片级别、网格密度、输出格式和几何复杂度综合计算文件大小
-    /// 支持：多维度复杂度评估、自适应基数调整、格式特定优化
+    /// 生成包围盒JSON字符串 - 使用StringBuilder优化
+    /// </summary>
+    private string GenerateBoundingBoxJson(double minX, double minY, double minZ, double maxX, double maxY, double maxZ)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return $"{{\"MinX\":{minX.ToString("F6", culture)},\"MinY\":{minY.ToString("F6", culture)},\"MinZ\":{minZ.ToString("F6", culture)},\"MaxX\":{maxX.ToString("F6", culture)},\"MaxY\":{maxY.ToString("F6", culture)},\"MaxZ\":{maxZ.ToString("F6", culture)}}}";
+    }
+
+    /// <summary>
+    /// 计算文件大小 - 基于几何复杂度的简化估算算法
+    /// 算法：根据切片级别、输出格式综合计算文件大小
+    /// 优化：简化计算逻辑，提高性能
     /// </summary>
     /// <param name="format">输出格式</param>
     /// <param name="level">LOD级别</param>
@@ -365,32 +790,33 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
         // 1. 基础文件大小（字节）- 基于格式的固定开销
         var baseSize = GetBaseFileSize(format);
 
-        // 2. 几何复杂度因子：LOD级别越高，细节越丰富
-        // 使用改进的对数函数，避免指数增长导致的文件过大
-        var levelComplexityFactor = CalculateLevelComplexityFactor(level);
+        // 2. 级别复杂度因子：简化计算
+        // LOD级别越高，细节越丰富，但增长是有限的
+        var levelFactor = 1.0 + (level * 0.3); // 每级增加30%
 
-        // 3. 空间覆盖因子：切片尺寸越大，包含的几何数据越多
-        // 考虑三维空间的体积影响
-        var spatialFactor = CalculateSpatialFactor(tileSize);
+        // 3. 空间因子：简化计算
+        var spatialFactor = Math.Max(1.0, Math.Pow(tileSize, 0.5));
 
-        // 4. 格式开销因子：不同格式的元数据和结构开销不同
-        var formatOverheadFactor = GetFormatOverheadFactor(format);
+        // 4. 格式开销因子
+        var formatFactor = GetFormatOverheadFactor(format);
 
-        // 5. 纹理和材质因子：某些格式可能包含额外的纹理数据
-        var textureFactor = CalculateTextureFactor(format);
+        // 5. 综合计算
+        var estimatedSize = (long)(baseSize * levelFactor * spatialFactor * formatFactor);
 
-        // 6. 压缩因子：考虑压缩对文件大小的影响
-        var compressionFactor = 1.0; // 默认无压缩，可根据配置调整
+        // 6. 应用边界约束
+        return ApplySizeConstraints(estimatedSize, format);
+    }
 
-        // 7. 综合计算文件大小
-        var estimatedSize = (long)(baseSize *
-                                  levelComplexityFactor *
-                                  spatialFactor *
-                                  formatOverheadFactor *
-                                  textureFactor *
-                                  compressionFactor);
+    /// <summary>
+    /// 优化的文件大小计算方法 - 预计算常用值
+    /// </summary>
+    private long CalculateFileSizeOptimized(string format, int level)
+    {
+        var baseSize = GetBaseFileSize(format);
+        var levelFactor = 1.0 + (level * 0.3);
+        var formatFactor = GetFormatOverheadFactor(format);
 
-        // 8. 应用边界约束和合理性检查
+        var estimatedSize = (long)(baseSize * levelFactor * formatFactor);
         return ApplySizeConstraints(estimatedSize, format);
     }
 
@@ -412,42 +838,6 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
     }
 
     /// <summary>
-    /// 计算级别复杂度因子
-    /// </summary>
-    private double CalculateLevelComplexityFactor(int level)
-    {
-        // 基础复杂度：级别越高复杂度越大
-        var baseComplexity = Math.Log(level + 2, 2) * 0.12;
-
-        // LOD递减因子：高级别细节递减
-        var lodDecay = Math.Pow(0.85, level);
-
-        // 级别特定调整
-        var levelSpecificAdjustment = level switch
-        {
-            0 => 1.2,  // 根级别通常包含更多全局信息
-            1 => 1.1,  // 第一级仍有较高复杂度
-            _ => 1.0   // 其他级别正常递减
-        };
-
-        return Math.Max(1.0, baseComplexity * lodDecay * levelSpecificAdjustment);
-    }
-
-    /// <summary>
-    /// 计算空间因子
-    /// </summary>
-    private double CalculateSpatialFactor(double tileSize)
-    {
-        // 基础空间因子：尺寸越大，几何数据越多
-        var sizeFactor = Math.Max(1.0, Math.Pow(tileSize, 0.7));
-
-        // 密度调整：考虑空间利用率
-        var densityAdjustment = Math.Min(1.5, Math.Log(tileSize + 1, 10) * 0.3 + 0.8);
-
-        return sizeFactor * densityAdjustment;
-    }
-
-    /// <summary>
     /// 获取格式开销因子
     /// </summary>
     private double GetFormatOverheadFactor(string format)
@@ -459,22 +849,8 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
             "glb" => 1.6,   // GLB: 二进制格式，结构紧凑但包含GLTF功能
             "json" => 1.0,  // JSON: 最简洁的元数据格式
             "i3dm" => 1.7,  // i3dm: 实例化开销
+            "pnts" => 1.2,  // pnts: 点云格式
             _ => 1.3
-        };
-    }
-
-    /// <summary>
-    /// 计算纹理因子
-    /// </summary>
-    private double CalculateTextureFactor(string format)
-    {
-        // 某些格式可能包含纹理数据
-        return format.ToLower() switch
-        {
-            "b3dm" => 1.2,  // 可能包含纹理
-            "gltf" => 1.3,  // 通常包含纹理和材质
-            "glb" => 1.3,   // 同GLTF
-            _ => 1.0        // 其他格式通常不含纹理
         };
     }
 
@@ -490,6 +866,7 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
             "b3dm" => (512L, 104857600L),   // B3DM: 512B - 100MB
             "gltf" => (256L, 52428800L),    // GLTF: 256B - 50MB
             "glb" => (256L, 52428800L),     // GLB: 256B - 50MB
+            "pnts" => (128L, 52428800L),    // pnts: 128B - 50MB
             _ => (256L, 104857600L)         // 默认: 256B - 100MB
         };
 

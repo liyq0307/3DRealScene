@@ -28,7 +28,7 @@ public class SlicingDtos
         /// <summary>
         /// 关联的场景对象ID，可选项
         /// </summary>
-        public Guid? SceneObjectId { get; set;}
+        public Guid? SceneObjectId { get; set; }
 
 
         /// <summary>
@@ -41,7 +41,7 @@ public class SlicingDtos
         /// 切片配置参数，必填项
         /// 包含切片粒度、输出格式、坐标系等配置信息
         /// </summary>
-        public SlicingConfig SlicingConfig { get; set; } = new();
+        public SlicingConfigDto SlicingConfig { get; set; } = new();
         /// <summary>
         /// 切片输出目录路径，可选项
         /// 指定切片结果文件的存储目录路径，如果未提供则自动生成
@@ -53,12 +53,12 @@ public class SlicingDtos
     /// 切片配置参数DTO
     /// 用于定义切片任务的详细配置，如切片粒度、输出格式、坐标系等
     /// </summary>
-    public class SlicingConfig
+    public class SlicingConfigDto
     {
         /// <summary>
         /// 切片粒度，例如："High", "Medium", "Low"（已废弃，请使用 Strategy）
         /// </summary>
-        public string Granularity { get; set; } = "Medium";
+        public string? Granularity { get; set; }
 
         /// <summary>
         /// 切片策略，例如："Grid", "Octree", "KdTree", "Adaptive"
@@ -67,7 +67,7 @@ public class SlicingDtos
         /// KdTree = 2 - KD树切片
         /// Adaptive = 3 - 自适应切片
         /// </summary>
-        public string? Strategy { get; set; }
+        public SlicingStrategy Strategy { get; set; } = SlicingStrategy.Grid;
 
         /// <summary>
         /// 输出格式，例如："3D Tiles", "Cesium3DTiles", "GLTF"
@@ -98,7 +98,7 @@ public class SlicingDtos
         /// <summary>
         /// 存储位置
         /// </summary>
-        public string? StorageLocation { get; set; }
+        public StorageLocationType StorageLocation { get; set; }
     }
 
     /// <summary>
@@ -128,12 +128,12 @@ public class SlicingDtos
         /// <summary>
         /// 关联的场景对象ID，可选项
         /// </summary>
-        public Guid? SceneObjectId { get; set;}
+        public Guid? SceneObjectId { get; set; }
 
         /// <summary>
         /// 切片配置参数
         /// </summary>
-        public SlicingConfig SlicingConfig { get; set; } = new();
+        public SlicingConfigDto SlicingConfig { get; set; } = new();
 
         /// <summary>
         /// 切片任务当前状态

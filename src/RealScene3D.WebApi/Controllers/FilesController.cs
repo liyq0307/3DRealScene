@@ -323,6 +323,42 @@ public class FilesController : ControllerBase
             // 根据文件扩展名确定Content-Type
             var contentType = GetContentTypeFromPath(decodedObjectPath);
 
+            // 检查是否是b3dm文件且已gzip压缩
+            var extension = Path.GetExtension(decodedObjectPath).ToLowerInvariant();
+            if (extension == ".b3dm" || extension == ".pnts" || extension == ".i3dm" || extension == ".cmpt")
+            {
+                // 读取文件头部，检查是否是gzip压缩
+                var header = new byte[2];
+                var bytesRead = await stream.ReadAsync(header, 0, 2);
+
+                // 检查gzip魔数 (0x1f 0x8b)
+                if (bytesRead == 2 && header[0] == 0x1f && header[1] == 0x8b)
+                {
+                    _logger.LogInformation("检测到gzip压缩的3D Tiles文件，进行解压: {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
+
+                    // 重置流位置
+                    stream.Position = 0;
+
+                    // 解压
+                    using (var gzipStream = new System.IO.Compression.GZipStream(stream, System.IO.Compression.CompressionMode.Decompress, leaveOpen: false))
+                    {
+                        var decompressedData = new MemoryStream();
+                        await gzipStream.CopyToAsync(decompressedData);
+                        decompressedData.Position = 0;
+
+                        _logger.LogInformation("成功解压3D Tiles文件: {Bucket}/{ObjectPath}, 解压后大小: {DecompressedSize}",
+                            bucket, decodedObjectPath, decompressedData.Length);
+
+                        stream = decompressedData;
+                    }
+                }
+                else
+                {
+                    // 重置流位置
+                    stream.Position = 0;
+                }
+            }
+
             // 修复tileset.json的schema字段问题
             if (decodedObjectPath.EndsWith("tileset.json", StringComparison.OrdinalIgnoreCase))
             {
@@ -388,6 +424,85 @@ public class FilesController : ControllerBase
         {
             _logger.LogError(ex, "代理访问文件失败: {Bucket}/{ObjectPath}", bucket, objectPath);
             return StatusCode(500, new { message = "访问文件失败" });
+        }
+    }
+
+    /// <summary>
+    /// 访问本地文件系统中的文件（用于开发和测试环境）
+    /// </summary>
+    [HttpGet("local/{*filePath}")]
+    [AllowAnonymous] // 允许匿名访问，因为Cesium无法传递认证token
+    public IActionResult GetLocalFile(string filePath)
+    {
+        try
+        {
+            // 构建完整的本地文件路径
+            // 基础路径: F:/Data/3D/
+            var basePath = "F:\\Data\\3D\\";
+            var fullPath = Path.Combine(basePath, filePath.Replace('/', '\\'));
+
+            _logger.LogInformation("访问本地文件: {FilePath}", fullPath);
+
+            if (!System.IO.File.Exists(fullPath))
+            {
+                _logger.LogWarning("本地文件不存在: {FilePath}", fullPath);
+                return NotFound(new { message = "文件不存在", path = fullPath });
+            }
+
+            var contentType = GetContentTypeFromPath(filePath);
+
+            // 检查是否是b3dm文件且已gzip压缩
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            if (extension == ".b3dm" || extension == ".pnts" || extension == ".i3dm" || extension == ".cmpt")
+            {
+                // 读取文件头部，检查是否是gzip压缩
+                using (var fs = System.IO.File.OpenRead(fullPath))
+                {
+                    var header = new byte[2];
+                    fs.Read(header, 0, 2);
+
+                    // 检查gzip魔数 (0x1f 0x8b)
+                    if (header[0] == 0x1f && header[1] == 0x8b)
+                    {
+                        _logger.LogInformation("检测到gzip压缩的b3dm文件，进行解压: {FilePath}", fullPath);
+
+                        // 重新打开文件并解压
+                        using (var compressedStream = System.IO.File.OpenRead(fullPath))
+                        using (var gzipStream = new System.IO.Compression.GZipStream(compressedStream, System.IO.Compression.CompressionMode.Decompress))
+                        {
+                            var decompressedData = new MemoryStream();
+                            gzipStream.CopyTo(decompressedData);
+                            decompressedData.Position = 0;
+
+                            // 设置为inline，避免浏览器下载
+                            Response.Headers["Content-Disposition"] = "inline";
+                            Response.Headers["Cache-Control"] = "public, max-age=3600";
+
+                            _logger.LogInformation("成功解压并返回本地文件: {FilePath}, 原始大小: {CompressedSize}, 解压后大小: {DecompressedSize}",
+                                fullPath, new FileInfo(fullPath).Length, decompressedData.Length);
+
+                            return File(decompressedData.ToArray(), contentType);
+                        }
+                    }
+                }
+            }
+
+            // 读取文件（未压缩或非3D Tiles文件）
+            var fileStream = System.IO.File.OpenRead(fullPath);
+
+            // 设置为inline，避免浏览器下载
+            Response.Headers["Content-Disposition"] = "inline";
+
+            // 添加缓存控制
+            Response.Headers["Cache-Control"] = "public, max-age=3600";
+
+            _logger.LogInformation("成功返回本地文件: {FilePath}, ContentType: {ContentType}", fullPath, contentType);
+            return File(fileStream, contentType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "访问本地文件失败：{FilePath}", filePath);
+            return StatusCode(500, new { message = "访问文件失败", error = ex.Message });
         }
     }
 

@@ -13,36 +13,6 @@ using System.Text.Json;
 namespace RealScene3D.Application.Services;
 
 /// <summary>
-/// 切片策略接口 - 定义不同空间剖分算法的行为规范
-/// </summary>
-public interface ISlicingStrategy
-{
-    /// <summary>
-    /// 生成指定级别的切片集合
-    /// </summary>
-    /// <param name="task">切片任务</param>
-    /// <param name="level">LOD级别</param>
-    /// <param name="config">切片配置</param>
-    /// <param name="modelBounds">模型的实际包围盒，用于确定切片的空间范围</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>切片集合</returns>
-    Task<List<Slice>> GenerateSlicesAsync(
-        SlicingTask task,
-        int level,
-        SlicingConfig config,
-        BoundingBox3D modelBounds,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// 计算指定级别的切片数量估算
-    /// </summary>
-    /// <param name="level">LOD级别</param>
-    /// <param name="config">切片配置</param>
-    /// <returns>切片数量估算</returns>
-    int EstimateSliceCount(int level, SlicingConfig config);
-}
-
-/// <summary>
 /// 几何图元数据结构
 /// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
 /// </summary>
@@ -90,20 +60,6 @@ internal class SpatialIndex
 {
     public Dictionary<string, List<GeometricPrimitive>> Grid { get; set; } = new Dictionary<string, List<GeometricPrimitive>>();
     public required BoundingBox3D Bounds { get; set; }
-}
-
-/// <summary>
-/// 3D包围盒
-/// 共享类，供所有切片策略使用
-/// </summary>
-public class BoundingBox3D
-{
-    public double MinX { get; set; }
-    public double MinY { get; set; }
-    public double MinZ { get; set; }
-    public double MaxX { get; set; }
-    public double MaxY { get; set; }
-    public double MaxZ { get; set; }
 }
 
 /// <summary>
@@ -774,10 +730,9 @@ public class SlicingAppService : ISlicingAppService
             // 因为增量更新时 task 可能来自 existingTask，其 OutputPath 已经确定
             bool hasRootedPath = !string.IsNullOrEmpty(task.OutputPath) && Path.IsPathRooted(task.OutputPath);
 
-            StorageLocationType specifiedLocation = StorageLocationType.MinIO;
-            bool userSpecifiedStorage = request.SlicingConfig.StorageLocation != null &&
-                                       Enum.TryParse<StorageLocationType>(request.SlicingConfig.StorageLocation, true, out specifiedLocation) &&
-                                       specifiedLocation != StorageLocationType.MinIO;
+            StorageLocationType specifiedLocation = request.SlicingConfig.StorageLocation;
+            bool userSpecifiedStorage =
+            specifiedLocation == StorageLocationType.LocalFileSystem || specifiedLocation != StorageLocationType.MinIO;
 
             if (userSpecifiedStorage)
             {
@@ -799,7 +754,7 @@ public class SlicingAppService : ISlicingAppService
             }
 
             // 序列化更新后的配置
-            task.SlicingConfig = System.Text.Json.JsonSerializer.Serialize(domainConfig);
+            task.SlicingConfig = JsonSerializer.Serialize(domainConfig);
 
             if (domainConfig.StorageLocation == StorageLocationType.LocalFileSystem)
             {
@@ -1631,19 +1586,19 @@ public class SlicingAppService : ISlicingAppService
         };
     }
 
-    private static SlicingDtos.SlicingConfig MapSlicingConfigToDto(SlicingConfig domainConfig)
+    private static SlicingDtos.SlicingConfigDto MapSlicingConfigToDto(SlicingConfig domainConfig)
     {
-        return new SlicingDtos.SlicingConfig
+        return new SlicingDtos.SlicingConfigDto
         {
             Granularity = domainConfig.Strategy.ToString(),
-            Strategy = domainConfig.Strategy.ToString(),
+            Strategy = domainConfig.Strategy,
             OutputFormat = domainConfig.OutputFormat,
             CoordinateSystem = "EPSG:4326", // 默认值
             CustomSettings = "{}", // 默认值
             TileSize = domainConfig.TileSize,
             MaxLevel = domainConfig.MaxLevel,
             EnableIncrementalUpdates = domainConfig.EnableIncrementalUpdates,
-            StorageLocation = domainConfig.StorageLocation.ToString()
+            StorageLocation = domainConfig.StorageLocation
         };
     }
 
@@ -1651,40 +1606,22 @@ public class SlicingAppService : ISlicingAppService
     /// 将 DTO 切片配置转换为 Domain 切片配置
     /// 处理策略字符串到枚举的转换，支持 Granularity 和 Strategy 两种字段名
     /// </summary>
-    private static SlicingConfig MapSlicingConfigToDomain(SlicingDtos.SlicingConfig dtoConfig)
+    private static SlicingConfig MapSlicingConfigToDomain(SlicingDtos.SlicingConfigDto dtoConfig)
     {
-        // 确定使用哪个字段作为策略来源（优先使用 Strategy，其次 Granularity）
-        var strategyString = !string.IsNullOrWhiteSpace(dtoConfig.Strategy)
-            ? dtoConfig.Strategy
-            : dtoConfig.Granularity;
+        // 解析策略枚举：优先使用 Strategy 枚举字段，如果需要兼容旧的 Granularity 字符串字段
+        SlicingStrategy strategy = dtoConfig.Strategy; // 直接使用枚举值
 
-        // 解析策略枚举
-        SlicingStrategy strategy = SlicingStrategy.Octree; // 默认值
-        if (!string.IsNullOrWhiteSpace(strategyString))
+        // 如果 Granularity 不为空且不是默认值，可以从字符串解析来覆盖 Strategy
+        if (!string.IsNullOrWhiteSpace(dtoConfig.Granularity))
         {
-            // 尝试按枚举名称解析
-            if (Enum.TryParse<SlicingStrategy>(strategyString, true, out var parsedStrategy))
-            {
-                strategy = parsedStrategy;
-            }
             // 兼容旧的 Granularity 值映射
-            else
+            strategy = dtoConfig.Granularity.ToLowerInvariant() switch
             {
-                strategy = strategyString.ToLowerInvariant() switch
-                {
-                    "high" => SlicingStrategy.Grid,
-                    "medium" => SlicingStrategy.Octree,
-                    "low" => SlicingStrategy.Adaptive,
-                    _ => SlicingStrategy.Octree
-                };
-            }
-        }
-
-        // 解析存储位置
-        StorageLocationType storageLocation = StorageLocationType.MinIO; // 默认值
-        if (!string.IsNullOrWhiteSpace(dtoConfig.StorageLocation))
-        {
-            Enum.TryParse<StorageLocationType>(dtoConfig.StorageLocation, true, out storageLocation);
+                "high" => SlicingStrategy.Grid,
+                "medium" => SlicingStrategy.Octree,
+                "low" => SlicingStrategy.Adaptive,
+                _ => dtoConfig.Strategy // 如果无法识别，保持原有的 Strategy 值
+            };
         }
 
         // 解析输出格式
@@ -1708,7 +1645,7 @@ public class SlicingAppService : ISlicingAppService
             MaxLevel = dtoConfig.MaxLevel >= 0 ? dtoConfig.MaxLevel : 10,
             OutputFormat = outputFormat,
             EnableIncrementalUpdates = dtoConfig.EnableIncrementalUpdates,
-            StorageLocation = storageLocation
+            StorageLocation = dtoConfig.StorageLocation
         };
     }
 
@@ -1789,7 +1726,7 @@ public class SlicingAppService : ISlicingAppService
             switch (config.Strategy)
             {
                 case SlicingStrategy.Grid:
-                    // 网格策略：规则网格剖分
+                    // 网格策略:规则网格剖分
                     for (int level = 0; level <= config.MaxLevel; level++)
                     {
                         var tilesInLevel = (long)Math.Pow(2, level);
@@ -1799,7 +1736,7 @@ public class SlicingAppService : ISlicingAppService
                     break;
 
                 case SlicingStrategy.Octree:
-                    // 八叉树策略：层次空间剖分，考虑几何衰减
+                    // 八叉树策略:层次空间剖分，考虑几何衰减
                     for (int level = 0; level <= config.MaxLevel; level++)
                     {
                         if (level == 0)
@@ -1817,7 +1754,7 @@ public class SlicingAppService : ISlicingAppService
                     break;
 
                 case SlicingStrategy.KdTree:
-                    // KD树策略：二分剖分，考虑几何衰减
+                    // KD树策略:二分剖分，考虑几何衰减
                     for (int level = 0; level <= config.MaxLevel; level++)
                     {
                         if (level == 0)
@@ -1834,7 +1771,7 @@ public class SlicingAppService : ISlicingAppService
                     break;
 
                 case SlicingStrategy.Adaptive:
-                    // 自适应策略：基于几何复杂度的动态估算
+                    // 自适应策略:基于几何复杂度的动态估算
                     for (int level = 0; level <= config.MaxLevel; level++)
                     {
                         if (level == 0)
@@ -2184,7 +2121,23 @@ public class SlicingProcessor : ISlicingProcessor
         _logger.LogInformation("空间索引构建完成");
 
         // **步骤3: 计算模型包围盒用于坐标变换**
-        var modelBounds = CalculateModelBounds(allTriangles);
+        // 优先使用ModelBoundingBoxExtractor从GLB文件直接提取包围盒
+        // 如果提取失败，则从三角形列表计算
+        BoundingBox3D modelBounds;
+        var extractor = new ModelBoundingBoxExtractor(_logger);
+        var extractedBounds = await extractor.ExtractBoundingBoxAsync(task.SourceModelPath, cancellationToken);
+
+        if (extractedBounds != null && extractedBounds.IsValid())
+        {
+            _logger.LogInformation("从模型文件直接提取包围盒成功");
+            modelBounds = extractedBounds;
+        }
+        else
+        {
+            _logger.LogWarning("从模型文件提取包围盒失败，尝试从三角形列表计算");
+            modelBounds = CalculateModelBounds(allTriangles);
+        }
+
         _logger.LogInformation("模型包围盒计算完成：[{MinX:F3},{MinY:F3},{MinZ:F3}]-[{MaxX:F3},{MaxY:F3},{MaxZ:F3}]",
             modelBounds.MinX, modelBounds.MinY, modelBounds.MinZ,
             modelBounds.MaxX, modelBounds.MaxY, modelBounds.MaxZ);
@@ -2358,8 +2311,16 @@ public class SlicingProcessor : ISlicingProcessor
                 _logger.LogDebug("切片({X},{Y},{Z})查询到{Count}个三角形",
                     slice.X, slice.Y, slice.Z, sliceTriangles.Count);
 
-                // 生成切片文件内容
-                await GenerateSliceFileAsync(slice, config, sliceTriangles, cancellationToken);
+                // 生成切片文件内容，获取是否成功
+                var generated = await GenerateSliceFileAsync(slice, config, sliceTriangles, cancellationToken);
+
+                if (!generated)
+                {
+                    _logger.LogDebug("切片({Level},{X},{Y},{Z})无几何数据，跳过保存",
+                        slice.Level, slice.X, slice.Y, slice.Z);
+                    continue;
+                }
+
                 _logger.LogDebug("成功生成切片文件：{FilePath}", slice.FilePath);
             }
             catch (Exception ex)
@@ -2369,7 +2330,7 @@ public class SlicingProcessor : ISlicingProcessor
                 continue; // 不中断整个流程,继续处理其他切片
             }
 
-            // 收集待批量处理的切片
+            // 收集待批量处理的切片（仅在成功生成时）
             if (actuallyUseIncrementalUpdate && needsUpdate)
             {
                 slicesToUpdate.Add(slice);
@@ -2420,6 +2381,12 @@ public class SlicingProcessor : ISlicingProcessor
         {
             foreach (var s in slicesToAdd)
             {
+                // 诊断日志：输出即将保存的包围盒
+                if (s.Level == 0 || (s.Level == 1 && s.X == 0 && s.Y == 1 && s.Z == 0))
+                {
+                    _logger.LogInformation("【保存前】准备保存切片到数据库: Level={Level}, X={X}, Y={Y}, Z={Z}, BoundingBox={BoundingBox}",
+                        s.Level, s.X, s.Y, s.Z, s.BoundingBox);
+                }
                 await _sliceRepository.AddAsync(s);
             }
             slicesToAdd.Clear();
@@ -2489,11 +2456,11 @@ public class SlicingProcessor : ISlicingProcessor
         // 创建切片策略实例
         ISlicingStrategy strategy = config.Strategy switch
         {
-            SlicingStrategy.Grid => new GridSlicingStrategy(_logger),
-            SlicingStrategy.Octree => new OctreeSlicingStrategy(_logger),
-            SlicingStrategy.KdTree => new KdTreeSlicingStrategy(_logger),
-            SlicingStrategy.Adaptive => new AdaptiveSlicingStrategy(_logger, _minioService),
-            _ => new OctreeSlicingStrategy(_logger) // 默认使用八叉树策略
+            SlicingStrategy.Grid => new GridSlicingStrategy((ILogger)_logger),
+            SlicingStrategy.Octree => new OctreeSlicingStrategy((ILogger)_logger),
+            SlicingStrategy.KdTree => new KdTreeSlicingStrategy((ILogger)_logger),
+            SlicingStrategy.Adaptive => new AdaptiveSlicingStrategy((ILogger)_logger, _minioService),
+            _ => new OctreeSlicingStrategy((ILogger)_logger) // 默认使用八叉树策略
         };
 
         // 多层次细节（LOD）切片处理循环
@@ -2577,11 +2544,24 @@ public class SlicingProcessor : ISlicingProcessor
             }
         }
 
-        // 生成切片索引文件
-        await GenerateSliceIndexAsync(task, config, cancellationToken);
-
-        // 生成tileset.json用于Cesium加载
-        await GenerateTilesetJsonAsync(task, config, cancellationToken);
+        // 生成切片索引文件 - 使用新的统一索引生成器
+        var indexGenerator = new IndexFileGenerator(
+            _sliceRepository,
+            _minioService,
+            _logger);
+        
+        var indexResult = await indexGenerator.GenerateIndexFilesAsync(task, config, cancellationToken);
+        
+        if (!indexResult.Success)
+        {
+            _logger.LogWarning("索引文件生成存在警告或修复：任务{TaskId}，验证问题{IssueCount}个，修复成功{RepairSuccess}",
+                task.Id, indexResult.ValidationResult?.Issues.Count ?? 0, indexResult.RepairResult?.Success ?? false);
+        }
+        else
+        {
+            _logger.LogInformation("索引文件生成成功：任务{TaskId}，包含{SliceCount}个切片",
+                task.Id, indexResult.IndexJson?.SliceCount ?? 0);
+        }
 
         // 生成增量更新索引（仅当实际使用了增量更新且有切片变化时）
         _logger.LogInformation("检查是否需要生成增量更新索引：实际使用增量更新={ActuallyUseIncrementalUpdate}, 有切片变化={HasSliceChanges}",
@@ -2874,37 +2854,128 @@ public class SlicingProcessor : ISlicingProcessor
             var testedTriangles = 0;
             var intersectingTriangles = 0;
 
-            // 添加一个小的容差值来处理浮点数精度问题和边界情况
-            const double tolerance = 1e-6;
+            // 增大容差值来处理浮点数精度问题和边界情况
+            // 改进的容差策略：对小切片使用更大的相对容差
+            var sliceSize = Math.Max(
+                Math.Max(boundingBox.MaxX - boundingBox.MinX, boundingBox.MaxY - boundingBox.MinY),
+                boundingBox.MaxZ - boundingBox.MinZ);
 
-            // 从空间索引中获取候选三角形
-            // 优化：遍历所有空间索引中的三角形并进行相交测试
-            foreach (var triangleList in spatialIndex.Values)
+            // 计算模型尺寸用于自适应容差
+            var modelSize = Math.Max(
+                Math.Max(modelBounds.MaxX - modelBounds.MinX, modelBounds.MaxY - modelBounds.MinY),
+                modelBounds.MaxZ - modelBounds.MinZ);
+
+            // 自适应容差策略：
+            // 1. 对于大切片（>10%模型尺寸）：使用切片尺寸的1%
+            // 2. 对于中等切片（1%-10%模型尺寸）：使用切片尺寸的5%
+            // 3. 对于小切片（<1%模型尺寸）：使用切片尺寸的10%或模型尺寸的0.1%（取较大者）
+            double tolerance;
+            var sizeRatio = sliceSize / modelSize;
+
+            if (sizeRatio > 0.1)
             {
-                foreach (var triangle in triangleList)
+                // 大切片：1%容差
+                tolerance = Math.Max(sliceSize * 0.01, 1e-4);
+            }
+            else if (sizeRatio > 0.01)
+            {
+                // 中等切片：5%容差
+                tolerance = Math.Max(sliceSize * 0.05, modelSize * 0.001);
+            }
+            else
+            {
+                // 小切片：10%容差或模型尺寸的0.1%，取较大者
+                tolerance = Math.Max(sliceSize * 0.1, modelSize * 0.001);
+            }
+
+            // 确保最小容差不低于1e-4
+            tolerance = Math.Max(tolerance, 1e-4);
+
+            _logger.LogDebug("切片包围盒容差：{Tolerance:E3}，切片尺寸：{SliceSize:F6}，模型尺寸：{ModelSize:F6}，尺寸比例：{Ratio:F6}",
+                tolerance, sliceSize, modelSize, sizeRatio);
+
+            // 计算切片包围盒应该查询的空间索引网格范围
+            // 重新计算网格参数（与BuildTriangleSpatialIndex保持一致）
+            const int gridSizeX = 64;
+            const int gridSizeY = 64;
+            const int gridSizeZ = 32;
+
+            double cellSizeX = (modelBounds.MaxX - modelBounds.MinX) / gridSizeX;
+            double cellSizeY = (modelBounds.MaxY - modelBounds.MinY) / gridSizeY;
+            double cellSizeZ = (modelBounds.MaxZ - modelBounds.MinZ) / gridSizeZ;
+
+            // 防止除零
+            if (cellSizeX <= 0) cellSizeX = 1.0;
+            if (cellSizeY <= 0) cellSizeY = 1.0;
+            if (cellSizeZ <= 0) cellSizeZ = 1.0;
+
+            // 计算切片包围盒（带容差）跨越的网格范围
+            int startX = Math.Max(0, (int)((boundingBox.MinX - tolerance - modelBounds.MinX) / cellSizeX));
+            int startY = Math.Max(0, (int)((boundingBox.MinY - tolerance - modelBounds.MinY) / cellSizeY));
+            int startZ = Math.Max(0, (int)((boundingBox.MinZ - tolerance - modelBounds.MinZ) / cellSizeZ));
+            int endX = Math.Min(gridSizeX - 1, (int)((boundingBox.MaxX + tolerance - modelBounds.MinX) / cellSizeX));
+            int endY = Math.Min(gridSizeY - 1, (int)((boundingBox.MaxY + tolerance - modelBounds.MinY) / cellSizeY));
+            int endZ = Math.Min(gridSizeZ - 1, (int)((boundingBox.MaxZ + tolerance - modelBounds.MinZ) / cellSizeZ));
+
+            // 对于高LOD层级的小切片，确保至少查询相邻的网格单元
+            // 这样可以避免因为切片太小而遗漏三角形
+            if (sizeRatio < 0.01) // 小于模型尺寸的1%
+            {
+                // 扩展查询范围至少包含相邻的一个单元
+                startX = Math.Max(0, startX - 1);
+                startY = Math.Max(0, startY - 1);
+                startZ = Math.Max(0, startZ - 1);
+                endX = Math.Min(gridSizeX - 1, endX + 1);
+                endY = Math.Min(gridSizeY - 1, endY + 1);
+                endZ = Math.Min(gridSizeZ - 1, endZ + 1);
+
+                _logger.LogDebug("小切片扩展查询范围：原始范围扩展±1个网格单元");
+            }
+
+            _logger.LogDebug("切片包围盒查询网格范围：X=[{StartX},{EndX}], Y=[{StartY},{EndY}], Z=[{StartZ},{EndZ}]",
+                startX, endX, startY, endY, startZ, endZ);
+
+            // 只从相关的网格单元中查询三角形
+            for (int x = startX; x <= endX; x++)
+            {
+                for (int y = startY; y <= endY; y++)
                 {
-                    testedTriangles++;
-
-                    // 首先使用简单的包围盒相交测试进行快速筛选
-                    double triMinX = triangle.Vertices.Min(v => v.X);
-                    double triMinY = triangle.Vertices.Min(v => v.Y);
-                    double triMinZ = triangle.Vertices.Min(v => v.Z);
-                    double triMaxX = triangle.Vertices.Max(v => v.X);
-                    double triMaxY = triangle.Vertices.Max(v => v.Y);
-                    double triMaxZ = triangle.Vertices.Max(v => v.Z);
-
-                    // AABB包围盒相交测试（带容差）
-                    bool intersects = !(triMaxX < boundingBox.MinX - tolerance || triMinX > boundingBox.MaxX + tolerance ||
-                                       triMaxY < boundingBox.MinY - tolerance || triMinY > boundingBox.MaxY + tolerance ||
-                                       triMaxZ < boundingBox.MinZ - tolerance || triMinZ > boundingBox.MaxZ + tolerance);
-
-                    if (intersects)
+                    for (int z = startZ; z <= endZ; z++)
                     {
-                        // 如果AABB包围盒相交，进行更精确的相交测试
-                        if (TriangleIntersectsSlice(triangle, boundingBox))
+                        var cellKey = $"{x}_{y}_{z}";
+                        if (!spatialIndex.ContainsKey(cellKey))
+                            continue;
+
+                        foreach (var triangle in spatialIndex[cellKey])
                         {
-                            candidateTriangles.Add(triangle);
-                            intersectingTriangles++;
+                            // 使用HashSet自动去重
+                            if (candidateTriangles.Contains(triangle))
+                                continue;
+
+                            testedTriangles++;
+
+                            // 首先使用简单的包围盒相交测试进行快速筛选
+                            double triMinX = triangle.Vertices.Min(v => v.X);
+                            double triMinY = triangle.Vertices.Min(v => v.Y);
+                            double triMinZ = triangle.Vertices.Min(v => v.Z);
+                            double triMaxX = triangle.Vertices.Max(v => v.X);
+                            double triMaxY = triangle.Vertices.Max(v => v.Y);
+                            double triMaxZ = triangle.Vertices.Max(v => v.Z);
+
+                            // AABB包围盒相交测试（带容差）
+                            bool intersects = !(triMaxX < boundingBox.MinX - tolerance || triMinX > boundingBox.MaxX + tolerance ||
+                                               triMaxY < boundingBox.MinY - tolerance || triMinY > boundingBox.MaxY + tolerance ||
+                                               triMaxZ < boundingBox.MinZ - tolerance || triMinZ > boundingBox.MaxZ + tolerance);
+
+                            if (intersects)
+                            {
+                                // 如果AABB包围盒相交，进行更精确的相交测试
+                                if (TriangleIntersectsSlice(triangle, boundingBox, tolerance))
+                                {
+                                    candidateTriangles.Add(triangle);
+                                    intersectingTriangles++;
+                                }
+                            }
                         }
                     }
                 }
@@ -2977,18 +3048,18 @@ public class SlicingProcessor : ISlicingProcessor
                 }
 
                 // 可能的修复：如果坐标系明显不匹配，提供警告
-                var sliceSize = Math.Max(boundingBox.MaxX - boundingBox.MinX,
+                var debugSliceSize = Math.Max(boundingBox.MaxX - boundingBox.MinX,
                                Math.Max(boundingBox.MaxY - boundingBox.MinY, boundingBox.MaxZ - boundingBox.MinZ));
-                var modelSize = Math.Max(modelMaxX - modelMinX,
+                var debugModelSize = Math.Max(modelMaxX - modelMinX,
                                Math.Max(modelMaxY - modelMinY, modelMaxZ - modelMinZ));
 
-                if (sliceSize > 0 && modelSize > 0)
+                if (debugSliceSize > 0 && debugModelSize > 0)
                 {
-                    var sizeRatio = sliceSize / modelSize;
-                    if (sizeRatio < 0.01 || sizeRatio > 100)
+                    var debugSizeRatio = debugSliceSize / debugModelSize;
+                    if (debugSizeRatio < 0.01 || debugSizeRatio > 100)
                     {
                         _logger.LogWarning("检测到坐标系可能不匹配：切片尺寸={SliceSize:F3}, 模型尺寸={ModelSize:F3}, 比例={Ratio:F6}",
-                            sliceSize, modelSize, sizeRatio);
+                            debugSliceSize, debugModelSize, debugSizeRatio);
                     }
                 }
             }
@@ -3007,8 +3078,9 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     /// <param name="triangle">待测试的三角形</param>
     /// <param name="boundingBox">切片的包围盒</param>
+    /// <param name="tolerance">容差值</param>
     /// <returns>如果三角形与包围盒相交则返回true，否则返回false</returns>
-    private bool TriangleIntersectsSlice(Triangle triangle, BoundingBox boundingBox)
+    private bool TriangleIntersectsSlice(Triangle triangle, BoundingBox boundingBox, double tolerance)
     {
         // 1. 首先再次进行AABB包围盒测试作为快速拒绝测试
         var triMinX = triangle.Vertices.Min(v => v.X);
@@ -3018,7 +3090,6 @@ public class SlicingProcessor : ISlicingProcessor
         var triMaxY = triangle.Vertices.Max(v => v.Y);
         var triMaxZ = triangle.Vertices.Max(v => v.Z);
 
-        const double tolerance = 1e-6;
         if (triMaxX < boundingBox.MinX - tolerance || triMinX > boundingBox.MaxX + tolerance ||
             triMaxY < boundingBox.MinY - tolerance || triMinY > boundingBox.MaxY + tolerance ||
             triMaxZ < boundingBox.MinZ - tolerance || triMinZ > boundingBox.MaxZ + tolerance)
@@ -3049,7 +3120,7 @@ public class SlicingProcessor : ISlicingProcessor
             var v2 = triangle.Vertices[(i + 1) % 3];
 
             // 检查边的线段是否与包围盒相交
-            if (LineIntersectsBox(v1, v2, boundingBox))
+            if (LineIntersectsBox(v1, v2, boundingBox, tolerance))
             {
                 return true;
             }
@@ -3057,7 +3128,7 @@ public class SlicingProcessor : ISlicingProcessor
 
         // 5. 最后检查：检查三角形是否跨越包围盒的边界
         // 通过检查三角形平面是否与包围盒相交
-        if (TrianglePlaneIntersectsBox(triangle, boundingBox))
+        if (TrianglePlaneIntersectsBox(triangle, boundingBox, tolerance))
         {
             return true;
         }
@@ -3068,10 +3139,8 @@ public class SlicingProcessor : ISlicingProcessor
     /// <summary>
     /// 检查线段是否与轴对齐包围盒相交
     /// </summary>
-    private bool LineIntersectsBox(Vector3D v1, Vector3D v2, BoundingBox box)
+    private bool LineIntersectsBox(Vector3D v1, Vector3D v2, BoundingBox box, double tolerance)
     {
-        const double tolerance = 1e-6;
-
         // 使用Liang-Barsky算法来测试线段与AABB的相交
         double tMin = 0.0;
         double tMax = 1.0;
@@ -3142,13 +3211,12 @@ public class SlicingProcessor : ISlicingProcessor
     /// 检查三角形平面是否与轴对齐包围盒相交
     /// 这是一个简化的近似测试
     /// </summary>
-    private bool TrianglePlaneIntersectsBox(Triangle triangle, BoundingBox box)
+    private bool TrianglePlaneIntersectsBox(Triangle triangle, BoundingBox box, double tolerance)
     {
         // 此处可以实现更复杂的相交测试
         // 为简化处理，我们使用之前AABB测试的结果作为基础
         // 因为我们已经通过了AABB测试，这里返回true
         // 在实际应用中，可能需要实现更复杂的相交检测算法
-        const double tolerance = 1e-6;
 
         // 如果三角形平面与包围盒可能相交，返回true
         // 检查三角形的重心是否接近包围盒
@@ -3202,14 +3270,18 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 生成切片索引文件 - 空间索引算法实现
-    /// 算法：为所有切片建立层次化的索引结构，支持快速空间查询
+    /// 生成切片索引文件 - 已迁移到IndexFileGenerator
+    /// 此方法已弃用，请使用IndexFileGenerator.GenerateIndexFilesAsync
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="config">切片配置</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Obsolete("Use IndexFileGenerator.GenerateIndexFilesAsync instead")]
     private async Task GenerateSliceIndexAsync(SlicingTask task, SlicingConfig config, CancellationToken cancellationToken)
     {
-        // 空间索引算法：生成切片索引文件，便于快速查找和访问
+        _logger.LogWarning("调用了已弃用的方法GenerateSliceIndexAsync，请使用IndexFileGenerator");
+        
+        // 保持原有逻辑以确保向后兼容
         var allSlices = await _sliceRepository.GetAllAsync();
         var slices = allSlices.Where(s => s.SlicingTaskId == task.Id).ToList();
 
@@ -3263,15 +3335,18 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 生成Cesium Tileset JSON文件 - 3D Tiles标准格式生成算法
-    /// 算法：生成符合3D Tiles规范的tileset.json，支持Cesium等引擎直接加载
-    /// 支持多级LOD层次结构，正确的bounding volume计算
+    /// 生成Cesium Tileset JSON文件 - 已迁移到IndexFileGenerator
+    /// 此方法已弃用，请使用IndexFileGenerator.GenerateIndexFilesAsync
     /// </summary>
     /// <param name="task">切片任务</param>
     /// <param name="config">切片配置</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Obsolete("Use IndexFileGenerator.GenerateIndexFilesAsync instead")]
     private async Task GenerateTilesetJsonAsync(SlicingTask task, SlicingConfig config, CancellationToken cancellationToken)
     {
-        // 获取所有切片数据
+        _logger.LogWarning("调用了已弃用的方法GenerateTilesetJsonAsync，请使用IndexFileGenerator");
+        
+        // 保持原有逻辑以确保向后兼容
         var allSlices = await _sliceRepository.GetAllAsync();
         var taskSlices = allSlices.Where(s => s.SlicingTaskId == task.Id).ToList();
 
@@ -3281,28 +3356,24 @@ public class SlicingProcessor : ISlicingProcessor
             return;
         }
 
-        // 计算根节点的bounding volume
         var rootBoundingVolume = CalculateRootBoundingVolume(taskSlices);
-
-        // 构建LOD层次结构
         var rootTile = new
         {
             boundingVolume = rootBoundingVolume,
-            geometricError = CalculateGeometricError(0, config), // 根节点几何误差
+            geometricError = CalculateGeometricError(0, config),
             refine = "REPLACE",
-            children = BuildLodHierarchy(taskSlices, config, 0) // 从level 0开始构建层次结构
+            children = BuildLodHierarchy(taskSlices, config, 0)
         };
 
-        // 生成完整的tileset
         var tileset = new
         {
             asset = new
             {
-                version = "1.1", // 使用3D Tiles 1.1规范
+                version = "1.1",
                 generator = "RealScene3D Slicer v1.0",
                 tilesetVersion = "1.0"
             },
-            geometricError = config.GeometricErrorThreshold * 4, // 整体几何误差
+            geometricError = config.GeometricErrorThreshold * 4,
             root = rootTile
         };
 
@@ -3339,13 +3410,18 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 计算根节点的包围体积 - 3D Tiles bounding volume算法
+    /// 计算根节点的包围体积 - 已迁移到IndexFileGenerator
+    /// 此方法已弃用，请使用IndexFileGenerator中的对应方法
     /// </summary>
+    /// <param name="slices">切片列表</param>
+    /// <returns>包围体积数据</returns>
+    [Obsolete("Use IndexFileGenerator.CalculateRootBoundingVolume instead")]
     private object CalculateRootBoundingVolume(List<Slice> slices)
     {
+        _logger.LogWarning("调用了已弃用的方法CalculateRootBoundingVolume，请使用IndexFileGenerator");
+        
         if (!slices.Any()) return new { box = new[] { 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 } };
 
-        // 计算所有切片的总包围盒
         var minX = double.MaxValue;
         var minY = double.MaxValue;
         var minZ = double.MaxValue;
@@ -3357,7 +3433,7 @@ public class SlicingProcessor : ISlicingProcessor
         {
             try
             {
-                var boundingBox = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(slice.BoundingBox ?? "{}");
+                var boundingBox = JsonSerializer.Deserialize<Dictionary<string, double>>(slice.BoundingBox ?? "{}");
                 if (boundingBox != null)
                 {
                     minX = Math.Min(minX, boundingBox.GetValueOrDefault("minX", 0));
@@ -3374,13 +3450,11 @@ public class SlicingProcessor : ISlicingProcessor
             }
         }
 
-        // 如果没有有效的包围盒，使用默认值
         if (minX == double.MaxValue)
         {
             return new { box = new[] { 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 } };
         }
 
-        // 计算包围盒中心和尺寸
         var centerX = (minX + maxX) / 2.0;
         var centerY = (minY + maxY) / 2.0;
         var centerZ = (minZ + maxZ) / 2.0;
@@ -3388,36 +3462,36 @@ public class SlicingProcessor : ISlicingProcessor
         var halfHeight = (maxY - minY) / 2.0;
         var halfDepth = (maxZ - minZ) / 2.0;
 
-        // 3D Tiles box格式：[centerX, centerY, centerZ, widthX, widthY, widthZ, heightX, heightY, heightZ, depthX, depthY, depthZ]
-        // 其中：
-        // - center: 包围盒中心点
-        // - width: X轴方向的半向量
-        // - height: Y轴方向的半向量
-        // - depth: Z轴方向的半向量
         return new
         {
             box = new[]
             {
-                centerX, centerY, centerZ,    // 中心点
-                halfWidth, 0.0, 0.0,         // X轴半向量
-                0.0, halfHeight, 0.0,        // Y轴半向量
-                0.0, 0.0, halfDepth          // Z轴半向量
+                centerX, centerY, centerZ,
+                halfWidth, 0.0, 0.0,
+                0.0, halfHeight, 0.0,
+                0.0, 0.0, halfDepth
             }
         };
     }
 
     /// <summary>
-    /// 构建LOD层次结构 - 递归构建3D Tiles树状结构
+    /// 构建LOD层次结构 - 已迁移到IndexFileGenerator
+    /// 此方法已弃用，请使用IndexFileGenerator中的对应方法
     /// </summary>
+    /// <param name="allSlices">所有切片数据</param>
+    /// <param name="config">切片配置</param>
+    /// <param name="currentLevel">当前LOD级别</param>
+    /// <returns>层次结构数据</returns>
+    [Obsolete("Use IndexFileGenerator.BuildLodHierarchy instead")]
     private List<object>? BuildLodHierarchy(List<Slice> allSlices, SlicingConfig config, int currentLevel)
     {
-        // 获取当前级别的所有切片
+        _logger.LogWarning("调用了已弃用的方法BuildLodHierarchy，请使用IndexFileGenerator");
+        
         var levelSlices = allSlices.Where(s => s.Level == currentLevel).ToList();
         if (!levelSlices.Any()) return null;
 
         var children = new List<object>();
 
-        // 如果这是叶子级别（没有下一级），直接添加内容引用
         if (currentLevel >= config.MaxLevel)
         {
             foreach (var slice in levelSlices)
@@ -3425,7 +3499,7 @@ public class SlicingProcessor : ISlicingProcessor
                 children.Add(new
                 {
                     boundingVolume = ParseBoundingVolume(slice.BoundingBox),
-                    geometricError = 0.0, // 叶子节点几何误差为0
+                    geometricError = 0.0,
                     content = new
                     {
                         uri = slice.FilePath
@@ -3435,17 +3509,14 @@ public class SlicingProcessor : ISlicingProcessor
         }
         else
         {
-            // 对于非叶子级别，创建子节点
             foreach (var slice in levelSlices)
             {
-                // 查找子切片（下一级别的8个子切片）
                 var childSlices = allSlices.Where(s =>
                     s.Level == currentLevel + 1 &&
                     s.X >= slice.X * 2 && s.X < slice.X * 2 + 2 &&
                     s.Y >= slice.Y * 2 && s.Y < slice.Y * 2 + 2 &&
                     s.Z >= slice.Z * 2 && s.Z < slice.Z * 2 + 2).ToList();
 
-                // 创建基础tile对象
                 var tileData = new Dictionary<string, object>
                 {
                     ["boundingVolume"] = ParseBoundingVolume(slice.BoundingBox),
@@ -3453,14 +3524,12 @@ public class SlicingProcessor : ISlicingProcessor
                     ["refine"] = "REPLACE"
                 };
 
-                // 递归构建子节点
                 var childHierarchy = BuildLodHierarchy(allSlices, config, currentLevel + 1);
                 if (childHierarchy != null && childHierarchy.Any())
                 {
                     tileData["children"] = childHierarchy;
                 }
 
-                // 添加content引用（所有非根节点都有内容）
                 if (currentLevel > 0)
                 {
                     tileData["content"] = new { uri = slice.FilePath };
@@ -3474,10 +3543,16 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 解析单个切片的包围体积
+    /// 解析单个切片的包围体积 - 已迁移到IndexFileGenerator
+    /// 此方法已弃用，请使用IndexFileGenerator中的对应方法
     /// </summary>
+    /// <param name="boundingBoxJson">包围盒JSON字符串</param>
+    /// <returns>包围体积数据</returns>
+    [Obsolete("Use IndexFileGenerator.ParseBoundingVolume instead")]
     private object ParseBoundingVolume(string? boundingBoxJson)
     {
+        _logger.LogWarning("调用了已弃用的方法ParseBoundingVolume，请使用IndexFileGenerator");
+        
         if (string.IsNullOrEmpty(boundingBoxJson))
             return new { box = new[] { 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 } };
 
@@ -3519,8 +3594,17 @@ public class SlicingProcessor : ISlicingProcessor
         }
     }
 
+    /// <summary>
+    /// 计算总包围盒 - 已迁移到IndexFileGenerator
+    /// 此方法已弃用，请使用IndexFileGenerator中的对应方法
+    /// </summary>
+    /// <param name="slices">切片列表</param>
+    /// <returns>包围盒JSON字符串</returns>
+    [Obsolete("Use IndexFileGenerator.CalculateTotalBoundingBox instead")]
     private string CalculateTotalBoundingBox(List<Slice> slices)
     {
+        _logger.LogWarning("调用了已弃用的方法CalculateTotalBoundingBox，请使用IndexFileGenerator");
+        
         if (!slices.Any()) return "{}";
 
         var minX = slices.Min(s => s.X);
@@ -4160,53 +4244,35 @@ public class SlicingProcessor : ISlicingProcessor
     /// <param name="config">切片配置</param>
     /// <param name="triangles">切片包含的三角形数据</param>
     /// <param name="cancellationToken">取消令牌</param>
-    private async Task GenerateSliceFileAsync(Slice slice, SlicingConfig config, List<Triangle> triangles, CancellationToken cancellationToken)
+    /// <returns>是否成功生成切片文件</returns>
+    private async Task<bool> GenerateSliceFileAsync(Slice slice, SlicingConfig config, List<Triangle> triangles, CancellationToken cancellationToken)
     {
         // 多格式切片文件生成算法
         byte[]? fileContent;
 
-        // 即使没有三角形数据，我们也需要生成一个基础的切片文件
-        // 以确保切片层次结构的完整性
+        // 如果没有三角形数据，跳过生成
         if (triangles == null || triangles.Count == 0)
         {
-            _logger.LogDebug("切片({Level},{X},{Y},{Z})没有找到相交三角形，生成包围盒占位符",
+            _logger.LogDebug("切片({Level},{X},{Y},{Z})没有找到相交三角形，跳过生成",
                 slice.Level, slice.X, slice.Y, slice.Z);
-
-            // 仍然调用生成方法，这些方法会处理空三角形列表的情况
-            switch (config.OutputFormat.ToLower())
-            {
-                case "b3dm":
-                    fileContent = await GenerateB3DMContentAsync(slice, config, triangles);
-                    break;
-                case "gltf":
-                    fileContent = await GenerateGLTFContentAsync(slice, config, triangles);
-                    break;
-                case "json":
-                    fileContent = await GenerateJSONContentAsync(slice, config);
-                    break;
-                default:
-                    fileContent = await GenerateDefaultContentAsync(slice, config);
-                    break;
-            }
+            return false;
         }
-        else
+
+        // 有三角形数据时正常处理
+        switch (config.OutputFormat.ToLower())
         {
-            // 有三角形数据时正常处理
-            switch (config.OutputFormat.ToLower())
-            {
-                case "b3dm":
-                    fileContent = await GenerateB3DMContentAsync(slice, config, triangles);
-                    break;
-                case "gltf":
-                    fileContent = await GenerateGLTFContentAsync(slice, config, triangles);
-                    break;
-                case "json":
-                    fileContent = await GenerateJSONContentAsync(slice, config);
-                    break;
-                default:
-                    fileContent = await GenerateDefaultContentAsync(slice, config);
-                    break;
-            }
+            case "b3dm":
+                fileContent = await GenerateB3DMContentAsync(slice, config, triangles);
+                break;
+            case "gltf":
+                fileContent = await GenerateGLTFContentAsync(slice, config, triangles);
+                break;
+            case "json":
+                fileContent = await GenerateJSONContentAsync(slice, config);
+                break;
+            default:
+                fileContent = await GenerateDefaultContentAsync(slice, config);
+                break;
         }
 
         // 应用压缩（如果启用）
@@ -4246,6 +4312,9 @@ public class SlicingProcessor : ISlicingProcessor
             // 释放 fileContent 引用，帮助GC回收
             fileContent = null;
         }
+
+        // 返回成功
+        return true;
     }
 
     /// <summary>
@@ -4733,17 +4802,13 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 计算几何误差 - LOD误差计算算法
-    /// 算法：基于LOD级别计算几何误差阈值，用于自适应LOD选择
+    /// 计算几何误差
     /// </summary>
     /// <param name="level">LOD级别</param>
     /// <param name="config">切片配置</param>
     /// <returns>几何误差值</returns>
     private double CalculateGeometricError(int level, SlicingConfig config)
     {
-        // 几何误差随LOD级别指数衰减
-        // level 0: 最大误差（最粗糙）
-        // level N: 最小误差（最精细）
         var baseError = config.GeometricErrorThreshold;
         var errorFactor = Math.Pow(2.0, config.MaxLevel - level);
         return baseError * errorFactor;
@@ -4819,7 +4884,14 @@ public class SlicingProcessor : ISlicingProcessor
             return GeneratePlaceholderGLB(boundingBox);
         }
 
-        // **1. 提取所有顶点和计算法线**
+        // **1. 计算RTC_CENTER（相对瓦片中心）- 用于提高精度**
+        var rtcCenterX = (float)((boundingBox.MinX + boundingBox.MaxX) / 2.0);
+        var rtcCenterY = (float)((boundingBox.MinY + boundingBox.MaxY) / 2.0);
+        var rtcCenterZ = (float)((boundingBox.MinZ + boundingBox.MaxZ) / 2.0);
+
+        _logger.LogDebug("GLB生成 - RTC_CENTER: [{X:F6}, {Y:F6}, {Z:F6}]", rtcCenterX, rtcCenterY, rtcCenterZ);
+
+        // **2. 提取所有顶点并转换为相对坐标，计算法线**
         var vertexList = new List<float>();
         var normalList = new List<float>();
         var indexList = new List<ushort>();
@@ -4861,9 +4933,11 @@ public class SlicingProcessor : ISlicingProcessor
             for (int i = 0; i < 3; i++)
             {
                 var vertex = triangle.Vertices[i];
-                float vx = (float)vertex.X;
-                float vy = (float)vertex.Y;
-                float vz = (float)vertex.Z;
+
+                // **关键修复：将顶点坐标转换为相对于RTC_CENTER的偏移**
+                float vx = (float)(vertex.X - rtcCenterX);
+                float vy = (float)(vertex.Y - rtcCenterY);
+                float vz = (float)(vertex.Z - rtcCenterZ);
 
                 vertexList.Add(vx);
                 vertexList.Add(vy);
@@ -4875,7 +4949,7 @@ public class SlicingProcessor : ISlicingProcessor
 
                 indexList.Add(vertexIndex++);
 
-                // 更新包围盒
+                // 更新包围盒（相对坐标的包围盒）
                 minX = Math.Min(minX, vx);
                 minY = Math.Min(minY, vy);
                 minZ = Math.Min(minZ, vz);
@@ -4932,7 +5006,7 @@ public class SlicingProcessor : ISlicingProcessor
                     {
                         new
                         {
-                            attributes = new { POSITION = 0, NORMAL = 1 },
+                            attributes = new Dictionary<string, int> { ["POSITION"] = 0, ["NORMAL"] = 1 },
                             indices = 2,
                             mode = 4 // TRIANGLES
                         }
@@ -4962,11 +5036,17 @@ public class SlicingProcessor : ISlicingProcessor
             buffers = new[] { new { byteLength = binaryData.Length } }
         };
 
-        var jsonBytes = System.Text.Encoding.UTF8.GetBytes(
-            System.Text.Json.JsonSerializer.Serialize(gltfJson, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            }));
+        var jsonString = System.Text.Json.JsonSerializer.Serialize(gltfJson, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+
+        // 修复glTF属性名的大小写问题 - CamelCase会将POSITION/NORMAL转为小写
+        // glTF 2.0规范要求这些属性名必须是大写
+        jsonString = jsonString.Replace("\"position\":", "\"POSITION\":");
+        jsonString = jsonString.Replace("\"normal\":", "\"NORMAL\":");
+
+        var jsonBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
 
         // **5. 对齐JSON块到4字节边界**
         var jsonChunkLength = (jsonBytes.Length + 3) & ~3;
@@ -5019,17 +5099,26 @@ public class SlicingProcessor : ISlicingProcessor
     /// </summary>
     private Task<byte[]> GeneratePlaceholderGLB(BoundingBox boundingBox)
     {
-        // 生成简单的包围盒立方体
+        // **计算RTC_CENTER（相对瓦片中心）**
+        var rtcCenterX = (float)((boundingBox.MinX + boundingBox.MaxX) / 2.0);
+        var rtcCenterY = (float)((boundingBox.MinY + boundingBox.MaxY) / 2.0);
+        var rtcCenterZ = (float)((boundingBox.MinZ + boundingBox.MaxZ) / 2.0);
+
+        // **生成包围盒立方体的相对坐标（相对于RTC_CENTER）**
+        var halfSizeX = (float)((boundingBox.MaxX - boundingBox.MinX) / 2.0);
+        var halfSizeY = (float)((boundingBox.MaxY - boundingBox.MinY) / 2.0);
+        var halfSizeZ = (float)((boundingBox.MaxZ - boundingBox.MinZ) / 2.0);
+
         var vertices = new[]
         {
-            (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MinZ,
-            (float)boundingBox.MaxX, (float)boundingBox.MinY, (float)boundingBox.MinZ,
-            (float)boundingBox.MaxX, (float)boundingBox.MaxY, (float)boundingBox.MinZ,
-            (float)boundingBox.MinX, (float)boundingBox.MaxY, (float)boundingBox.MinZ,
-            (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MaxZ,
-            (float)boundingBox.MaxX, (float)boundingBox.MinY, (float)boundingBox.MaxZ,
-            (float)boundingBox.MaxX, (float)boundingBox.MaxY, (float)boundingBox.MaxZ,
-            (float)boundingBox.MinX, (float)boundingBox.MaxY, (float)boundingBox.MaxZ
+            -halfSizeX, -halfSizeY, -halfSizeZ,  // 立方体8个顶点（相对坐标）
+            +halfSizeX, -halfSizeY, -halfSizeZ,
+            +halfSizeX, +halfSizeY, -halfSizeZ,
+            -halfSizeX, +halfSizeY, -halfSizeZ,
+            -halfSizeX, -halfSizeY, +halfSizeZ,
+            +halfSizeX, -halfSizeY, +halfSizeZ,
+            +halfSizeX, +halfSizeY, +halfSizeZ,
+            -halfSizeX, +halfSizeY, +halfSizeZ
         };
 
         var normals = new[]
@@ -5088,7 +5177,7 @@ public class SlicingProcessor : ISlicingProcessor
                     {
                         new
                         {
-                            attributes = new { POSITION = 0, NORMAL = 1 },
+                            attributes = new Dictionary<string, int> { ["POSITION"] = 0, ["NORMAL"] = 1 },
                             indices = 2,
                             mode = 4
                         }
@@ -5103,8 +5192,8 @@ public class SlicingProcessor : ISlicingProcessor
                     componentType = 5126,
                     count = vertices.Length / 3,
                     type = "VEC3",
-                    min = new[] { (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MinZ },
-                    max = new[] { (float)boundingBox.MaxX, (float)boundingBox.MaxY, (float)boundingBox.MaxZ }
+                    min = new[] { -halfSizeX, -halfSizeY, -halfSizeZ },  // 相对坐标的最小值
+                    max = new[] { +halfSizeX, +halfSizeY, +halfSizeZ }   // 相对坐标的最大值
                 },
                 new { bufferView = 1, componentType = 5126, count = normals.Length / 3, type = "VEC3" },
                 new { bufferView = 2, componentType = 5123, count = indices.Length, type = "SCALAR" }
@@ -5118,11 +5207,17 @@ public class SlicingProcessor : ISlicingProcessor
             buffers = new[] { new { byteLength = binaryData.Length } }
         };
 
-        var jsonBytes = System.Text.Encoding.UTF8.GetBytes(
-            System.Text.Json.JsonSerializer.Serialize(gltfJson, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            }));
+        var jsonString = System.Text.Json.JsonSerializer.Serialize(gltfJson, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+
+        // 修复glTF属性名的大小写问题 - CamelCase会将POSITION/NORMAL转为小写
+        // glTF 2.0规范要求这些属性名必须是大写
+        jsonString = jsonString.Replace("\"position\":", "\"POSITION\":");
+        jsonString = jsonString.Replace("\"normal\":", "\"NORMAL\":");
+
+        var jsonBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
 
         var jsonChunkLength = (jsonBytes.Length + 3) & ~3;
         var jsonChunkPadded = new byte[jsonChunkLength];

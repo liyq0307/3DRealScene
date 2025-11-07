@@ -105,44 +105,14 @@ public interface ISlicingService
 /// 提供完整的切片处理参数配置，支持多种算法和优化选项
 /// 所有参数都有合理的默认值，支持运行时动态调整
 /// </summary>
-public class SlicingConfig
+public class SlicingConfigDomain : SlicingConfig
 {
-    /// <summary>
-    /// 切片大小（米）- 基础空间剖分单位
-    /// 算法影响：决定网格剖分的最小粒度，影响切片总数和处理性能
-    /// 建议值：根据模型大小调整，典型值为10-1000米
-    /// </summary>
-    public double TileSize { get; set; } = 100.0;
-
-    /// <summary>
-    /// LOD级别数量 - 多层次细节级别数
-    /// 算法影响：金字塔层数，每级切片数为2^level，影响渲染性能和数据量
-    /// 建议值：4-12级别，根据模型复杂度选择
-    /// </summary>
-    public int MaxLevel { get; set; } = 10;
-
-    /// <summary>
-    /// 输出格式 - 切片文件格式选择
-    /// 算法影响：B3DM（二进制）、GLTF（JSON）、JSON（文本）等格式的选择
-    /// B3DM：Cesium优化格式，压缩率高
-    /// GLTF：标准格式，兼容性好
-    /// JSON：轻量级，自定义格式
-    /// </summary>
-    public string OutputFormat { get; set; } = "b3dm"; // b3dm, gltf, json
-
     /// <summary>
     /// 是否压缩输出 - 数据压缩优化
     /// 算法影响：启用压缩可减少存储空间，但会增加处理时间
     /// 建议：生产环境启用，开发环境可选择性启用
     /// </summary>
     public bool CompressOutput { get; set; } = true;
-
-    /// <summary>
-    /// 几何误差阈值 - LOD切换精度控制
-    /// 算法影响：控制不同LOD级别间的切换距离，影响视觉连续性
-    /// 单位：米，小于此距离的几何误差将被忽略
-    /// </summary>
-    public double GeometricErrorThreshold { get; set; } = 1.0;
 
     /// <summary>
     /// 纹理质量（0-1）- 纹理压缩质量参数
@@ -152,23 +122,6 @@ public class SlicingConfig
     /// 0.1：最低质量，最小文件
     /// </summary>
     public double TextureQuality { get; set; } = 0.8;
-
-    /// <summary>
-    /// 切片策略 - 空间剖分算法选择
-    /// 算法影响：选择不同的空间剖分策略（网格、八叉树、KD树、自适应）
-    /// Grid：规则分布，计算简单
-    /// Octree：层次剖分，自适应精度
-    /// KdTree：轴对齐，最优查询
-    /// Adaptive：智能剖分，最佳质量
-    /// </summary>
-    public SlicingStrategy Strategy { get; set; } = SlicingStrategy.Octree;
-
-    /// <summary>
-    /// 是否启用增量更新 - 支持模型的增量切片更新
-    /// 算法影响：启用后将生成增量更新索引，支持部分模型更新而不需要完全重新切片
-    /// 适用于经常变更的大型模型，能显著减少更新时间
-    /// </summary>
-    public bool EnableIncrementalUpdates { get; set; } = false;
 
     /// <summary>
     /// 视点优化阈值 - 自适应LOD的视点距离阈值
@@ -184,91 +137,11 @@ public class SlicingConfig
     /// 低采样率：较快，但可能遗漏细节
     /// </summary>
     public double DensityAnalysisSampleRate { get; set; } = 0.5;
-
-    /// <summary>
-    /// 切片压缩级别 - 输出数据的压缩级别（0-9）
-    /// 算法影响：平衡文件大小和处理时间，0表示无压缩，9表示最大压缩
-    /// 0：无压缩，最快处理
-    /// 6：中等压缩，平衡性能（推荐）
-    /// 9：最大压缩，最小文件
-    /// </summary>
-    public int CompressionLevel { get; set; } = 6;
-
-    /// <summary>
-    /// 并行处理数量 - 切片处理的并行度
-    /// 算法影响：控制同时处理的切片数量，影响内存使用和处理速度
-    /// 建议值：根据CPU核心数和内存大小调整，通常为CPU核心数的1-2倍
-    /// </summary>
-    public int ParallelProcessingCount { get; set; } = 4;
-
-    /// <summary>
-    /// 切片文件存储位置类型
-    /// </summary>
-    public StorageLocationType StorageLocation { get; set; } = StorageLocationType.MinIO;
 }
 
 /// <summary>
-/// 存储位置类型枚举
-/// </summary>
-public enum StorageLocationType
-{
-    /// <summary>
-    /// MinIO对象存储
-    /// </summary>
-    MinIO = 0,
-    /// <summary>
-    /// 本地文件系统
-    /// </summary>
-    LocalFileSystem = 1
-}
-
-/// <summary>
-/// 切片策略枚举 - 不同空间剖分算法的选择
-/// 定义支持的切片算法类型，每种算法适用于不同的数据特征和使用场景
-/// </summary>
-public enum SlicingStrategy
-{
-    /// <summary>
-    /// 规则网格切片算法
-    /// 算法：均匀网格剖分，适用于规则分布的数据，计算简单，内存占用规律
-    /// 优点：处理速度快，内存使用可预测
-    /// 缺点：对不规则数据适应性差，可能产生过多冗余切片
-    /// 使用场景：规则地形、城市网格数据
-    /// </summary>
-    Grid = 0,
-
-    /// <summary>
-    /// 八叉树切片算法（默认）
-    /// 算法：层次递归剖分，适用于非均匀分布的数据，自适应精度，平衡细节和性能
-    /// 优点：自适应精度，减少冗余切片，层次结构利于LOD
-    /// 缺点：剖分算法较复杂，实现难度较高
-    /// 使用场景：倾斜摄影、BIM模型、复杂地形
-    /// </summary>
-    Octree = 1,
-
-    /// <summary>
-    /// KD树切片算法
-    /// 算法：基于方差的二分剖分，适用于高维空间查询优化，剖分轴交替选择
-    /// 优点：最优空间查询性能，自适应数据分布
-    /// 缺点：构造复杂度高，内存开销较大
-    /// 使用场景：激光点云、海量空间数据、查询密集场景
-    /// </summary>
-    KdTree = 2,
-
-    /// <summary>
-    /// 自适应切片算法
-    /// 算法：基于数据密度和几何特征的智能剖分，自动调整切片大小和LOD级别
-    /// 优点：最佳质量和性能平衡，完全自适应
-    /// 缺点：算法复杂度最高，实现和调试困难
-    /// 使用场景：高精度需求、混合类型数据、质量优先场景
-    /// </summary>
-    Adaptive = 3
-}
-
-/// <summary>
-/// 切片进度信息 - 实时进度跟踪数据结构
-/// 提供切片任务执行过程中的详细进度信息
-/// 支持前端实时显示和监控告警
+/// 切片进度信息 - 用于监控和报告切片任务的处理状态
+/// 提供详细的进度指标，支持实时更新和历史查询
 /// </summary>
 public class SlicingProgress
 {

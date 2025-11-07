@@ -88,7 +88,7 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<FileUploadOperationFilter>();
 });
 
-// 配置CORS - 允许前端发送凭据（包括 Cookie）
+// 配置CORS - 允许前端访问
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -96,7 +96,8 @@ builder.Services.AddCors(options =>
         policy.SetIsOriginAllowed(origin => true)  // 允许所有来源（开发环境）
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .AllowCredentials();  // 允许发送凭据（Cookie）
+              .AllowCredentials()  // 允许发送凭据（Cookie）
+              .WithExposedHeaders("Content-Disposition", "Content-Type");  // 暴露响应头
     });
 });
 
@@ -407,6 +408,7 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 /// - 多种空间剖分算法（网格、八叉树、KD树、自适应）
 /// - 视锥剔除和预测加载优化
 /// - 并行处理和增量更新支持
+/// - 索引文件一致性验证和自动修复
 /// 适用于：倾斜摄影、BIM模型、海量点云等3D数据
 /// </summary>
 
@@ -415,6 +417,8 @@ builder.Services.AddScoped<ISlicingAppService, SlicingAppService>();
 
 // 切片后台处理器：执行实际的切片处理任务，支持异步队列
 builder.Services.AddScoped<ISlicingProcessor, SlicingProcessor>();
+
+// 添加索引文件生成服务（已存在）
 
 // ========== 系统监控服务配置 ==========
 /// <summary>

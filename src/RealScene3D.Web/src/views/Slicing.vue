@@ -892,14 +892,6 @@ const createTask = async () => {
       return
     }
 
-    // 将切片策略数字映射为字符串
-    const strategyMap: Record<number, string> = {
-      0: 'Grid',
-      1: 'Octree',
-      2: 'KdTree',
-      3: 'Adaptive'
-    }
-
     // 将前端表单数据映射到后端期望的格式
     const requestData = {
       name: taskForm.value.name,
@@ -907,7 +899,7 @@ const createTask = async () => {
       modelType: 'General3DModel', // 默认模型类型
       outputPath: taskForm.value.outputPath, // 添加输出路径
       slicingConfig: {
-        strategy: strategyMap[taskForm.value.slicingStrategy] || 'Octree',
+        strategy: taskForm.value.slicingStrategy,
         maxLevel: taskForm.value.lodLevels,
         tileSize: taskForm.value.tileSize,
         outputFormat: 'b3dm',

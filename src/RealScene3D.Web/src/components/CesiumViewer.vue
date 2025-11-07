@@ -515,6 +515,29 @@ watch(
 const resolveObjectUrl = (displayPath: string): string => {
   let fullPath = displayPath
 
+  // 检查是否为Windows本地文件路径 (例如 F:/Data/3D/test/tileset.json 或 F:\Data\3D\test\tileset.json)
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(fullPath)
+
+  if (isWindowsPath) {
+    // 本地文件路径需要通过API代理访问
+    // 将路径转换为相对于数据根目录的路径
+    // 例如: F:/Data/3D/test/tileset.json -> test/tileset.json
+    const match = fullPath.match(/^[A-Za-z]:[\\/]Data[\\/]3D[\\/](.+)$/i)
+    if (match) {
+      const relativePath = match[1].replace(/\\/g, '/')
+      fullPath = `${apiBaseUrl.value}/api/files/local/${relativePath}`
+      console.log('[CesiumViewer] 本地文件路径转换:', { original: displayPath, converted: fullPath })
+      return fullPath
+    } else {
+      console.warn('[CesiumViewer] 无法识别的本地文件路径格式:', displayPath)
+      // 尝试提取文件名部分
+      const pathParts = fullPath.replace(/\\/g, '/').split('/')
+      const fileName = pathParts[pathParts.length - 1]
+      fullPath = `${apiBaseUrl.value}/api/files/local/${fileName}`
+    }
+    return fullPath
+  }
+
   // 如果是后端代理路径（以 /api/ 开头），添加完整的API基础URL
   if (fullPath.startsWith('/api/')) {
     fullPath = `${apiBaseUrl.value}${fullPath}`
@@ -544,17 +567,23 @@ const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
   if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
     // 使用切片输出
     let tilesetPath = obj.slicingOutputPath
-    if (!isAbsoluteUrl(tilesetPath)) {
-      tilesetPath = `${apiBaseUrl.value}/api/files/proxy/${tilesetPath}`
-    }
 
     // 确保路径指向tileset.json
     if (!tilesetPath.endsWith('tileset.json')) {
       tilesetPath = tilesetPath.replace(/\/$|\\$/, '') + '/tileset.json'
     }
 
+    // 使用resolveObjectUrl处理路径（支持本地路径和MinIO路径）
+    const fullTilesetPath = resolveObjectUrl(tilesetPath)
+
+    console.log('[CesiumViewer] 使用切片输出:', {
+      original: obj.slicingOutputPath,
+      tilesetPath,
+      fullTilesetPath
+    })
+
     // 加载3D Tiles
-    return await loadTileset(obj, tilesetPath)
+    return await loadTileset(obj, fullTilesetPath)
   } else {
     // 显示占位符标记
     const position = obj.position.every(coord => coord === 0) ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height] : obj.position
@@ -593,28 +622,25 @@ const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
  * 创建3D Tiles数据集的配置选项
  */
 const createTilesetOptions = () => ({
-  // 设置最大屏幕空间误差，优化加载性能
-  maximumScreenSpaceError: 16,
+  // 设置最大屏幕空间误差，优化加载性能（降低值以强制加载更多瓦片）
+  maximumScreenSpaceError: 2,
   // 禁用一些可能导致问题的特性
-  skipLevelOfDetail: true,
+  skipLevelOfDetail: false,
   // 确保模型始终可见
   show: true,
   // 动态屏幕空间错误，根据相机距离自动调整细节
-  dynamicScreenSpaceError: true,
-  // 动态屏幕空间错误密度
-  dynamicScreenSpaceErrorDensity: 0.00278,
-  // 动态屏幕空间错误因子
-  dynamicScreenSpaceErrorFactor: 4.0,
-  // 动态屏幕空间错误高度回退
-  dynamicScreenSpaceErrorHeightFalloff: 0.25,
+  dynamicScreenSpaceError: false,
   // 预加载当视野
-  preloadWhenHidden: false,
+  preloadWhenHidden: true,
   // 预加载兄弟节点
   preloadFlightDestinations: true,
-  // 立即加载
-  immediatelyLoadDesiredLevelOfDetail: false,
+  // 立即加载期望的细节级别
+  immediatelyLoadDesiredLevelOfDetail: true,
   // 加载兄弟节点
-  loadSiblings: true
+  loadSiblings: true,
+  // 调试选项
+  debugShowBoundingVolume: import.meta.env.DEV,
+  debugShowContentBoundingVolume: import.meta.env.DEV
 })
 
 /**
@@ -707,17 +733,34 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
 
     console.log('[loadTileset] 是否有自定义变换:', customTransform)
 
-    // 只有在有自定义变换时才应用modelMatrix，否则使用tileset自带的transform
-    if (customTransform) {
+    // 检查boundingBox是否全为0（无效的包围盒）
+    const hasBoundingSphere = tileset.boundingSphere && tileset.boundingSphere.radius > 0
+    const boundingSphereIsValid = hasBoundingSphere &&
+                                  !isNaN(tileset.boundingSphere.center.x) &&
+                                  !isNaN(tileset.boundingSphere.center.y) &&
+                                  !isNaN(tileset.boundingSphere.center.z) &&
+                                  (tileset.boundingSphere.center.x !== 0 ||
+                                   tileset.boundingSphere.center.y !== 0 ||
+                                   tileset.boundingSphere.center.z !== 0)
+
+    console.log('[loadTileset] BoundingSphere有效性:', boundingSphereIsValid)
+
+    // 如果有自定义变换或包围盒无效，强制应用modelMatrix
+    if (customTransform || !boundingSphereIsValid) {
       const modelMatrix = createModelMatrix(obj.position, parsedRotation, parsedScale)
       tileset.modelMatrix = modelMatrix
-      console.log('[loadTileset] 应用了自定义modelMatrix')
+      console.log('[loadTileset] 强制应用modelMatrix（自定义变换或包围盒无效）')
     } else {
       console.log('[loadTileset] 使用tileset自带的transform')
     }
 
     viewer.scene.primitives.add(tileset)
     console.log('[loadTileset] Tileset 已添加到场景')
+
+    // 强制设置tileset可见
+    tileset.show = true
+    tileset.style = new Cesium.Cesium3DTileStyle({ show: true })
+    console.log('[loadTileset] 强制设置tileset可见性')
 
     // 等待tileset初始加载完成，确保boundingSphere已经计算
     let attempts = 0
@@ -733,48 +776,34 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
       center: tileset.boundingSphere?.center ?? 'undefined'
     })
 
-    // 获取tileset的实际中心位置
+    // 确定最终使用的位置和包围球中心
     let actualPosition: number[]
     let center: Cesium.Cartesian3
 
-    if (tileset.boundingSphere && tileset.boundingSphere.radius > 0) {
-      center = tileset.boundingSphere.center
-      console.log('[loadTileset] BoundingSphere center:', center ?? 'undefined')
-
-      // 检查center是否有效（不是NaN或0,0,0）
-      const isValidCenter = center &&
-                           !isNaN(center.x) && !isNaN(center.y) && !isNaN(center.z) &&
-                           (center.x !== 0 || center.y !== 0 || center.z !== 0)
-
-      if (isValidCenter) {
-        const cartographic = Cesium.Cartographic.fromCartesian(center)
-        if (cartographic) {
-          actualPosition = [
-            Cesium.Math.toDegrees(cartographic.longitude),
-            Cesium.Math.toDegrees(cartographic.latitude),
-            cartographic.height
-          ]
-          console.log('[loadTileset] Tileset实际中心位置:', actualPosition)
-        } else {
-          console.warn('[loadTileset] Cartographic转换返回null，使用默认位置')
-          actualPosition = obj.position
-          center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
-        }
-      } else {
-        console.warn('[loadTileset] BoundingSphere center无效，tileset可能使用本地坐标系')
-        actualPosition = await handleLocalCoordinateTileset(tileset, obj, parsedRotation, parsedScale)
-        center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
-      }
-    } else {
-      console.warn('[loadTileset] BoundingSphere未就绪，使用对象指定位置')
+    // 如果包围盒无效或者强制应用了modelMatrix，直接使用对象位置
+    if (!boundingSphereIsValid || customTransform) {
       actualPosition = obj.position
       center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+      console.log('[loadTileset] 使用对象位置作为中心:', actualPosition)
+    } else {
+      // 使用tileset的boundingSphere中心
+      const bsCenter = tileset.boundingSphere.center
+      const cartographic = Cesium.Cartographic.fromCartesian(bsCenter)
+      if (cartographic) {
+        actualPosition = [
+          Cesium.Math.toDegrees(cartographic.longitude),
+          Cesium.Math.toDegrees(cartographic.latitude),
+          cartographic.height
+        ]
+        center = bsCenter
+        console.log('[loadTileset] 使用tileset包围球中心:', actualPosition)
+      } else {
+        actualPosition = obj.position
+        center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
+      }
     }
 
-    const cartesian = customTransform
-      ? Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
-      : center
-
+    const cartesian = center
     loadedModels.set(obj.id, { type: '3dtiles', object: tileset, position: cartesian })
 
     // 使用实际位置添加调试标记
@@ -785,8 +814,11 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
       addDebugSphere(viewer, actualPosition)
     }
 
-    // 强制加载瓦片
-    tileset.maximumScreenSpaceError = 1024
+    // 强制加载所有瓦片（设置为0以绕过LOD检查）
+    tileset.maximumScreenSpaceError = 0
+
+    // 强制更新以立即加载瓦片
+    viewer.scene.requestRender()
 
     // 添加延迟避免异步响应问题
     await new Promise(resolve => setTimeout(resolve, 100))
@@ -1294,9 +1326,12 @@ const createViewerOptions = () => ({
   shadows: false,             // 启用阴影
   shouldAnimate: true,        // 自动动画
 
-  // 请求渲染模式（优化性能）
+  // 请求渲染模式（优化性能）- 禁用以确保持续渲染
   requestRenderMode: false,   // 设为false以持续渲染
-  maximumRenderTimeChange: Infinity
+  maximumRenderTimeChange: Infinity,
+
+  // 场景配置
+  scene3DOnly: false         // 允许2D/3D/Columbus视图
 })
 
 /**
@@ -1366,6 +1401,11 @@ const initCesium = async (): Promise<void> => {
 
     // 创建Cesium查看器
     viewer = new Cesium.Viewer(cesiumContainer.value, createViewerOptions())
+
+    // 配置globe设置（必须在viewer创建后设置）
+    if (viewer.scene.globe) {
+      viewer.scene.globe.depthTestAgainstTerrain = false  // 禁用地形深度测试，避免模型被遮挡
+    }
 
     // 隐藏Cesium Logo
     hideCesiumLogo(viewer)
