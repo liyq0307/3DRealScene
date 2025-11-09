@@ -438,11 +438,24 @@ builder.Services.AddScoped<TilesetGenerator>();
 
 // 模型加载器：加载和解析各种3D模型格式
 builder.Services.AddScoped<MtlParser>();
-builder.Services.AddScoped<ObjModelLoader>();
-builder.Services.AddScoped<GltfModelLoader>();
 
-// 模型加载器接口注册（默认使用ObjModelLoader）
-builder.Services.AddScoped<IModelLoader, ObjModelLoader>();
+// 通用格式加载器
+builder.Services.AddScoped<ObjModelLoader>();     // OBJ格式（含MTL材质）
+builder.Services.AddScoped<GltfModelLoader>();    // GLTF/GLB格式
+builder.Services.AddScoped<StlModelLoader>();     // STL格式（3D打印常用）
+builder.Services.AddScoped<PlyModelLoader>();     // PLY格式（点云和网格）
+
+// 专业格式加载器（需要集成第三方库）
+builder.Services.AddScoped<FbxModelLoader>();     // FBX格式（游戏/影视，需要Assimp.NET）
+builder.Services.AddScoped<IfcModelLoader>();     // IFC格式（BIM建筑，需要xBIM）
+builder.Services.AddScoped<OsgbModelLoader>();    // OSGB格式（倾斜摄影，需要OSG或格式转换）
+
+// 组合模型加载器：自动根据文件扩展名选择合适的加载器
+// 支持格式: .obj, .gltf, .glb, .stl, .ply, .fbx, .ifc, .ifcxml, .ifczip, .osgb, .osg
+builder.Services.AddScoped<CompositeModelLoader>();
+
+// 模型加载器接口注册（使用组合加载器支持多种格式）
+builder.Services.AddScoped<IModelLoader, CompositeModelLoader>();
 
 // 网格处理服务：LOD生成和纹理优化
 builder.Services.AddScoped<MeshDecimationService>(); // QEM网格简化服务
