@@ -5,7 +5,7 @@ using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
 using System.Text.Json;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Strategys;
 
 /// <summary>
 /// 自适应切片策略 - 基于几何密度和特征的智能剖分

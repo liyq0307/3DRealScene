@@ -3,7 +3,7 @@ using RealScene3D.Domain.Entities;
 using RealScene3D.Infrastructure.Data;
 using System.Text.Json;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Workflows;
 
 /// <summary>
 /// 工作流模板服务

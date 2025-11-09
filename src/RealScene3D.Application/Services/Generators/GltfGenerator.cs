@@ -4,7 +4,7 @@ using RealScene3D.Domain.Interfaces;
 using System.Text;
 using System.Text.Json;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Generators;
 
 /// <summary>
 /// GLTF生成器 - 生成标准glTF 2.0格式文件

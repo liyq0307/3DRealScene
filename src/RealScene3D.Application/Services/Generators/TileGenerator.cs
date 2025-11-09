@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Generators;
 
 /// <summary>
 /// 瓦片生成器抽象基类 - 为各种3D Tiles格式提供统一接口

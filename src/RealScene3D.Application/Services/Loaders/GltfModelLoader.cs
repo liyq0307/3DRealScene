@@ -6,7 +6,7 @@ using SharpGLTF.Schema2;
 using System.Numerics;
 using Material = RealScene3D.Domain.Entities.Material;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Loaders;
 
 /// <summary>
 /// GLTF/GLB 模型加载器 - 实现 IModelLoader 接口

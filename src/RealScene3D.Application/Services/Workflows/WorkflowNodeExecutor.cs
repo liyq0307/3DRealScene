@@ -4,7 +4,7 @@ using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.Workflow;
 using System.Text.Json;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Workflows;
 
 /// <summary>
 /// 自定义工作流节点执行器

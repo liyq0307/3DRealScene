@@ -4,7 +4,7 @@ using RealScene3D.Domain.Interfaces;
 using System.Text;
 using System.Text.Json;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Generators;
 
 /// <summary>
 /// I3DM生成器 - 生成Cesium 3D Tiles的Instanced 3D Model格式

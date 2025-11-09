@@ -1,11 +1,10 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Application.Services;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using System.Text;
 using System.Text.Json;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Generators;
 
 /// <summary>
 /// B3DM生成器 - 生成Cesium 3D Tiles的Batched 3D Model格式

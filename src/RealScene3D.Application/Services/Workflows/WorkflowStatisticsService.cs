@@ -5,7 +5,7 @@ using RealScene3D.Infrastructure.Data;
 using System.Text.Json;
 using WorkflowStats = RealScene3D.Application.DTOs.WorkflowStatisticsDtos;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Workflows;
 
 /// <summary>
 /// 工作流统计和监控服务

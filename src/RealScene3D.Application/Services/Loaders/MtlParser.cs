@@ -3,7 +3,7 @@ using RealScene3D.Domain.Entities;
 using System.Globalization;
 using System.Text;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Loaders;
 
 /// <summary>
 /// MTL文件解析器 - 解析Wavefront MTL材质文件

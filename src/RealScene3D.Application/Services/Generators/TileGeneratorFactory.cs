@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using RealScene3D.Domain.Interfaces;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Generators;
 
 /// <summary>
 /// 瓦片生成器工厂实现 - 基于依赖注入的工厂模式

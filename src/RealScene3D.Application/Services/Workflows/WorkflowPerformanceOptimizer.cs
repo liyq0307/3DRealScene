@@ -5,7 +5,7 @@ using RealScene3D.Domain.Interfaces;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Workflows;
 
 /// <summary>
 /// 工作流性能优化器

@@ -6,7 +6,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading.Tasks.Dataflow;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Strategys;
 
 /// <summary>
 /// 网格切片策略 - 规则网格剖分算法

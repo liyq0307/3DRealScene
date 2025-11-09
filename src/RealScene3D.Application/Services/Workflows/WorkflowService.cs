@@ -8,7 +8,7 @@ using RealScene3D.Infrastructure.Data;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Workflows;
 
 /// <summary>
 /// 工作流服务实现

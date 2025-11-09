@@ -1,9 +1,10 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Application.Interfaces;
+using RealScene3D.Application.Services.Generators;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Strategys;
 
 /// <summary>
 /// 递归空间剖分策略 - 基于八叉树/四叉树的递归剖分算法

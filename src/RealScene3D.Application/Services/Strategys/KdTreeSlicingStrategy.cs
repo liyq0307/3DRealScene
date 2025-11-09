@@ -4,7 +4,7 @@ using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Strategys;
 
 /// <summary>
 /// KD树切片策略 - 自适应空间剖分算法

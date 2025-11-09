@@ -5,7 +5,7 @@ using RealScene3D.Domain.Interfaces;
 using System.Globalization;
 using System.Text;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Loaders;
 
 /// <summary>
 /// OBJ模型加载器 - 加载和解析Wavefront OBJ格式的3D模型

@@ -3,7 +3,7 @@ using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Strategys;
 
 /// <summary>
 /// 切片策略工厂实现 - 创建各种切片策略实例

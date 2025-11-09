@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Application.Interfaces;
+using RealScene3D.Application.Services.Generators;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 

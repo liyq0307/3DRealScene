@@ -4,7 +4,7 @@ using RealScene3D.Domain.Interfaces;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace RealScene3D.Application.Services;
+namespace RealScene3D.Application.Services.Generators;
 
 /// <summary>
 /// Tileset生成器 - 为Cesium 3D Tiles生成tileset.json文件
