@@ -418,6 +418,35 @@ builder.Services.AddScoped<ISlicingAppService, SlicingAppService>();
 // 切片后台处理器：执行实际的切片处理任务，支持异步队列
 builder.Services.AddScoped<ISlicingProcessor, SlicingProcessor>();
 
+// 3D Tiles生成器工厂：支持动态创建不同格式的瓦片生成器
+builder.Services.AddScoped<ITileGeneratorFactory, TileGeneratorFactory>();
+
+// 切片策略工厂：支持动态创建不同的切片策略
+builder.Services.AddScoped<ISlicingStrategyFactory, SlicingStrategyFactory>();
+
+// 3D Tiles生成器：生成各种3D Tiles格式的瓦片文件
+builder.Services.AddScoped<B3dmGenerator>();
+builder.Services.AddScoped<GltfGenerator>();
+builder.Services.AddScoped<I3dmGenerator>();
+builder.Services.AddScoped<PntsGenerator>();
+builder.Services.AddScoped<CmptGenerator>();
+builder.Services.AddScoped<TilesetGenerator>();
+
+// 模型加载器：加载和解析各种3D模型格式
+builder.Services.AddScoped<MtlParser>();
+builder.Services.AddScoped<ObjModelLoader>();
+builder.Services.AddScoped<GltfModelLoader>();
+
+// 模型加载器接口注册（默认使用ObjModelLoader）
+builder.Services.AddScoped<IModelLoader, ObjModelLoader>();
+
+// 网格处理服务：LOD生成和纹理优化
+builder.Services.AddScoped<MeshDecimationService>(); // QEM网格简化服务
+builder.Services.AddScoped<TextureAtlasGenerator>(); // 纹理图集生成器
+
+// Obj2Tiles集成服务：端到端OBJ/GLTF转3D Tiles
+builder.Services.AddScoped<Obj2TilesIntegrationService>();
+
 // 添加索引文件生成服务（已存在）
 
 // ========== 系统监控服务配置 ==========

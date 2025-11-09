@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
@@ -10,10 +11,27 @@ namespace RealScene3D.Application.Services;
 /// 自适应切片策略 - 基于几何密度和特征的智能剖分
 /// 自动调整切片大小和LOD级别，优化渲染性能和视觉效果
 /// </summary>
-public class AdaptiveSlicingStrategy(ILogger logger, IMinioStorageService? minioService = null) : ISlicingStrategy
+public class AdaptiveSlicingStrategy : ISlicingStrategy
 {
-    private readonly ILogger _logger = logger;
-    private readonly IMinioStorageService? _minioService = minioService;
+    private readonly ILogger _logger;
+    private readonly IMinioStorageService? _minioService;
+    private readonly ITileGeneratorFactory? _tileGeneratorFactory;
+
+    /// <summary>
+    /// 构造函数 - 注入日志记录器和可选服务
+    /// </summary>
+    /// <param name="logger">日志记录器</param>
+    /// <param name="tileGeneratorFactory">瓦片生成器工厂，用于动态创建不同格式的生成器（可选）</param>
+    /// <param name="minioService">MinIO存储服务（可选）</param>
+    public AdaptiveSlicingStrategy(
+        ILogger logger,
+        ITileGeneratorFactory? tileGeneratorFactory = null,
+        IMinioStorageService? minioService = null)
+    {
+        _logger = logger;
+        _tileGeneratorFactory = tileGeneratorFactory;
+        _minioService = minioService;
+    }
 
     public async Task<List<Slice>> GenerateSlicesAsync(SlicingTask task, int level, SlicingConfig config, BoundingBox3D modelBounds, CancellationToken cancellationToken)
     {

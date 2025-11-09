@@ -10,15 +10,44 @@ namespace RealScene3D.Application.Services;
 /// <summary>
 /// B3DM生成器 - 生成Cesium 3D Tiles的Batched 3D Model格式
 /// 将三角形网格数据转换为GLB(Binary glTF)格式,并封装为B3DM文件
+/// 完整支持顶点位置、法线和纹理坐标
 /// 参考: Cesium 3D Tiles Specification 1.0
+/// 继承自TileGenerator,实现B3DM格式的具体生成逻辑
 /// </summary>
-public class B3dmGenerator
+public class B3dmGenerator : TileGenerator
 {
-    private readonly ILogger<B3dmGenerator> _logger;
+    private readonly GltfGenerator _gltfGenerator;
 
-    public B3dmGenerator(ILogger<B3dmGenerator> logger)
+    /// <summary>
+    /// 构造函数 - 注入日志记录器和 GLTF 生成器
+    /// </summary>
+    /// <param name="logger">日志记录器实例</param>
+    /// <param name="gltfGenerator">GLTF 生成器（用于生成内嵌的 GLB 数据）</param>
+    public B3dmGenerator(ILogger<B3dmGenerator> logger, GltfGenerator gltfGenerator) : base(logger)
     {
-        _logger = logger;
+        _gltfGenerator = gltfGenerator ?? throw new ArgumentNullException(nameof(gltfGenerator));
+    }
+
+    /// <summary>
+    /// 生成瓦片文件数据 - 实现抽象方法
+    /// 调用B3DM格式的具体实现
+    /// </summary>
+    /// <param name="triangles">三角形网格数据</param>
+    /// <param name="bounds">空间包围盒</param>
+    /// <param name="materials">材质字典</param>
+    /// <returns>B3DM瓦片文件的二进制数据</returns>
+    public override byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    {
+        return GenerateB3DM(triangles, bounds, materials);
+    }
+
+    /// <summary>
+    /// 获取瓦片格式名称
+    /// </summary>
+    /// <returns>格式名称 "B3DM"</returns>
+    protected override string GetFormatName()
+    {
+        return "B3DM";
     }
 
     /// <summary>
@@ -27,8 +56,9 @@ public class B3dmGenerator
     /// </summary>
     /// <param name="triangles">三角形列表</param>
     /// <param name="bounds">包围盒</param>
+    /// <param name="materials">材质字典</param>
     /// <returns>B3DM文件的二进制数据</returns>
-    public byte[] GenerateB3DM(List<Triangle> triangles, BoundingBox3D bounds)
+    public byte[] GenerateB3DM(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
     {
         if (triangles == null || triangles.Count == 0)
         {
@@ -40,10 +70,11 @@ public class B3dmGenerator
         try
         {
             // 1. 生成GLB二进制数据
-            var glbData = GenerateGLB(triangles);
+            var glbData = GenerateGLB(triangles, materials);
 
             // 2. 构建Feature Table (必需)
-            var featureTableJson = GenerateFeatureTableJson(triangles.Count);
+            var batchCount = materials?.Count ?? 0;
+            var featureTableJson = GenerateFeatureTableJson(batchCount);
             var featureTableJsonBytes = Encoding.UTF8.GetBytes(featureTableJson);
 
             // 对齐到4字节边界
@@ -52,8 +83,8 @@ public class B3dmGenerator
             // Feature Table Binary (当前为空)
             var featureTableBinary = Array.Empty<byte>();
 
-            // 3. 构建Batch Table (可选,当前为空)
-            var batchTableJson = "{}";
+            // 3. 构建Batch Table (包含材质信息)
+            var batchTableJson = GenerateBatchTableJson(triangles, materials);
             var batchTableJsonBytes = Encoding.UTF8.GetBytes(batchTableJson);
             var batchTableJsonPadded = PadTo4ByteBoundary(batchTableJsonBytes);
             var batchTableBinary = Array.Empty<byte>();
@@ -111,243 +142,107 @@ public class B3dmGenerator
     /// <summary>
     /// 生成GLB (Binary glTF 2.0) 数据
     /// GLB格式: Header + JSON Chunk + Binary Chunk
+    /// 支持POSITION, NORMAL, TEXCOORD_0属性
+    /// 委托给 GltfGenerator 实现，确保材质支持的一致性
     /// </summary>
-    private byte[] GenerateGLB(List<Triangle> triangles)
+    /// <param name="triangles">三角形列表</param>
+    /// <param name="materials">材质字典</param>
+    /// <returns>GLB文件的二进制数据</returns>
+    private byte[] GenerateGLB(List<Triangle> triangles, Dictionary<string, Material>? materials = null)
     {
-        // 1. 提取顶点数据
-        var (positions, indices) = ExtractVertexData(triangles);
-
-        // 2. 创建Binary Buffer
-        var binaryData = CreateBinaryBuffer(positions, indices);
-
-        // 3. 创建glTF JSON
-        var gltfJson = CreateGltfJson(positions.Length / 3, indices.Length, binaryData.Length);
-        var gltfJsonBytes = Encoding.UTF8.GetBytes(gltfJson);
-        var gltfJsonPadded = PadTo4ByteBoundary(gltfJsonBytes);
-
-        // Binary Chunk需要对齐
-        var binaryDataPadded = PadTo4ByteBoundary(binaryData);
-
-        // 4. 构建GLB
-        int headerLength = 12;
-        int jsonChunkLength = 8 + gltfJsonPadded.Length;
-        int binaryChunkLength = 8 + binaryDataPadded.Length;
-        int totalLength = headerLength + jsonChunkLength + binaryChunkLength;
-
-        using var ms = new MemoryStream(totalLength);
-        using var writer = new BinaryWriter(ms);
-
-        // GLB Header (12 bytes)
-        writer.Write((uint)0x46546C67);           // magic "glTF" (4 bytes)
-        writer.Write((uint)2);                    // version 2 (4 bytes)
-        writer.Write((uint)totalLength);          // length (4 bytes)
-
-        // JSON Chunk
-        writer.Write((uint)gltfJsonPadded.Length); // chunkLength (4 bytes)
-        writer.Write((uint)0x4E4F534A);           // chunkType "JSON" (4 bytes)
-        writer.Write(gltfJsonPadded);             // chunkData
-
-        // Binary Chunk
-        writer.Write((uint)binaryDataPadded.Length); // chunkLength (4 bytes)
-        writer.Write((uint)0x004E4942);           // chunkType "BIN\0" (4 bytes)
-        writer.Write(binaryDataPadded);           // chunkData
-
-        return ms.ToArray();
-    }
-
-    /// <summary>
-    /// 提取顶点位置和索引数据
-    /// 使用字典去重,优化顶点数量
-    /// </summary>
-    private (float[] positions, ushort[] indices) ExtractVertexData(List<Triangle> triangles)
-    {
-        var vertexMap = new Dictionary<string, ushort>();
-        var positionsList = new List<float>();
-        var indicesList = new List<ushort>();
-
-        ushort currentIndex = 0;
-
-        foreach (var triangle in triangles)
-        {
-            foreach (var vertex in triangle.Vertices)
-            {
-                // 使用坐标字符串作为key进行去重
-                var key = $"{vertex.X:F6}_{vertex.Y:F6}_{vertex.Z:F6}";
-
-                if (!vertexMap.TryGetValue(key, out ushort index))
-                {
-                    index = currentIndex++;
-                    vertexMap[key] = index;
-
-                    // 添加顶点位置 (x, y, z)
-                    positionsList.Add((float)vertex.X);
-                    positionsList.Add((float)vertex.Y);
-                    positionsList.Add((float)vertex.Z);
-                }
-
-                indicesList.Add(index);
-            }
-        }
-
-        _logger.LogDebug("顶点提取: 原始={Original}, 去重后={Unique}, 三角形={Triangles}",
-            triangles.Count * 3, currentIndex, triangles.Count);
-
-        return (positionsList.ToArray(), indicesList.ToArray());
-    }
-
-    /// <summary>
-    /// 创建二进制缓冲区 (positions + indices)
-    /// 布局: [positions...] [indices...]
-    /// </summary>
-    private byte[] CreateBinaryBuffer(float[] positions, ushort[] indices)
-    {
-        int positionsSize = positions.Length * sizeof(float);
-        int indicesSize = indices.Length * sizeof(ushort);
-
-        // indices需要对齐到4字节
-        int indicesPadding = (4 - (indicesSize % 4)) % 4;
-        int totalSize = positionsSize + indicesSize + indicesPadding;
-
-        var buffer = new byte[totalSize];
-
-        // 写入positions
-        Buffer.BlockCopy(positions, 0, buffer, 0, positionsSize);
-
-        // 写入indices
-        for (int i = 0; i < indices.Length; i++)
-        {
-            var indexBytes = BitConverter.GetBytes(indices[i]);
-            Buffer.BlockCopy(indexBytes, 0, buffer, positionsSize + i * sizeof(ushort), sizeof(ushort));
-        }
-
-        return buffer;
-    }
-
-    /// <summary>
-    /// 创建glTF JSON描述
-    /// 定义场景、网格、访问器、缓冲区视图等
-    /// </summary>
-    private string CreateGltfJson(int vertexCount, int indexCount, int binaryBufferLength)
-    {
-        var gltf = new
-        {
-            asset = new { version = "2.0", generator = "RealScene3D.B3dmGenerator" },
-            scene = 0,
-            scenes = new[] { new { nodes = new[] { 0 } } },
-            nodes = new[] { new { mesh = 0 } },
-            meshes = new[]
-            {
-                new
-                {
-                    primitives = new[]
-                    {
-                        new
-                        {
-                            attributes = new { POSITION = 0 },
-                            indices = 1,
-                            mode = 4 // TRIANGLES
-                        }
-                    }
-                }
-            },
-            accessors = new[]
-            {
-                // Accessor 0: POSITION
-                new
-                {
-                    bufferView = 0,
-                    componentType = 5126, // FLOAT
-                    count = vertexCount,
-                    type = "VEC3",
-                    max = new[] { 1.0, 1.0, 1.0 }, // 实际应计算真实范围
-                    min = new[] { -1.0, -1.0, -1.0 }
-                },
-                // Accessor 1: INDICES
-                new
-                {
-                    bufferView = 1,
-                    componentType = 5123, // UNSIGNED_SHORT
-                    count = indexCount,
-                    type = "SCALAR"
-                }
-            },
-            bufferViews = new[]
-            {
-                // BufferView 0: positions
-                new
-                {
-                    buffer = 0,
-                    byteOffset = 0,
-                    byteLength = vertexCount * 3 * sizeof(float),
-                    target = 34962 // ARRAY_BUFFER
-                },
-                // BufferView 1: indices
-                new
-                {
-                    buffer = 0,
-                    byteOffset = vertexCount * 3 * sizeof(float),
-                    byteLength = indexCount * sizeof(ushort),
-                    target = 34963 // ELEMENT_ARRAY_BUFFER
-                }
-            },
-            buffers = new[]
-            {
-                new { byteLength = binaryBufferLength }
-            }
-        };
-
-        return JsonSerializer.Serialize(gltf, new JsonSerializerOptions
-        {
-            WriteIndented = false,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        });
+        // 使用 GltfGenerator 生成 GLB，确保材质支持
+        // 计算包围盒（使用基类方法）
+        var bounds = CalculateBoundingBox(triangles);
+        return _gltfGenerator.GenerateGLB(triangles, bounds, materials);
     }
 
     /// <summary>
     /// 生成Feature Table JSON
-    /// 定义batch的数量
+    /// 定义batch的数量（如果有材质，batch数量等于材质数量）
     /// </summary>
-    private string GenerateFeatureTableJson(int triangleCount)
+    private string GenerateFeatureTableJson(int batchCount)
     {
         var featureTable = new
         {
-            BATCH_LENGTH = 0 // 当前不使用batch,设为0
+            BATCH_LENGTH = batchCount
         };
 
         return JsonSerializer.Serialize(featureTable);
     }
 
     /// <summary>
-    /// 将字节数组填充到4字节边界
-    /// GLB和B3DM格式要求
+    /// 生成Batch Table JSON
+    /// 存储每个batch的材质ID和名称
     /// </summary>
-    private byte[] PadTo4ByteBoundary(byte[] data)
+    /// <param name="triangles">三角形列表</param>
+    /// <param name="materials">材质字典</param>
+    /// <returns>Batch Table JSON字符串</returns>
+    private string GenerateBatchTableJson(List<Triangle> triangles, Dictionary<string, Material>? materials)
     {
-        int padding = (4 - (data.Length % 4)) % 4;
-        if (padding == 0)
-            return data;
+        if (materials == null || materials.Count == 0)
+        {
+            return "{}";
+        }
 
-        var padded = new byte[data.Length + padding];
-        Array.Copy(data, padded, data.Length);
+        // 创建材质名称到ID的映射
+        var materialNameToId = new Dictionary<string, int>();
+        var materialId = 0;
+        foreach (var materialName in materials.Keys)
+        {
+            materialNameToId[materialName] = materialId++;
+        }
 
-        // 填充空格(0x20)用于JSON,填充0x00用于二进制
-        byte paddingByte = 0x20; // 假设是JSON
-        for (int i = data.Length; i < padded.Length; i++)
-            padded[i] = paddingByte;
+        // 为每个batch（材质）记录信息
+        var materialIds = new List<int>();
+        var materialNames = new List<string>();
 
-        return padded;
+        foreach (var (materialName, id) in materialNameToId.OrderBy(kv => kv.Value))
+        {
+            materialIds.Add(id);
+            materialNames.Add(materialName);
+        }
+
+        var batchTable = new
+        {
+            MaterialID = materialIds.ToArray(),
+            MaterialName = materialNames.ToArray()
+        };
+
+        var json = JsonSerializer.Serialize(batchTable, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+
+        _logger.LogDebug("Batch Table 包含 {Count} 个材质", materialIds.Count);
+        return json;
+    }
+
+    /// <summary>
+    /// 保存瓦片文件到磁盘 - 实现抽象方法
+    /// </summary>
+    /// <param name="triangles">三角形列表</param>
+    /// <param name="bounds">空间包围盒</param>
+    /// <param name="outputPath">输出文件路径</param>
+    /// <param name="materials">材质字典（可选）</param>
+    public override async Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
+    {
+        await SaveB3DMFileAsync(triangles, bounds, outputPath, materials);
     }
 
     /// <summary>
     /// 保存B3DM文件到磁盘
     /// </summary>
-    public async Task SaveB3DMFileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath)
+    /// <param name="triangles">三角形列表</param>
+    /// <param name="bounds">空间包围盒</param>
+    /// <param name="outputPath">输出文件路径</param>
+    /// <param name="materials">材质字典（可选）</param>
+    public async Task SaveB3DMFileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
     {
         _logger.LogInformation("保存B3DM文件: {Path}", outputPath);
 
         try
         {
-            var b3dmData = GenerateB3DM(triangles, bounds);
+            var b3dmData = GenerateB3DM(triangles, bounds, materials);
 
             // 确保目录存在
             var directory = Path.GetDirectoryName(outputPath);

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 
@@ -9,9 +10,37 @@ namespace RealScene3D.Application.Services;
 /// KD树切片策略 - 自适应空间剖分算法
 /// 基于方差的二分剖分，适用于高维空间查询优化
 /// </summary>
-public class KdTreeSlicingStrategy(ILogger logger) : ISlicingStrategy
+public class KdTreeSlicingStrategy : ISlicingStrategy
 {
-    private readonly ILogger _logger = logger;
+    private readonly ILogger _logger;
+
+    // 网格简化服务（可选）
+    private readonly MeshDecimationService? _meshDecimationService;
+
+    // 瓦片生成器工厂
+    private readonly ITileGeneratorFactory _tileGeneratorFactory;
+
+    // 模型加载器
+    private readonly IModelLoader _modelLoader;
+
+    /// <summary>
+    /// 构造函数 - 注入日志记录器和必需的服务
+    /// </summary>
+    /// <param name="logger">日志记录器</param>
+    /// <param name="tileGeneratorFactory">瓦片生成器工厂，用于动态创建不同格式的生成器</param>
+    /// <param name="modelLoader">模型加载器</param>
+    /// <param name="meshDecimationService">网格简化服务（可选，用于LOD生成）</param>
+    public KdTreeSlicingStrategy(
+        ILogger logger,
+        ITileGeneratorFactory tileGeneratorFactory,
+        IModelLoader modelLoader,
+        MeshDecimationService? meshDecimationService = null)
+    {
+        _logger = logger;
+        _tileGeneratorFactory = tileGeneratorFactory ?? throw new ArgumentNullException(nameof(tileGeneratorFactory));
+        _modelLoader = modelLoader ?? throw new ArgumentNullException(nameof(modelLoader));
+        _meshDecimationService = meshDecimationService;
+    }
 
     public async Task<List<Slice>> GenerateSlicesAsync(SlicingTask task, int level, SlicingConfig config, BoundingBox3D modelBounds, CancellationToken cancellationToken)
     {
@@ -346,6 +375,124 @@ public class KdTreeSlicingStrategy(ILogger logger) : ISlicingStrategy
         var estimatedSize = (long)(baseSize * depthFactor * dimensionFactor * volumeFactor);
 
         return Math.Max(256, Math.Min(52428800, estimatedSize)); // 256B - 50MB
+    }
+
+    /// <summary>
+    /// 从切片任务加载三角形数据
+    /// </summary>
+    private async Task<List<Triangle>?> LoadTrianglesFromTask(SlicingTask task, CancellationToken cancellationToken)
+    {
+        if (task == null)
+            throw new ArgumentNullException(nameof(task), "切片任务不能为空");
+
+        if (string.IsNullOrWhiteSpace(task.SourceModelPath))
+            throw new ArgumentException("源模型路径不能为空", nameof(task.SourceModelPath));
+
+        if (string.IsNullOrWhiteSpace(task.ModelType))
+            throw new ArgumentException("模型类型不能为空", nameof(task.ModelType));
+
+        try
+        {
+            var fileExtension = Path.GetExtension(task.SourceModelPath)?.ToLowerInvariant();
+            if (string.IsNullOrEmpty(fileExtension))
+            {
+                _logger.LogError("无法确定模型文件的扩展名：{SourceModelPath}", task.SourceModelPath);
+                throw new InvalidOperationException($"无法确定模型文件的扩展名：{task.SourceModelPath}");
+            }
+
+            if (!_modelLoader.SupportsFormat(fileExtension))
+            {
+                _logger.LogError("模型加载器不支持此文件格式：{FileExtension}", fileExtension);
+                throw new InvalidOperationException($"不支持的模型文件格式：{fileExtension}");
+            }
+
+            _logger.LogInformation("开始加载模型文件：{SourceModelPath}", task.SourceModelPath);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromMinutes(10));
+
+            var (triangles, boundingBox, materials) = await _modelLoader.LoadModelAsync(task.SourceModelPath, cts.Token);
+
+            if (triangles == null || triangles.Count == 0)
+            {
+                _logger.LogWarning("模型文件加载成功但未包含任何三角形数据：{SourceModelPath}", task.SourceModelPath);
+                return new List<Triangle>();
+            }
+
+            var invalidTriangles = triangles.Count(t =>
+                t == null || t.Vertices == null || t.Vertices.Length != 3 || t.Vertices.Any(v => v == null));
+
+            if (invalidTriangles > 0)
+            {
+                _logger.LogWarning("发现{InvalidCount}个无效三角形，已过滤", invalidTriangles);
+                triangles = triangles.Where(t =>
+                    t != null && t.Vertices != null && t.Vertices.Length == 3 && t.Vertices.All(v => v != null)).ToList();
+            }
+
+            _logger.LogInformation("模型加载完成：{TriangleCount}个三角形", triangles.Count);
+            return triangles;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "模型加载失败：{SourceModelPath}", task.SourceModelPath);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 应用LOD简化
+    /// </summary>
+    private List<Triangle> SimplifyMeshForLOD(List<Triangle> triangles, int level, int maxLevel)
+    {
+        if (_meshDecimationService == null || triangles.Count < 10)
+            return triangles;
+
+        try
+        {
+            var quality = CalculateLODQuality(level, maxLevel);
+            var options = new MeshDecimationService.DecimationOptions
+            {
+                Quality = quality,
+                PreserveBoundary = true,
+                MaxIterations = 100
+            };
+
+            var decimated = _meshDecimationService.SimplifyMesh(triangles, options);
+            return decimated.Triangles;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "网格简化失败，使用原始网格");
+            return triangles;
+        }
+    }
+
+    /// <summary>
+    /// 计算LOD质量因子
+    /// </summary>
+    private double CalculateLODQuality(int level, int maxLevel)
+    {
+        if (level >= maxLevel)
+            return 1.0;
+
+        var ratio = (double)level / maxLevel;
+        return Math.Pow(ratio, 0.5);
+    }
+
+    /// <summary>
+    /// 序列化包围盒为JSON
+    /// </summary>
+    private string SerializeBoundingBox(BoundingBox3D bounds)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            bounds.MinX,
+            bounds.MinY,
+            bounds.MinZ,
+            bounds.MaxX,
+            bounds.MaxY,
+            bounds.MaxZ
+        });
     }
 
     private class KdTreeNode

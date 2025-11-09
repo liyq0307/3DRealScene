@@ -204,31 +204,55 @@ public class MeshDecimationService
     /// <returns>各级LOD的网格列表</returns>
     public List<DecimatedMesh> GenerateLODs(List<Triangle> triangles, int lodLevels)
     {
-        var lodMeshes = new List<DecimatedMesh>();
+        return GenerateLODs(triangles, lodLevels, enableParallel: true);
+    }
 
-        _logger.LogInformation("开始生成多LOD网格：原始三角形={Count}，LOD级别={Levels}",
-            triangles.Count, lodLevels);
+    /// <summary>
+    /// 生成多LOD网格（支持并行处理）
+    /// 参考Obj2Tiles的策略：quality[i] = 1 - ((i + 1) / lods)
+    /// </summary>
+    /// <param name="triangles">原始三角形列表</param>
+    /// <param name="lodLevels">LOD级别数量</param>
+    /// <param name="enableParallel">是否启用并行处理（默认启用）</param>
+    /// <returns>各级LOD的网格列表</returns>
+    public List<DecimatedMesh> GenerateLODs(List<Triangle> triangles, int lodLevels, bool enableParallel = true)
+    {
+        _logger.LogInformation("开始生成多LOD网格：原始三角形={Count}，LOD级别={Levels}，并行={Parallel}",
+            triangles.Count, lodLevels, enableParallel);
+
+        var startTime = DateTime.UtcNow;
+
+        if (!enableParallel || lodLevels == 1)
+        {
+            // 顺序处理（单个LOD或禁用并行时）
+            return GenerateLODsSequential(triangles, lodLevels);
+        }
+        else
+        {
+            // 并行处理（多个LOD时）
+            var result = GenerateLODsParallel(triangles, lodLevels);
+
+            var elapsed = DateTime.UtcNow - startTime;
+            _logger.LogInformation("并行LOD生成总耗时={Elapsed:F2}秒，平均每级={Average:F2}秒",
+                elapsed.TotalSeconds, elapsed.TotalSeconds / lodLevels);
+
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// 顺序生成LOD（原始方法）
+    /// </summary>
+    private List<DecimatedMesh> GenerateLODsSequential(List<Triangle> triangles, int lodLevels)
+    {
+        var lodMeshes = new List<DecimatedMesh>();
 
         for (int i = 0; i < lodLevels; i++)
         {
-            // Obj2Tiles的质量计算公式
-            double quality = 1.0 - ((double)(i + 1) / lodLevels);
-
-            // Level 0保持原始质量
-            if (i == 0)
-            {
-                quality = 1.0;
-            }
-
-            var options = new DecimationOptions
-            {
-                Quality = quality,
-                PreserveBoundary = true,
-                PreserveUV = false,
-                Aggressiveness = 7.0
-            };
-
+            var quality = CalculateLODQuality(i, lodLevels);
+            var options = CreateDecimationOptions(quality);
             var decimatedMesh = SimplifyMesh(triangles, options);
+
             lodMeshes.Add(decimatedMesh);
 
             _logger.LogInformation("LOD级别{Level}生成完成：质量={Quality:F2}，三角形数={Count}",
@@ -236,6 +260,69 @@ public class MeshDecimationService
         }
 
         return lodMeshes;
+    }
+
+    /// <summary>
+    /// 并行生成LOD（性能优化版本）
+    /// 使用Parallel.For实现多核心并行处理
+    /// </summary>
+    private List<DecimatedMesh> GenerateLODsParallel(List<Triangle> triangles, int lodLevels)
+    {
+        // 使用ConcurrentBag保证线程安全
+        var lodMeshBag = new ConcurrentBag<(int level, DecimatedMesh mesh)>();
+
+        // 并行生成各级LOD
+        Parallel.For(0, lodLevels, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        }, i =>
+        {
+            var quality = CalculateLODQuality(i, lodLevels);
+            var options = CreateDecimationOptions(quality);
+
+            var decimatedMesh = SimplifyMesh(triangles, options);
+
+            lodMeshBag.Add((i, decimatedMesh));
+
+            _logger.LogInformation("LOD级别{Level}生成完成：质量={Quality:F2}，三角形数={Count}，线程ID={ThreadId}",
+                i, quality, decimatedMesh.SimplifiedTriangleCount, Environment.CurrentManagedThreadId);
+        });
+
+        // 按照LOD级别排序
+        var lodMeshes = lodMeshBag
+            .OrderBy(x => x.level)
+            .Select(x => x.mesh)
+            .ToList();
+
+        return lodMeshes;
+    }
+
+    /// <summary>
+    /// 计算LOD质量因子
+    /// </summary>
+    private double CalculateLODQuality(int level, int maxLevels)
+    {
+        // Obj2Tiles的质量计算公式
+        if (level == 0)
+        {
+            return 1.0; // Level 0保持原始质量
+        }
+
+        return 1.0 - ((double)(level + 1) / maxLevels);
+    }
+
+    /// <summary>
+    /// 创建简化配置
+    /// </summary>
+    private DecimationOptions CreateDecimationOptions(double quality)
+    {
+        return new DecimationOptions
+        {
+            Quality = quality,
+            PreserveBoundary = true,
+            PreserveUV = false,
+            Aggressiveness = 7.0
+        };
     }
 
     /// <summary>

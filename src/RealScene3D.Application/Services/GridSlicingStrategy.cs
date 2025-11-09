@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using System.Collections.Concurrent;
@@ -10,16 +11,40 @@ namespace RealScene3D.Application.Services;
 /// <summary>
 /// 网格切片策略 - 规则网格剖分算法
 /// 适用于规则地形和均匀分布的数据，计算简单，内存占用规律
-/// 支持自适应网格、边界优化、内存池、流水线处理等高级特性
+/// 支持自适应网格、边界优化、内存池、流水线处理、LOD网格简化等高级特性
 /// </summary>
-/// <remarks>
-/// 构造函数 - 注入日志记录器
-/// </remarks>
-/// <param name="logger">日志记录器</param>
-public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
+public class GridSlicingStrategy : ISlicingStrategy
 {
     // 日志记录器
-    private readonly ILogger _logger = logger;
+    private readonly ILogger _logger;
+
+    // 网格简化服务（可选）
+    private readonly MeshDecimationService? _meshDecimationService;
+
+    // 瓦片生成器工厂
+    private readonly ITileGeneratorFactory _tileGeneratorFactory;
+
+    // 模型加载器
+    private readonly IModelLoader _modelLoader;
+
+    /// <summary>
+    /// 构造函数 - 注入日志记录器和必需的服务
+    /// </summary>
+    /// <param name="logger">日志记录器</param>
+    /// <param name="tileGeneratorFactory">瓦片生成器工厂，用于动态创建不同格式的生成器</param>
+    /// <param name="modelLoader">模型加载器</param>
+    /// <param name="meshDecimationService">网格简化服务（可选，用于LOD生成）</param>
+    public GridSlicingStrategy(
+        ILogger logger,
+        ITileGeneratorFactory tileGeneratorFactory,
+        IModelLoader modelLoader,
+        MeshDecimationService? meshDecimationService = null)
+    {
+        _logger = logger;
+        _tileGeneratorFactory = tileGeneratorFactory ?? throw new ArgumentNullException(nameof(tileGeneratorFactory));
+        _modelLoader = modelLoader ?? throw new ArgumentNullException(nameof(modelLoader));
+        _meshDecimationService = meshDecimationService;
+    }
 
     // 性能计数器
     private static readonly object _performanceCounterLock = new();
@@ -871,5 +896,179 @@ public class GridSlicingStrategy(ILogger logger) : ISlicingStrategy
         };
 
         return Math.Max(minSize, Math.Min(maxSize, size));
+    }
+
+    /// <summary>
+    /// 从切片任务加载三角形数据
+    /// </summary>
+    /// <param name="task">切片任务，包含源模型路径和配置信息</param>
+    /// <param name="cancellationToken">取消令牌，支持异步操作取消</param>
+    /// <returns>加载的三角形列表，失败时返回null</returns>
+    /// <exception cref="ArgumentNullException">当task参数为null时抛出</exception>
+    /// <exception cref="ArgumentException">当任务配置无效时抛出</exception>
+    /// <exception cref="InvalidOperationException">当模型加载失败时抛出</exception>
+    private async Task<List<Triangle>?> LoadTrianglesFromTask(SlicingTask task, CancellationToken cancellationToken)
+    {
+        // 参数验证
+        if (task == null)
+            throw new ArgumentNullException(nameof(task), "切片任务不能为空");
+
+        if (string.IsNullOrWhiteSpace(task.SourceModelPath))
+            throw new ArgumentException("源模型路径不能为空", nameof(task.SourceModelPath));
+
+        if (string.IsNullOrWhiteSpace(task.ModelType))
+            throw new ArgumentException("模型类型不能为空", nameof(task.ModelType));
+
+        try
+        {
+            // 检查模型加载器是否支持该文件格式
+            var fileExtension = Path.GetExtension(task.SourceModelPath)?.ToLowerInvariant();
+            if (string.IsNullOrEmpty(fileExtension))
+            {
+                _logger.LogError("无法确定模型文件的扩展名：{SourceModelPath}", task.SourceModelPath);
+                throw new InvalidOperationException($"无法确定模型文件的扩展名：{task.SourceModelPath}");
+            }
+
+            if (!_modelLoader.SupportsFormat(fileExtension))
+            {
+                _logger.LogError("模型加载器不支持此文件格式：{FileExtension}，支持的格式：{SupportedFormats}",
+                    fileExtension, string.Join(", ", _modelLoader.GetSupportedFormats()));
+                throw new InvalidOperationException($"不支持的模型文件格式：{fileExtension}");
+            }
+
+            // 记录加载开始
+            _logger.LogInformation("开始加载模型文件：{SourceModelPath}，类型：{ModelType}，格式：{FileExtension}",
+                task.SourceModelPath, task.ModelType, fileExtension);
+
+            // 异步加载模型数据，带超时保护
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromMinutes(10)); // 设置10分钟超时
+
+            var (triangles, boundingBox, materials) = await _modelLoader.LoadModelAsync(task.SourceModelPath, cts.Token);
+
+            // 验证加载结果
+            if (triangles == null || triangles.Count == 0)
+            {
+                _logger.LogWarning("模型文件加载成功但未包含任何三角形数据：{SourceModelPath}", task.SourceModelPath);
+                return new List<Triangle>(); // 返回空列表而不是null，避免上层代码处理null
+            }
+
+            // 验证三角形数据完整性
+            var invalidTriangles = triangles.Count(t =>
+                t == null ||
+                t.Vertices == null ||
+                t.Vertices.Length != 3 ||
+                t.Vertices.Any(v => v == null));
+
+            if (invalidTriangles > 0)
+            {
+                _logger.LogWarning("发现{InvalidCount}个无效三角形，已过滤", invalidTriangles);
+                triangles = triangles.Where(t =>
+                    t != null &&
+                    t.Vertices != null &&
+                    t.Vertices.Length == 3 &&
+                    t.Vertices.All(v => v != null)).ToList();
+            }
+
+            // 记录加载统计信息
+            _logger.LogInformation("模型加载完成：{TriangleCount}个三角形，包围盒：[{MinX:F3},{MinY:F3},{MinZ:F3}]-[{MaxX:F3},{MaxY:F3},{MaxZ:F3}]",
+                triangles.Count,
+                boundingBox.MinX, boundingBox.MinY, boundingBox.MinZ,
+                boundingBox.MaxX, boundingBox.MaxY, boundingBox.MaxZ);
+
+            return triangles;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("模型加载操作被用户取消：{SourceModelPath}", task.SourceModelPath);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogError("模型加载超时（10分钟）：{SourceModelPath}", task.SourceModelPath);
+            throw new TimeoutException($"模型加载超时：{task.SourceModelPath}");
+        }
+        catch (FileNotFoundException ex)
+        {
+            _logger.LogError(ex, "模型文件不存在：{SourceModelPath}", task.SourceModelPath);
+            throw new InvalidOperationException($"模型文件不存在：{task.SourceModelPath}", ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogError(ex, "无权限访问模型文件：{SourceModelPath}", task.SourceModelPath);
+            throw new InvalidOperationException($"无权限访问模型文件：{task.SourceModelPath}", ex);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogError(ex, "模型文件读取I/O错误：{SourceModelPath}", task.SourceModelPath);
+            throw new InvalidOperationException($"模型文件读取失败：{task.SourceModelPath}", ex);
+        }
+        catch (Exception ex) when (ex is not (ArgumentException or InvalidOperationException))
+        {
+            // 对于未预期的异常，记录详细错误信息
+            _logger.LogError(ex, "模型加载过程中发生未预期错误：{SourceModelPath}，错误类型：{ExceptionType}",
+                task.SourceModelPath, ex.GetType().Name);
+            throw new InvalidOperationException($"模型加载失败：{task.SourceModelPath}，{ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// 应用LOD简化
+    /// </summary>
+    private List<Triangle> SimplifyMeshForLOD(List<Triangle> triangles, int level, int maxLevel)
+    {
+        if (_meshDecimationService == null || triangles.Count < 10)
+        {
+            return triangles;
+        }
+
+        try
+        {
+            var quality = CalculateLODQuality(level, maxLevel);
+
+            var options = new MeshDecimationService.DecimationOptions
+            {
+                Quality = quality,
+                PreserveBoundary = true,
+                MaxIterations = 100
+            };
+
+            var decimated = _meshDecimationService.SimplifyMesh(triangles, options);
+            return decimated.Triangles;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "网格简化失败，使用原始网格");
+            return triangles;
+        }
+    }
+
+    /// <summary>
+    /// 计算LOD质量因子
+    /// </summary>
+    private double CalculateLODQuality(int level, int maxLevel)
+    {
+        if (level >= maxLevel)
+            return 1.0;
+
+        // 使用平方根衰减，Level越高质量越好
+        var ratio = (double)level / maxLevel;
+        return Math.Pow(ratio, 0.5);
+    }
+
+    /// <summary>
+    /// 序列化包围盒为JSON
+    /// </summary>
+    private string SerializeBoundingBox(BoundingBox3D bounds)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            bounds.MinX,
+            bounds.MinY,
+            bounds.MinZ,
+            bounds.MaxX,
+            bounds.MaxY,
+            bounds.MaxZ
+        });
     }
 }

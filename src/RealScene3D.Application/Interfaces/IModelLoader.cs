@@ -1,4 +1,5 @@
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Application.Interfaces;
 
@@ -9,12 +10,12 @@ namespace RealScene3D.Application.Interfaces;
 public interface IModelLoader
 {
     /// <summary>
-    /// 加载3D模型文件并提取三角形网格数据
+    /// 加载3D模型文件并提取三角形网格数据、材质信息
     /// </summary>
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>三角形列表和模型包围盒</returns>
-    Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox)> LoadModelAsync(
+    /// <returns>三角形列表、模型包围盒和材质字典（材质名称->材质对象）</returns>
+    Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default);
 

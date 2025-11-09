@@ -346,3 +346,278 @@ public class BoundingBox
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
 }
+
+/// <summary>
+/// 2D向量 - 用于UV纹理坐标等二维数据
+/// </summary>
+public class Vector2D
+{
+    /// <summary>
+    /// U坐标（X轴）
+    /// </summary>
+    public double U { get; set; }
+
+    /// <summary>
+    /// V坐标（Y轴）
+    /// </summary>
+    public double V { get; set; }
+
+    /// <summary>
+    /// 默认构造函数
+    /// </summary>
+    public Vector2D()
+    {
+        U = 0;
+        V = 0;
+    }
+
+    /// <summary>
+    /// 带参数构造函数
+    /// </summary>
+    public Vector2D(double u, double v)
+    {
+        U = u;
+        V = v;
+    }
+
+    /// <summary>
+    /// 向量长度
+    /// </summary>
+    public double Length() => Math.Sqrt(U * U + V * V);
+
+    /// <summary>
+    /// 克隆2D向量
+    /// </summary>
+    public Vector2D Clone() => new Vector2D(U, V);
+
+    /// <summary>
+    /// 字符串表示
+    /// </summary>
+    public override string ToString() => $"({U:F6}, {V:F6})";
+}
+
+/// <summary>
+/// 三角形 - 3D几何三角形单元
+/// 用于网格简化、切片生成等几何计算
+/// 支持法向量计算、面积计算、质心计算等基础几何操作
+/// 现已扩展支持纹理坐标和顶点法线
+/// </summary>
+public class Triangle
+{
+    /// <summary>
+    /// 顶点1 - 三角形的第一个顶点
+    /// </summary>
+    public Vector3D V1 { get; set; }
+
+    /// <summary>
+    /// 顶点2 - 三角形的第二个顶点
+    /// </summary>
+    public Vector3D V2 { get; set; }
+
+    /// <summary>
+    /// 顶点3 - 三角形的第三个顶点
+    /// </summary>
+    public Vector3D V3 { get; set; }
+
+    /// <summary>
+    /// 法向量 - 三角形的单位法向量（可选，用于平面法线）
+    /// </summary>
+    public Vector3D? Normal { get; set; }
+
+    // ========== 顶点法线（每个顶点一个法线，用于平滑着色） ==========
+
+    /// <summary>
+    /// 顶点1的法线
+    /// </summary>
+    public Vector3D? Normal1 { get; set; }
+
+    /// <summary>
+    /// 顶点2的法线
+    /// </summary>
+    public Vector3D? Normal2 { get; set; }
+
+    /// <summary>
+    /// 顶点3的法线
+    /// </summary>
+    public Vector3D? Normal3 { get; set; }
+
+    // ========== UV纹理坐标 ==========
+
+    /// <summary>
+    /// 顶点1的UV纹理坐标
+    /// </summary>
+    public Vector2D? UV1 { get; set; }
+
+    /// <summary>
+    /// 顶点2的UV纹理坐标
+    /// </summary>
+    public Vector2D? UV2 { get; set; }
+
+    /// <summary>
+    /// 顶点3的UV纹理坐标
+    /// </summary>
+    public Vector2D? UV3 { get; set; }
+
+    // ========== 材质信息 ==========
+
+    /// <summary>
+    /// 材质名称 - 关联到Material对象的名称
+    /// 用于纹理图集中的材质查找
+    /// </summary>
+    public string? MaterialName { get; set; }
+
+    /// <summary>
+    /// 顶点数组 - 向后兼容属性
+    /// </summary>
+    public Vector3D[] Vertices
+    {
+        get => new[] { V1, V2, V3 };
+        set
+        {
+            if (value != null && value.Length >= 3)
+            {
+                V1 = value[0];
+                V2 = value[1];
+                V3 = value[2];
+            }
+        }
+    }
+
+    /// <summary>
+    /// 默认构造函数
+    /// </summary>
+    public Triangle()
+    {
+        V1 = new Vector3D();
+        V2 = new Vector3D();
+        V3 = new Vector3D();
+    }
+
+    /// <summary>
+    /// 带参数构造函数 - 创建指定顶点的三角形
+    /// </summary>
+    /// <param name="v1">顶点1</param>
+    /// <param name="v2">顶点2</param>
+    /// <param name="v3">顶点3</param>
+    public Triangle(Vector3D v1, Vector3D v2, Vector3D v3)
+    {
+        V1 = v1;
+        V2 = v2;
+        V3 = v3;
+    }
+
+    /// <summary>
+    /// 计算法向量 - 使用右手法则计算三角形法向量
+    /// 公式: normal = (v2 - v1) × (v3 - v1)
+    /// </summary>
+    /// <returns>单位化的法向量</returns>
+    public Vector3D ComputeNormal()
+    {
+        var edge1 = V2 - V1;
+        var edge2 = V3 - V1;
+        var normal = edge1.Cross(edge2);
+        return normal.Normalize();
+    }
+
+    /// <summary>
+    /// 计算面积 - 使用海伦公式计算三角形面积
+    /// 公式: area = 0.5 * ||(v2 - v1) × (v3 - v1)||
+    /// </summary>
+    /// <returns>三角形面积</returns>
+    public double ComputeArea()
+    {
+        var edge1 = V2 - V1;
+        var edge2 = V3 - V1;
+        var crossProduct = edge1.Cross(edge2);
+        return crossProduct.Length() * 0.5;
+    }
+
+    /// <summary>
+    /// 计算质心 - 计算三角形的几何中心
+    /// 公式: center = (v1 + v2 + v3) / 3
+    /// </summary>
+    /// <returns>质心坐标</returns>
+    public Vector3D ComputeCenter()
+    {
+        return new Vector3D
+        {
+            X = (V1.X + V2.X + V3.X) / 3.0,
+            Y = (V1.Y + V2.Y + V3.Y) / 3.0,
+            Z = (V1.Z + V2.Z + V3.Z) / 3.0
+        };
+    }
+
+    /// <summary>
+    /// 计算包围盒 - 计算三角形的轴对齐包围盒
+    /// </summary>
+    /// <returns>三角形的包围盒</returns>
+    public BoundingBox ComputeBoundingBox()
+    {
+        return new BoundingBox
+        {
+            MinX = Math.Min(V1.X, Math.Min(V2.X, V3.X)),
+            MinY = Math.Min(V1.Y, Math.Min(V2.Y, V3.Y)),
+            MinZ = Math.Min(V1.Z, Math.Min(V2.Z, V3.Z)),
+            MaxX = Math.Max(V1.X, Math.Max(V2.X, V3.X)),
+            MaxY = Math.Max(V1.Y, Math.Max(V2.Y, V3.Y)),
+            MaxZ = Math.Max(V1.Z, Math.Max(V2.Z, V3.Z))
+        };
+    }
+
+    /// <summary>
+    /// 判断点是否在三角形内 - 使用重心坐标法
+    /// </summary>
+    /// <param name="point">待测试的点</param>
+    /// <returns>点是否在三角形内</returns>
+    public bool Contains(Vector3D point)
+    {
+        // 使用重心坐标判断
+        var v0 = V3 - V1;
+        var v1 = V2 - V1;
+        var v2 = point - V1;
+
+        var dot00 = v0.Dot(v0);
+        var dot01 = v0.Dot(v1);
+        var dot02 = v0.Dot(v2);
+        var dot11 = v1.Dot(v1);
+        var dot12 = v1.Dot(v2);
+
+        var invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+        var u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        var v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+        return (u >= 0) && (v >= 0) && (u + v <= 1);
+    }
+
+    /// <summary>
+    /// 克隆三角形 - 创建三角形的深拷贝
+    /// </summary>
+    /// <returns>克隆的三角形实例</returns>
+    public Triangle Clone()
+    {
+        return new Triangle(
+            new Vector3D(V1.X, V1.Y, V1.Z),
+            new Vector3D(V2.X, V2.Y, V2.Z),
+            new Vector3D(V3.X, V3.Y, V3.Z)
+        )
+        {
+            Normal = Normal != null ? new Vector3D(Normal.X, Normal.Y, Normal.Z) : null,
+            Normal1 = Normal1 != null ? new Vector3D(Normal1.X, Normal1.Y, Normal1.Z) : null,
+            Normal2 = Normal2 != null ? new Vector3D(Normal2.X, Normal2.Y, Normal2.Z) : null,
+            Normal3 = Normal3 != null ? new Vector3D(Normal3.X, Normal3.Y, Normal3.Z) : null,
+            UV1 = UV1?.Clone(),
+            UV2 = UV2?.Clone(),
+            UV3 = UV3?.Clone()
+        };
+    }
+
+    /// <summary>
+    /// 判断三角形是否有UV纹理坐标
+    /// </summary>
+    public bool HasUVCoordinates() => UV1 != null && UV2 != null && UV3 != null;
+
+    /// <summary>
+    /// 判断三角形是否有顶点法线
+    /// </summary>
+    public bool HasVertexNormals() => Normal1 != null && Normal2 != null && Normal3 != null;
+}

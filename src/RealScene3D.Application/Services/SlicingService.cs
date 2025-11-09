@@ -31,15 +31,6 @@ internal class GeometricPrimitive
 }
 
 /// <summary>
-/// 三角形数据结构
-/// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
-/// </summary>
-public class Triangle
-{
-    public Vector3D[] Vertices { get; set; } = new Vector3D[3];
-}
-
-/// <summary>
 /// 密度分析指标
 /// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
 /// </summary>
@@ -2001,19 +1992,49 @@ public class SlicingProcessor : ISlicingProcessor
     private readonly IMinioStorageService _minioService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<SlicingProcessor> _logger;
+    private readonly B3dmGenerator _b3dmGenerator;
+    private readonly GltfGenerator _gltfGenerator;
+    private readonly I3dmGenerator? _i3dmGenerator;
+    private readonly PntsGenerator? _pntsGenerator;
+    private readonly CmptGenerator? _cmptGenerator;
+    private readonly TilesetGenerator? _tilesetGenerator;
+    private readonly ITileGeneratorFactory _tileGeneratorFactory;
+    private readonly ISlicingStrategyFactory _slicingStrategyFactory;
+    private readonly MeshDecimationService? _meshDecimationService;
+    private readonly IModelLoader? _modelLoader;
 
     public SlicingProcessor(
         IRepository<SlicingTask> slicingTaskRepository,
         IRepository<Slice> sliceRepository,
         IMinioStorageService minioService,
         IUnitOfWork unitOfWork,
-        ILogger<SlicingProcessor> logger)
+        ILogger<SlicingProcessor> logger,
+        B3dmGenerator b3dmGenerator,
+        GltfGenerator gltfGenerator,
+        ITileGeneratorFactory tileGeneratorFactory,
+        ISlicingStrategyFactory slicingStrategyFactory,
+        I3dmGenerator? i3dmGenerator = null,
+        PntsGenerator? pntsGenerator = null,
+        CmptGenerator? cmptGenerator = null,
+        TilesetGenerator? tilesetGenerator = null,
+        MeshDecimationService? meshDecimationService = null,
+        IModelLoader? modelLoader = null)
     {
         _slicingTaskRepository = slicingTaskRepository;
         _sliceRepository = sliceRepository;
         _minioService = minioService;
         _unitOfWork = unitOfWork;
         _logger = logger;
+        _b3dmGenerator = b3dmGenerator;
+        _gltfGenerator = gltfGenerator;
+        _tileGeneratorFactory = tileGeneratorFactory ?? throw new ArgumentNullException(nameof(tileGeneratorFactory));
+        _slicingStrategyFactory = slicingStrategyFactory ?? throw new ArgumentNullException(nameof(slicingStrategyFactory));
+        _i3dmGenerator = i3dmGenerator;
+        _pntsGenerator = pntsGenerator;
+        _cmptGenerator = cmptGenerator;
+        _tilesetGenerator = tilesetGenerator;
+        _meshDecimationService = meshDecimationService;
+        _modelLoader = modelLoader;
     }
 
     public async Task ProcessSlicingQueueAsync(CancellationToken cancellationToken)
@@ -2453,15 +2474,8 @@ public class SlicingProcessor : ISlicingProcessor
             }
         }
 
-        // 创建切片策略实例
-        ISlicingStrategy strategy = config.Strategy switch
-        {
-            SlicingStrategy.Grid => new GridSlicingStrategy((ILogger)_logger),
-            SlicingStrategy.Octree => new OctreeSlicingStrategy((ILogger)_logger),
-            SlicingStrategy.KdTree => new KdTreeSlicingStrategy((ILogger)_logger),
-            SlicingStrategy.Adaptive => new AdaptiveSlicingStrategy((ILogger)_logger, _minioService),
-            _ => new OctreeSlicingStrategy((ILogger)_logger) // 默认使用八叉树策略
-        };
+        // 使用工厂创建切片策略实例 - 解耦策略创建逻辑
+        ISlicingStrategy strategy = _slicingStrategyFactory.CreateStrategy(config.Strategy);
 
         // 多层次细节（LOD）切片处理循环
         for (int level = 0; level <= config.MaxLevel; level++)
@@ -2585,6 +2599,77 @@ public class SlicingProcessor : ISlicingProcessor
             _logger.LogInformation("未使用增量更新（首次生成或未启用），跳过增量索引生成：任务{TaskId}", task.Id);
         }
 
+        // 生成 tileset.json 文件（如果配置启用且TilesetGenerator可用）
+        if (config.GenerateTileset && _tilesetGenerator != null)
+        {
+            try
+            {
+                _logger.LogInformation("开始生成 tileset.json 文件：任务{TaskId}", task.Id);
+
+                // 获取所有切片数据
+                var allSlices = await _sliceRepository.GetAllAsync();
+                var taskSlices = allSlices.Where(s => s.SlicingTaskId == task.Id).ToList();
+
+                if (taskSlices.Any())
+                {
+                    // 确定输出路径
+                    string outputDirectory;
+                    if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+                    {
+                        outputDirectory = task.OutputPath ?? Directory.GetCurrentDirectory();
+                    }
+                    else
+                    {
+                        // MinIO 存储，使用临时目录
+                        outputDirectory = Path.Combine(Path.GetTempPath(), $"tileset_{task.Id}");
+                        Directory.CreateDirectory(outputDirectory);
+                    }
+
+                    // 生成 tileset.json
+                    var tilesetPath = Path.Combine(outputDirectory, "tileset.json");
+                    await _tilesetGenerator.GenerateTilesetJsonAsync(
+                        taskSlices,
+                        config,
+                        modelBounds,
+                        tilesetPath);
+
+                    // 如果是 MinIO 存储，上传 tileset.json
+                    if (config.StorageLocation == StorageLocationType.MinIO)
+                    {
+                        var tilesetContent = await File.ReadAllBytesAsync(tilesetPath, cancellationToken);
+                        using var tilesetStream = new MemoryStream(tilesetContent);
+                        await _minioService.UploadFileAsync("slices", "tileset.json", tilesetStream, "application/json", cancellationToken);
+
+                        // 清理临时文件
+                        if (Directory.Exists(outputDirectory))
+                        {
+                            Directory.Delete(outputDirectory, true);
+                        }
+                    }
+
+                    _logger.LogInformation("tileset.json 生成成功：任务{TaskId}, 包含{SliceCount}个切片, LOD级别{MaxLevel}",
+                        task.Id, taskSlices.Count, config.MaxLevel);
+                }
+                else
+                {
+                    _logger.LogWarning("无法生成 tileset.json：任务{TaskId} 没有生成任何切片", task.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "生成 tileset.json 失败：任务{TaskId}", task.Id);
+                // 不抛出异常，允许任务继续完成
+            }
+        }
+        else if (!config.GenerateTileset)
+        {
+            _logger.LogDebug("配置未启用 tileset.json 生成：任务{TaskId}", task.Id);
+        }
+        else
+        {
+            _logger.LogWarning("TilesetGenerator 未注入，无法生成 tileset.json：任务{TaskId}", task.Id);
+        }
+
         _logger.LogInformation("切片处理完成：任务{TaskId}", task.Id);
     }
 
@@ -2656,7 +2741,7 @@ public class SlicingProcessor : ISlicingProcessor
 
         // 创建一个临时的 AdaptiveSlicingStrategy 实例来调用解析方法
         // 这些解析方法是格式转换工具，不依赖于具体的切片策略
-        var tempStrategy = new AdaptiveSlicingStrategy(_logger, _minioService);
+        var tempStrategy = new AdaptiveSlicingStrategy(_logger, _tileGeneratorFactory, _minioService);
 
         try
         {
@@ -4318,9 +4403,8 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 生成B3DM格式切片内容 - 3D Tiles B3DM格式生成算法
-    /// 算法：生成符合3D Tiles标准的二进制glTF格式
-    /// B3DM格式：Header + Feature Table JSON + Feature Table Binary + Batch Table JSON + Batch Table Binary + GLB
+    /// 生成B3DM格式切片内容 - 使用TileGenerator系统
+    /// 委托给B3dmGenerator生成符合3D Tiles标准的B3DM格式
     /// </summary>
     /// <param name="slice">切片数据</param>
     /// <param name="config">切片配置</param>
@@ -4335,118 +4419,112 @@ public class SlicingProcessor : ISlicingProcessor
             throw new InvalidOperationException("无法解析切片包围盒");
         }
 
-        // 1. 生成Feature Table JSON - 包含RTC_CENTER（相对中心点）和批次长度
-        var featureTableJson = new
+        // 转换包围盒格式
+        var bounds3D = new BoundingBox3D
         {
-            BATCH_LENGTH = 1, // 批次数量
-            RTC_CENTER = new[] // 相对瓦片中心，用于提高精度
-            {
-                (boundingBox.MinX + boundingBox.MaxX) / 2.0,
-                (boundingBox.MinY + boundingBox.MaxY) / 2.0,
-                (boundingBox.MinZ + boundingBox.MaxZ) / 2.0
-            }
+            MinX = boundingBox.MinX,
+            MinY = boundingBox.MinY,
+            MinZ = boundingBox.MinZ,
+            MaxX = boundingBox.MaxX,
+            MaxY = boundingBox.MaxY,
+            MaxZ = boundingBox.MaxZ
         };
-        var featureTableJsonBytes = System.Text.Encoding.UTF8.GetBytes(
-            System.Text.Json.JsonSerializer.Serialize(featureTableJson));
 
-        // 对齐到8字节边界
-        var featureTableJsonLength = (featureTableJsonBytes.Length + 7) & ~7;
-        var featureTableJsonPadded = new byte[featureTableJsonLength];
-        Array.Copy(featureTableJsonBytes, featureTableJsonPadded, featureTableJsonBytes.Length);
-        // 填充空格
-        for (int i = featureTableJsonBytes.Length; i < featureTableJsonLength; i++)
-        {
-            featureTableJsonPadded[i] = 0x20; // 空格
-        }
+        // 转换三角形格式（从简单Triangle到Domain.Entities.Triangle）
+        var domainTriangles = ConvertToDomainTriangles(triangles);
 
-        // 2. Feature Table Binary - 可选的二进制数据（这里为空）
-        var featureTableBinaryLength = 0;
-        var featureTableBinary = new byte[0];
+        // 使用B3dmGenerator生成B3DM数据
+        _logger.LogDebug("使用B3dmGenerator生成B3DM：切片{SliceId}, 三角形数={Count}",
+            slice.Id, domainTriangles?.Count ?? 0);
 
-        // 3. 生成Batch Table JSON - 包含批次属性（ID、名称等）
-        var batchTableJson = new
-        {
-            id = new[] { slice.Id.ToString() },
-            level = new[] { slice.Level },
-            x = new[] { slice.X },
-            y = new[] { slice.Y },
-            z = new[] { slice.Z },
-            name = new[] { $"Tile_{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}" }
-        };
-        var batchTableJsonBytes = System.Text.Encoding.UTF8.GetBytes(
-            System.Text.Json.JsonSerializer.Serialize(batchTableJson));
+        var b3dmData = _b3dmGenerator.GenerateB3DM(domainTriangles ?? new List<Domain.Entities.Triangle>(), bounds3D, materials: null);
 
-        // 对齐到8字节边界
-        var batchTableJsonLength = (batchTableJsonBytes.Length + 7) & ~7;
-        var batchTableJsonPadded = new byte[batchTableJsonLength];
-        Array.Copy(batchTableJsonBytes, batchTableJsonPadded, batchTableJsonBytes.Length);
-        for (int i = batchTableJsonBytes.Length; i < batchTableJsonLength; i++)
-        {
-            batchTableJsonPadded[i] = 0x20; // 空格
-        }
+        _logger.LogDebug("B3DM文件生成完成：切片{SliceId}, 大小{Size}字节",
+            slice.Id, b3dmData.Length);
 
-        // 4. Batch Table Binary - 可选的二进制数据（这里为空）
-        var batchTableBinaryLength = 0;
-        var batchTableBinary = new byte[0];
-
-        // 5. 生成GLB内容（包含实际的几何数据，传入三角形数据）
-        var glbContent = await GenerateGLBContentAsync(boundingBox, triangles);
-
-        // 6. 构造完整的B3DM文件
-        using (var memoryStream = new MemoryStream())
-        using (var writer = new BinaryWriter(memoryStream))
-        {
-            // B3DM Header (28字节)
-            writer.Write(System.Text.Encoding.ASCII.GetBytes("b3dm")); // magic (4字节)
-            writer.Write((uint)1); // version (4字节)
-
-            // 计算总长度
-            var totalLength = 28 + // header
-                             featureTableJsonLength +
-                             featureTableBinaryLength +
-                             batchTableJsonLength +
-                             batchTableBinaryLength +
-                             glbContent.Length;
-
-            writer.Write((uint)totalLength); // byteLength (4字节)
-            writer.Write((uint)featureTableJsonLength); // featureTableJSONByteLength (4字节)
-            writer.Write((uint)featureTableBinaryLength); // featureTableBinaryByteLength (4字节)
-            writer.Write((uint)batchTableJsonLength); // batchTableJSONByteLength (4字节)
-            writer.Write((uint)batchTableBinaryLength); // batchTableBinaryByteLength (4字节)
-
-            // 写入Feature Table
-            writer.Write(featureTableJsonPadded);
-            if (featureTableBinaryLength > 0)
-            {
-                writer.Write(featureTableBinary);
-            }
-
-            // 写入Batch Table
-            writer.Write(batchTableJsonPadded);
-            if (batchTableBinaryLength > 0)
-            {
-                writer.Write(batchTableBinary);
-            }
-
-            // 写入GLB内容
-            writer.Write(glbContent);
-
-            _logger.LogDebug("B3DM文件生成完成：切片{SliceId}, 大小{Size}字节, Feature表{FeatureSize}字节, Batch表{BatchSize}字节, GLB{GlbSize}字节",
-                slice.Id, totalLength, featureTableJsonLength, batchTableJsonLength, glbContent.Length);
-
-            return memoryStream.ToArray();
-        }
+        return await Task.FromResult(b3dmData);
     }
 
     /// <summary>
-    /// 生成GLTF格式切片内容 - JSON格式3D模型数据
-    /// 算法：生成符合glTF 2.0标准的JSON格式数据，包含完整的几何数据结构
+    /// 转换内部Triangle到Domain.Entities.Triangle
+    /// 内部Triangle只有顶点信息，转换为完整的Domain Triangle格式
+    /// </summary>
+    private List<Domain.Entities.Triangle>? ConvertToDomainTriangles(List<Triangle>? triangles)
+    {
+        if (triangles == null || triangles.Count == 0)
+        {
+            return null;
+        }
+
+        var domainTriangles = new List<Domain.Entities.Triangle>();
+
+        foreach (var triangle in triangles)
+        {
+            if (triangle.Vertices == null || triangle.Vertices.Length < 3)
+            {
+                continue;
+            }
+
+            // 创建Domain.Entities.Triangle
+            var domainTriangle = new Domain.Entities.Triangle
+            {
+                V1 = triangle.Vertices[0],
+                V2 = triangle.Vertices[1],
+                V3 = triangle.Vertices[2]
+            };
+
+            // 计算面法线（自动生成）
+            var edge1 = new Vector3D
+            {
+                X = domainTriangle.V2.X - domainTriangle.V1.X,
+                Y = domainTriangle.V2.Y - domainTriangle.V1.Y,
+                Z = domainTriangle.V2.Z - domainTriangle.V1.Z
+            };
+
+            var edge2 = new Vector3D
+            {
+                X = domainTriangle.V3.X - domainTriangle.V1.X,
+                Y = domainTriangle.V3.Y - domainTriangle.V1.Y,
+                Z = domainTriangle.V3.Z - domainTriangle.V1.Z
+            };
+
+            // 叉积计算法线
+            var normal = new Vector3D
+            {
+                X = edge1.Y * edge2.Z - edge1.Z * edge2.Y,
+                Y = edge1.Z * edge2.X - edge1.X * edge2.Z,
+                Z = edge1.X * edge2.Y - edge1.Y * edge2.X
+            };
+
+            // 归一化法线
+            var length = Math.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
+            if (length > 1e-10)
+            {
+                normal.X /= length;
+                normal.Y /= length;
+                normal.Z /= length;
+            }
+
+            // 为所有顶点设置相同的法线（平面着色）
+            domainTriangle.Normal1 = normal;
+            domainTriangle.Normal2 = normal;
+            domainTriangle.Normal3 = normal;
+
+            domainTriangles.Add(domainTriangle);
+        }
+
+        return domainTriangles;
+    }
+
+    /// <summary>
+    /// 生成GLTF格式切片内容 - 使用TileGenerator系统
+    /// 委托给GltfGenerator生成符合glTF 2.0标准的GLB格式
     /// </summary>
     /// <param name="slice">切片数据</param>
     /// <param name="config">切片配置</param>
     /// <param name="triangles">切片包含的三角形数据，可能为null</param>
-    /// <returns>GLTF格式的字节数组</returns>
-    private Task<byte[]> GenerateGLTFContentAsync(Slice slice, SlicingConfig config, List<Triangle>? triangles)
+    /// <returns>GLB格式的字节数组</returns>
+    private async Task<byte[]> GenerateGLTFContentAsync(Slice slice, SlicingConfig config, List<Triangle>? triangles)
     {
         // 解析包围盒
         var boundingBox = System.Text.Json.JsonSerializer.Deserialize<BoundingBox>(slice.BoundingBox);
@@ -4455,190 +4533,30 @@ public class SlicingProcessor : ISlicingProcessor
             throw new InvalidOperationException("无法解析切片包围盒");
         }
 
-        // 生成简单的立方体几何数据作为切片占位符
-        // 实际应用中应从真实的模型数据生成
-        var vertices = new[]
+        // 转换包围盒格式
+        var bounds3D = new BoundingBox3D
         {
-            // 立方体8个顶点
-            (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MinZ, // 0
-            (float)boundingBox.MaxX, (float)boundingBox.MinY, (float)boundingBox.MinZ, // 1
-            (float)boundingBox.MaxX, (float)boundingBox.MaxY, (float)boundingBox.MinZ, // 2
-            (float)boundingBox.MinX, (float)boundingBox.MaxY, (float)boundingBox.MinZ, // 3
-            (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MaxZ, // 4
-            (float)boundingBox.MaxX, (float)boundingBox.MinY, (float)boundingBox.MaxZ, // 5
-            (float)boundingBox.MaxX, (float)boundingBox.MaxY, (float)boundingBox.MaxZ, // 6
-            (float)boundingBox.MinX, (float)boundingBox.MaxY, (float)boundingBox.MaxZ  // 7
+            MinX = boundingBox.MinX,
+            MinY = boundingBox.MinY,
+            MinZ = boundingBox.MinZ,
+            MaxX = boundingBox.MaxX,
+            MaxY = boundingBox.MaxY,
+            MaxZ = boundingBox.MaxZ
         };
 
-        // 立方体索引（12个三角形，36个索引）
-        var indices = new ushort[]
-        {
-            // 前面
-            0, 1, 2, 0, 2, 3,
-            // 后面
-            5, 4, 7, 5, 7, 6,
-            // 顶面
-            3, 2, 6, 3, 6, 7,
-            // 底面
-            4, 5, 1, 4, 1, 0,
-            // 右面
-            1, 5, 6, 1, 6, 2,
-            // 左面
-            4, 0, 3, 4, 3, 7
-        };
+        // 转换三角形格式（从简单Triangle到Domain.Entities.Triangle）
+        var domainTriangles = ConvertToDomainTriangles(triangles);
 
-        // 计算法向量（每个面的法向量）
-        var normals = new[]
-        {
-            // 前面 (8个顶点，每个顶点一个法向量)
-            0.0f, 0.0f, -1.0f, // 0
-            0.0f, 0.0f, -1.0f, // 1
-            0.0f, 0.0f, -1.0f, // 2
-            0.0f, 0.0f, -1.0f, // 3
-            0.0f, 0.0f, 1.0f,  // 4
-            0.0f, 0.0f, 1.0f,  // 5
-            0.0f, 0.0f, 1.0f,  // 6
-            0.0f, 0.0f, 1.0f   // 7
-        };
+        // 使用GltfGenerator生成GLB数据
+        _logger.LogDebug("使用GltfGenerator生成GLB：切片{SliceId}, 三角形数={Count}",
+            slice.Id, domainTriangles?.Count ?? 0);
 
-        // 将几何数据转换为字节数组
-        var vertexBytes = new byte[vertices.Length * sizeof(float)];
-        Buffer.BlockCopy(vertices, 0, vertexBytes, 0, vertexBytes.Length);
+        var glbData = _gltfGenerator.GenerateGLB(domainTriangles ?? new List<Domain.Entities.Triangle>(), bounds3D, materials: null);
 
-        var normalBytes = new byte[normals.Length * sizeof(float)];
-        Buffer.BlockCopy(normals, 0, normalBytes, 0, normalBytes.Length);
+        _logger.LogDebug("GLB文件生成完成：切片{SliceId}, 大小{Size}字节",
+            slice.Id, glbData.Length);
 
-        var indexBytes = new byte[indices.Length * sizeof(ushort)];
-        Buffer.BlockCopy(indices, 0, indexBytes, 0, indexBytes.Length);
-
-        // 计算buffer和bufferView的大小和偏移
-        var vertexBufferByteLength = vertexBytes.Length;
-        var normalBufferByteLength = normalBytes.Length;
-        var indexBufferByteLength = indexBytes.Length;
-        var totalBufferByteLength = vertexBufferByteLength + normalBufferByteLength + indexBufferByteLength;
-
-        // 构建完整的glTF JSON结构
-        var gltf = new
-        {
-            asset = new
-            {
-                version = "2.0",
-                generator = "RealScene3D Slicer v1.0"
-            },
-            scene = 0,
-            scenes = new[]
-            {
-                new
-                {
-                    name = $"Tile_{slice.Level}_{slice.X}_{slice.Y}_{slice.Z}",
-                    nodes = new[] { 0 }
-                }
-            },
-            nodes = new[]
-            {
-                new
-                {
-                    name = "TileMesh",
-                    mesh = 0
-                }
-            },
-            meshes = new[]
-            {
-                new
-                {
-                    name = "TileGeometry",
-                    primitives = new[]
-                    {
-                        new
-                        {
-                            attributes = new
-                            {
-                                POSITION = 0,
-                                NORMAL = 1
-                            },
-                            indices = 2,
-                            mode = 4 // TRIANGLES
-                        }
-                    }
-                }
-            },
-            accessors = new object[]
-            {
-                // Accessor 0: Positions
-                new
-                {
-                    bufferView = 0,
-                    componentType = 5126, // FLOAT
-                    count = vertices.Length / 3,
-                    type = "VEC3",
-                    min = new[] { (float)boundingBox.MinX, (float)boundingBox.MinY, (float)boundingBox.MinZ },
-                    max = new[] { (float)boundingBox.MaxX, (float)boundingBox.MaxY, (float)boundingBox.MaxZ }
-                },
-                // Accessor 1: Normals
-                new
-                {
-                    bufferView = 1,
-                    componentType = 5126, // FLOAT
-                    count = normals.Length / 3,
-                    type = "VEC3"
-                },
-                // Accessor 2: Indices
-                new
-                {
-                    bufferView = 2,
-                    componentType = 5123, // UNSIGNED_SHORT
-                    count = indices.Length,
-                    type = "SCALAR"
-                }
-            },
-            bufferViews = new[]
-            {
-                // BufferView 0: Vertex positions
-                new
-                {
-                    buffer = 0,
-                    byteOffset = 0,
-                    byteLength = vertexBufferByteLength,
-                    target = 34962 // ARRAY_BUFFER
-                },
-                // BufferView 1: Normals
-                new
-                {
-                    buffer = 0,
-                    byteOffset = vertexBufferByteLength,
-                    byteLength = normalBufferByteLength,
-                    target = 34962 // ARRAY_BUFFER
-                },
-                // BufferView 2: Indices
-                new
-                {
-                    buffer = 0,
-                    byteOffset = vertexBufferByteLength + normalBufferByteLength,
-                    byteLength = indexBufferByteLength,
-                    target = 34963 // ELEMENT_ARRAY_BUFFER
-                }
-            },
-            buffers = new[]
-            {
-                new
-                {
-                    byteLength = totalBufferByteLength,
-                    uri = "data:application/octet-stream;base64," + Convert.ToBase64String(
-                        vertexBytes.Concat(normalBytes).Concat(indexBytes).ToArray())
-                }
-            }
-        };
-
-        var jsonContent = System.Text.Json.JsonSerializer.Serialize(gltf, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true
-        });
-
-        _logger.LogDebug("GLTF文件生成完成：切片{SliceId}, 顶点数{VertexCount}, 三角形数{TriangleCount}, 大小{Size}字节",
-            slice.Id, vertices.Length / 3, indices.Length / 3, jsonContent.Length);
-
-        return Task.FromResult(System.Text.Encoding.UTF8.GetBytes(jsonContent));
+        return await Task.FromResult(glbData);
     }
 
     /// <summary>

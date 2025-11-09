@@ -54,6 +54,48 @@ public enum StorageLocationType
 }
 
 /// <summary>
+/// 3D Tiles瓦片格式枚举 - 支持的输出格式类型
+/// 定义Cesium 3D Tiles规范支持的各种瓦片格式
+/// </summary>
+public enum TileFormat
+{
+    /// <summary>
+    /// Batched 3D Model（批量3D模型）
+    /// 用途：建筑模型批量渲染、城市3D模型、BIM模型可视化
+    /// 特点：支持批量渲染，性能高，兼容性好
+    /// </summary>
+    B3DM = 0,
+
+    /// <summary>
+    /// Instanced 3D Model（实例化3D模型）
+    /// 用途：树木、路灯、标志牌等重复对象批量渲染
+    /// 特点：GPU实例化加速，内存占用小，渲染效率极高
+    /// </summary>
+    I3DM = 1,
+
+    /// <summary>
+    /// Standard glTF 2.0（标准glTF格式）
+    /// 用途：跨平台3D模型交换、Web 3D可视化
+    /// 特点：通用性强，支持Three.js、Babylon.js等WebGL库
+    /// </summary>
+    GLTF = 2,
+
+    /// <summary>
+    /// Point Cloud（点云）
+    /// 用途：激光扫描数据、地形高程点、LiDAR数据
+    /// 特点：支持大规模点云渲染，多种采样策略
+    /// </summary>
+    PNTS = 3,
+
+    /// <summary>
+    /// Composite Tile（复合瓦片）
+    /// 用途：混合场景（建筑+点云、网格+实例）
+    /// 特点：组合多种格式，减少HTTP请求，优化加载性能
+    /// </summary>
+    CMPT = 4
+}
+
+/// <summary>
 /// 切片策略枚举 - 不同空间剖分算法的选择
 /// 定义支持的切片算法类型，每种算法适用于不同的数据特征和使用场景
 /// </summary>
@@ -93,7 +135,16 @@ public enum SlicingStrategy
     /// 缺点：算法复杂度最高，实现和调试困难
     /// 使用场景：高精度需求、混合类型数据、质量优先场景
     /// </summary>
-    Adaptive = 3
+    Adaptive = 3,
+
+    /// <summary>
+    /// 递归空间剖分算法（类似Obj2Tiles）
+    /// 算法：递归N×N剖分，支持动态剖分深度决策，集成QEM网格简化
+    /// 优点：完整的LOD支持，基于几何密度自适应调整
+    /// 缺点：需要独立模型加载，处理流程较复杂
+    /// 使用场景：OBJ/GLTF转3D Tiles，需要真正网格简化的场景
+    /// </summary>
+    Recursive = 4
 }
 
 /// <summary>
@@ -104,14 +155,29 @@ public enum SlicingStrategy
 public class SlicingConfig
 {
     /// <summary>
-    /// 切片策略名称，如："Grid", "Octree", "KdTree", "Adaptive"
+    /// 切片策略名称，如："Grid", "Octree", "KdTree", "Adaptive", "Recursive"
     /// </summary>
     public SlicingStrategy Strategy { get; set; } = SlicingStrategy.Grid;
 
     /// <summary>
-    /// 输出格式，如："b3dm", "gltf", "glb", "json"
+    /// 瓦片格式（枚举，推荐使用）
+    /// 指定输出瓦片的格式类型，支持B3DM、I3DM、GLTF、PNTS、CMPT
     /// </summary>
-    public string OutputFormat { get; set; } = "b3dm";
+    public TileFormat TileFormat { get; set; } = TileFormat.B3DM;
+
+    /// <summary>
+    /// 输出格式字符串（向后兼容，自动同步TileFormat）
+    /// 支持: "b3dm", "i3dm", "gltf", "pnts", "cmpt"
+    /// </summary>
+    public string OutputFormat
+    {
+        get => TileFormat.ToString().ToLower();
+        set
+        {
+            if (Enum.TryParse<TileFormat>(value, true, out var format))
+                TileFormat = format;
+        }
+    }
 
     /// <summary>
     /// 基础瓦片尺寸，用于计算切片的空间大小
@@ -159,6 +225,48 @@ public class SlicingConfig
     public int CompressionLevel { get; set; } = 6;
 
     /// <summary>
+    /// PNTS格式：点云采样策略
+    /// 选项: "VerticesOnly"（仅顶点，最快）, "UniformSampling"（均匀采样）, "DenseSampling"（密集采样，最高质量）
+    /// </summary>
+    public string PointCloudSamplingStrategy { get; set; } = "VerticesOnly";
+
+    /// <summary>
+    /// PNTS格式：点云采样密度
+    /// 控制每个三角形的采样点数（仅对UniformSampling和DenseSampling有效）
+    /// </summary>
+    public int PointCloudSamplingDensity { get; set; } = 10;
+
+    /// <summary>
+    /// I3DM格式：实例数量
+    /// 指定要生成的实例化对象数量（仅对I3DM格式有效）
+    /// </summary>
+    public int InstanceCount { get; set; } = 1;
+
+    /// <summary>
+    /// 是否启用LOD网格简化
+    /// 使用QEM（Quadric Error Metric）算法进行网格简化，生成真正的多层次细节
+    /// </summary>
+    public bool EnableMeshDecimation { get; set; } = false;
+
+    /// <summary>
+    /// LOD级别数量
+    /// 生成的LOD层数（仅当EnableMeshDecimation=true时有效）
+    /// </summary>
+    public int LodLevels { get; set; } = 3;
+
+    /// <summary>
+    /// 是否保留边界顶点（用于网格简化）
+    /// 保护模型轮廓，避免简化时边界变形
+    /// </summary>
+    public bool PreserveBoundary { get; set; } = true;
+
+    /// <summary>
+    /// 是否自动生成tileset.json
+    /// 完成切片后自动生成Cesium 3D Tiles的层次结构文件
+    /// </summary>
+    public bool GenerateTileset { get; set; } = true;
+
+    /// <summary>
     /// 验证配置参数的有效性
     /// </summary>
     /// <returns>验证结果和错误信息</returns>
@@ -176,8 +284,15 @@ public class SlicingConfig
         if (string.IsNullOrWhiteSpace(Strategy.ToString()))
             return (false, "Strategy cannot be empty");
 
-        if (string.IsNullOrWhiteSpace(OutputFormat))
-            return (false, "OutputFormat cannot be empty");
+        // 验证格式特定参数
+        if (TileFormat == TileFormat.I3DM && InstanceCount < 1)
+            return (false, "InstanceCount must be at least 1 for I3DM format");
+
+        if (TileFormat == TileFormat.PNTS && PointCloudSamplingDensity < 1)
+            return (false, "PointCloudSamplingDensity must be at least 1 for PNTS format");
+
+        if (EnableMeshDecimation && LodLevels < 1)
+            return (false, "LodLevels must be at least 1 when EnableMeshDecimation is true");
 
         return (true, string.Empty);
     }
