@@ -1,4 +1,5 @@
 /// <summary>
+using RealScene3D.Domain.Enums;
 /// RealScene3D WebAPI程序入口点
 /// 配置异构融合存储系统，支持多种数据库和存储服务
 /// 架构：前端Vue.js + 后端ASP.NET Core WebAPI + 异构存储层

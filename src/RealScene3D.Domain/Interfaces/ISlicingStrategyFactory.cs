@@ -1,4 +1,5 @@
 namespace RealScene3D.Domain.Interfaces;
+using RealScene3D.Domain.Enums;
 
 /// <summary>
 /// 切片策略工厂接口 - 根据SlicingStrategy创建对应的策略实例

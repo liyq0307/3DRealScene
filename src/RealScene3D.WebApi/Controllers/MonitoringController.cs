@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using RealScene3D.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;

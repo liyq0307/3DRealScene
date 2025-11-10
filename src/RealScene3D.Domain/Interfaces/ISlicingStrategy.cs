@@ -1,4 +1,5 @@
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Interfaces;
 
@@ -36,115 +37,6 @@ public interface ISlicingStrategy
     /// <param name="config">切片配置</param>
     /// <returns>估算的切片数量</returns>
     int EstimateSliceCount(int level, SlicingConfig config);
-}
-
-/// <summary>
-/// 存储位置类型枚举
-/// </summary>
-public enum StorageLocationType
-{
-    /// <summary>
-    /// MinIO对象存储
-    /// </summary>
-    MinIO = 0,
-    /// <summary>
-    /// 本地文件系统
-    /// </summary>
-    LocalFileSystem = 1
-}
-
-/// <summary>
-/// 3D Tiles瓦片格式枚举 - 支持的输出格式类型
-/// 定义Cesium 3D Tiles规范支持的各种瓦片格式
-/// </summary>
-public enum TileFormat
-{
-    /// <summary>
-    /// Batched 3D Model（批量3D模型）
-    /// 用途：建筑模型批量渲染、城市3D模型、BIM模型可视化
-    /// 特点：支持批量渲染，性能高，兼容性好
-    /// </summary>
-    B3DM = 0,
-
-    /// <summary>
-    /// Instanced 3D Model（实例化3D模型）
-    /// 用途：树木、路灯、标志牌等重复对象批量渲染
-    /// 特点：GPU实例化加速，内存占用小，渲染效率极高
-    /// </summary>
-    I3DM = 1,
-
-    /// <summary>
-    /// Standard glTF 2.0（标准glTF格式）
-    /// 用途：跨平台3D模型交换、Web 3D可视化
-    /// 特点：通用性强，支持Three.js、Babylon.js等WebGL库
-    /// </summary>
-    GLTF = 2,
-
-    /// <summary>
-    /// Point Cloud（点云）
-    /// 用途：激光扫描数据、地形高程点、LiDAR数据
-    /// 特点：支持大规模点云渲染，多种采样策略
-    /// </summary>
-    PNTS = 3,
-
-    /// <summary>
-    /// Composite Tile（复合瓦片）
-    /// 用途：混合场景（建筑+点云、网格+实例）
-    /// 特点：组合多种格式，减少HTTP请求，优化加载性能
-    /// </summary>
-    CMPT = 4
-}
-
-/// <summary>
-/// 切片策略枚举 - 不同空间剖分算法的选择
-/// 定义支持的切片算法类型，每种算法适用于不同的数据特征和使用场景
-/// </summary>
-public enum SlicingStrategy
-{
-    /// <summary>
-    /// 规则网格切片算法
-    /// 算法：均匀网格剖分，适用于规则分布的数据，计算简单，内存占用规律
-    /// 优点：处理速度快，内存使用可预测
-    /// 缺点：对不规则数据适应性差，可能产生过多冗余切片
-    /// 使用场景：规则地形、城市网格数据
-    /// </summary>
-    Grid = 0,
-
-    /// <summary>
-    /// 八叉树切片算法（默认）
-    /// 算法：层次递归剖分，适用于非均匀分布的数据，自适应精度，平衡细节和性能
-    /// 优点：自适应精度，减少冗余切片，层次结构利于LOD
-    /// 缺点：剖分算法较复杂，实现难度较高
-    /// 使用场景：倾斜摄影、BIM模型、复杂地形
-    /// </summary>
-    Octree = 1,
-
-    /// <summary>
-    /// KD树切片算法
-    /// 算法：基于方差的二分剖分，适用于高维空间查询优化，剖分轴交替选择
-    /// 优点：最优空间查询性能，自适应数据分布
-    /// 缺点：构造复杂度高，内存开销较大
-    /// 使用场景：激光点云、海量空间数据、查询密集场景
-    /// </summary>
-    KdTree = 2,
-
-    /// <summary>
-    /// 自适应切片算法
-    /// 算法：基于数据密度和几何特征的智能剖分，自动调整切片大小和LOD级别
-    /// 优点：最佳质量和性能平衡，完全自适应
-    /// 缺点：算法复杂度最高，实现和调试困难
-    /// 使用场景：高精度需求、混合类型数据、质量优先场景
-    /// </summary>
-    Adaptive = 3,
-
-    /// <summary>
-    /// 递归空间剖分算法（类似Obj2Tiles）
-    /// 算法：递归N×N剖分，支持动态剖分深度决策，集成QEM网格简化
-    /// 优点：完整的LOD支持，基于几何密度自适应调整
-    /// 缺点：需要独立模型加载，处理流程较复杂
-    /// 使用场景：OBJ/GLTF转3D Tiles，需要真正网格简化的场景
-    /// </summary>
-    Recursive = 4
 }
 
 /// <summary>

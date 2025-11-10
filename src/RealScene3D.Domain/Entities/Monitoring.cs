@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Entities;
 
@@ -269,24 +270,3 @@ public class Dashboard
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
-/// <summary>
-/// 告警级别枚举
-/// </summary>
-public enum AlertLevel
-{
-    Info = 0,
-    Warning = 1,
-    Critical = 2,
-    Error = 3
-}
-
-/// <summary>
-/// 告警状态枚举
-/// </summary>
-public enum AlertStatus
-{
-    Firing = 0,
-    Resolved = 1,
-    Acknowledged = 2,
-    Suppressed = 3
-}

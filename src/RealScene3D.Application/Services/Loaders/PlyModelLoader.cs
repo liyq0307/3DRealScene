@@ -260,9 +260,11 @@ public class PlyModelLoader : IModelLoader
     /// <summary>
     /// 加载二进制格式的PLY文件
     /// </summary>
+#pragma warning disable CS1998 // 异步方法缺少 await 运算符
     private async Task<List<Triangle>> LoadBinaryPlyAsync(
         string filePath, int vertexCount, int faceCount,
         List<string> properties, string format, CancellationToken cancellationToken)
+#pragma warning restore CS1998
     {
         // 注意：完整的二进制PLY实现需要根据properties解析不同的数据类型
         // 这里提供基本实现

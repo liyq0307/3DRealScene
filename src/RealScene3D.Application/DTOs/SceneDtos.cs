@@ -1,4 +1,5 @@
 namespace RealScene3D.Application.DTOs;
+using RealScene3D.Domain.Enums;
 
 /// <summary>
 /// 3D场景数据传输对象集合

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RealScene3D.Domain.Enums;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using NetTopologySuite.Geometries;

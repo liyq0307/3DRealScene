@@ -1,4 +1,5 @@
 namespace RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Enums;
 
 /// <summary>
 /// 材质定义 - 支持Wavefront MTL和glTF PBR材质
@@ -140,41 +141,6 @@ public class TextureInfo
     /// 纹理在图集中的UV缩放（用于纹理图集）
     /// </summary>
     public Vector2D? AtlasScale { get; set; }
-}
-
-/// <summary>
-/// 纹理类型枚举
-/// </summary>
-public enum TextureType
-{
-    Diffuse = 0,    // 漫反射/基础颜色
-    Normal = 1,     // 法线贴图
-    Specular = 2,   // 镜面反射
-    Emissive = 3,   // 自发光
-    Opacity = 4,    // 透明度
-    Metallic = 5,   // 金属度
-    Roughness = 6,  // 粗糙度
-    Occlusion = 7   // 环境光遮蔽
-}
-
-/// <summary>
-/// 纹理包裹模式
-/// </summary>
-public enum TextureWrapMode
-{
-    Repeat = 0,        // 重复
-    ClampToEdge = 1,   // 边缘拉伸
-    MirroredRepeat = 2 // 镜像重复
-}
-
-/// <summary>
-/// 纹理过滤模式
-/// </summary>
-public enum TextureFilterMode
-{
-    Nearest = 0,  // 最近邻
-    Linear = 1,   // 线性
-    Mipmap = 2    // Mipmap
 }
 
 /// <summary>

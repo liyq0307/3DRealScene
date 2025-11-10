@@ -176,7 +176,9 @@ public class StlModelLoader : IModelLoader
     ///   - 36字节顶点(3个顶点,每个12字节)
     ///   - 2字节属性(uint16)
     /// </summary>
+#pragma warning disable CS1998 // 异步方法缺少 await 运算符
     private async Task<List<Triangle>> LoadBinaryStlAsync(string filePath, CancellationToken cancellationToken)
+#pragma warning restore CS1998
     {
         var triangles = new List<Triangle>();
 

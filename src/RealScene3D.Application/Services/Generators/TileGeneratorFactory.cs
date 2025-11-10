@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Application.Services.Generators;

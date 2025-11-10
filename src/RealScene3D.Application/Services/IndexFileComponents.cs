@@ -3,6 +3,7 @@ using RealScene3D.Infrastructure.MinIO;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using System.Text.Json;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Application.Services;
 
@@ -620,28 +621,6 @@ public class ValidationIssue
 }
 
 /// <summary>
-/// 验证问题类型
-/// </summary>
-public enum ValidationIssueType
-{
-    MissingFile,
-    IncorrectPath,
-    MissingMetadata,
-    StructureError,
-    FormatError
-}
-
-/// <summary>
-/// 验证严重程度
-/// </summary>
-public enum ValidationSeverity
-{
-    Error,
-    Warning,
-    Info
-}
-
-/// <summary>
 /// 验证摘要
 /// </summary>
 public class ValidationSummary
@@ -651,6 +630,7 @@ public class ValidationSummary
     public int WarningCount { get; set; }
     public int InfoCount { get; set; }
 }
+
 
 /// <summary>
 /// 自动修复器 - 自动修复检测到的索引文件问题

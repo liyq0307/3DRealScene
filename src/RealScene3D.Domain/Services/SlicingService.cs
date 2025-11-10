@@ -1,4 +1,5 @@
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Domain.Services;

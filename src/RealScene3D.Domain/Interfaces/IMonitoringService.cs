@@ -1,4 +1,5 @@
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Interfaces;
 
@@ -269,37 +270,3 @@ public class DataConfig
     public SortDirection SortDirection { get; set; } = SortDirection.Desc;
 }
 
-/// <summary>
-/// 比较操作符枚举
-/// </summary>
-public enum ComparisonOperator
-{
-    GreaterThan,
-    GreaterThanOrEqual,
-    LessThan,
-    LessThanOrEqual,
-    Equal,
-    NotEqual
-}
-
-/// <summary>
-/// 聚合函数枚举
-/// </summary>
-public enum AggregationFunction
-{
-    Avg,
-    Max,
-    Min,
-    Sum,
-    Count,
-    Last
-}
-
-/// <summary>
-/// 排序方向枚举
-/// </summary>
-public enum SortDirection
-{
-    Asc,
-    Desc
-}

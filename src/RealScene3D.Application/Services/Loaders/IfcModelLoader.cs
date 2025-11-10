@@ -50,9 +50,11 @@ public class IfcModelLoader : IModelLoader
     /// <summary>
     /// 加载IFC模型文件并提取三角形网格数据
     /// </summary>
+#pragma warning disable CS1998 // 异步方法缺少 await 运算符
     public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
+#pragma warning restore CS1998
     {
         var startTime = DateTime.UtcNow;
         _logger.LogInformation("开始加载IFC BIM模型: {Path}", modelPath);

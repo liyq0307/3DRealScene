@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using System.Text;
@@ -15,27 +16,6 @@ namespace RealScene3D.Application.Services.Generators;
 /// </summary>
 public class PntsGenerator : TileGenerator
 {
-    /// <summary>
-    /// 点云采样策略枚举
-    /// </summary>
-    public enum SamplingStrategy
-    {
-        /// <summary>
-        /// 仅使用顶点 - 最快，点数最少
-        /// </summary>
-        VerticesOnly,
-
-        /// <summary>
-        /// 表面均匀采样 - 质量好，点数适中
-        /// </summary>
-        UniformSampling,
-
-        /// <summary>
-        /// 密集采样 - 最高质量，点数最多
-        /// </summary>
-        DenseSampling
-    }
-
     /// <summary>
     /// 构造函数
     /// </summary>

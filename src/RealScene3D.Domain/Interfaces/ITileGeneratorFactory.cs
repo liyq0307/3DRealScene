@@ -1,4 +1,5 @@
 namespace RealScene3D.Domain.Interfaces;
+using RealScene3D.Domain.Enums;
 
 /// <summary>
 /// 瓦片生成器工厂接口 - 根据TileFormat创建对应的生成器实例

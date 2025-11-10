@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Entities;
 
@@ -179,14 +180,3 @@ public class Slice
 }
 
 /// <summary>
-/// 切片任务状态枚举
-/// </summary>
-public enum SlicingTaskStatus
-{
-    Created = 0,
-    Queued = 1,
-    Processing = 2,
-    Completed = 3,
-    Failed = 4,
-    Cancelled = 5
-}

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using System.Text;
@@ -15,22 +16,6 @@ namespace RealScene3D.Application.Services.Generators;
 /// </summary>
 public class GltfGenerator : TileGenerator
 {
-    /// <summary>
-    /// GLTF输出格式枚举
-    /// </summary>
-    public enum GltfFormat
-    {
-        /// <summary>
-        /// GLB格式 - 二进制，单文件包含所有数据
-        /// </summary>
-        GLB,
-
-        /// <summary>
-        /// GLTF格式 - JSON文本+外部.bin文件
-        /// </summary>
-        GLTF
-    }
-
     private readonly TextureAtlasGenerator? _textureAtlasGenerator;
 
     /// <summary>
