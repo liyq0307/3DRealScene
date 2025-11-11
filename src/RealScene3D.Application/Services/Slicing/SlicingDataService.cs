@@ -52,7 +52,8 @@ public class SlicingDataService
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>三角形列表、模型包围盒和材质字典</returns>
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadTrianglesFromModelAsync(string modelPath, CancellationToken cancellationToken)
+    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> 
+    LoadTrianglesFromModelAsync(string modelPath, CancellationToken cancellationToken)
     {
         _logger.LogInformation("开始加载模型三角形：{ModelPath}", modelPath);
 
@@ -106,9 +107,8 @@ public class SlicingDataService
     /// <summary>
     /// 从本地文件直接加载三角形数据（无需临时文件）
     /// </summary>
-    private async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadTrianglesFromLocalFileAsync(
-        string filePath,
-        CancellationToken cancellationToken)
+    private async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> 
+    LoadTrianglesFromLocalFileAsync(string filePath, CancellationToken cancellationToken)
     {
         // 使用 ModelLoaderFactory 根据文件扩展名创建加载器
         var loader = _modelLoaderFactory.CreateLoaderFromPath(filePath);
@@ -124,7 +124,8 @@ public class SlicingDataService
     /// <summary>
     /// 从MinIO下载到临时文件再加载三角形数据
     /// </summary>
-    private async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadTrianglesFromMinIOAsync(
+    private async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> 
+    LoadTrianglesFromMinIOAsync(
         string bucket,
         string objectName,
         string originalPath,
@@ -200,6 +201,7 @@ public class SlicingDataService
         Slice slice,
         SlicingConfig config,
         List<Triangle> triangles,
+        Dictionary<string, Material>? materials,
         CancellationToken cancellationToken)
     {
         // 如果没有三角形数据，跳过生成
@@ -213,12 +215,12 @@ public class SlicingDataService
         // 根据输出格式生成文件内容
         byte[]? fileContent = config.OutputFormat.ToLower() switch
         {
-            "b3dm" => await GenerateB3DMAsync(slice, triangles),
-            "gltf" => await GenerateGLTFAsync(slice, triangles),
-            "i3dm" => await GenerateI3DMAsync(slice, triangles),
+            "b3dm" => await GenerateB3DMAsync(slice, triangles, materials),
+            "gltf" => await GenerateGLTFAsync(slice, triangles, materials),
+            "i3dm" => await GenerateI3DMAsync(slice, triangles, materials),
             "pnts" => await GeneratePNTSAsync(slice, triangles),
             "cmpt" => await GenerateCmptAsync(slice, triangles),
-            _ => await GenerateB3DMAsync(slice, triangles)
+            _ => await GenerateB3DMAsync(slice, triangles, materials)
         };
 
         // 应用压缩（如果启用）
@@ -261,7 +263,7 @@ public class SlicingDataService
     /// <summary>
     /// 生成B3DM格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateB3DMAsync(Slice slice, List<Triangle>? triangles)
+    private async Task<byte[]> GenerateB3DMAsync(Slice slice, List<Triangle>? triangles, Dictionary<string, Material>? materials = null)
     {
         var boundingBox = JsonSerializer.Deserialize<BoundingBox3D>(slice.BoundingBox);
         if (boundingBox == null)
@@ -270,9 +272,10 @@ public class SlicingDataService
         }
 
         var generator = _tileGeneratorFactory.CreateB3dmGenerator();
-        _logger.LogDebug("生成B3DM：切片{SliceId}, 三角形数={Count}", slice.Id, triangles?.Count ?? 0);
+        _logger.LogDebug("生成B3DM：切片{SliceId}, 三角形数={Count}, 材质数={MaterialCount}",
+            slice.Id, triangles?.Count ?? 0, materials?.Count ?? 0);
 
-        var b3dmData = generator.GenerateTile(triangles ?? new List<Triangle>(), boundingBox, materials: null);
+        var b3dmData = generator.GenerateTile(triangles ?? new List<Triangle>(), boundingBox, materials);
 
         _logger.LogDebug("B3DM文件生成完成：切片{SliceId}, 大小{Size}字节", slice.Id, b3dmData.Length);
 
@@ -282,7 +285,7 @@ public class SlicingDataService
     /// <summary>
     /// 生成GLTF格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateGLTFAsync(Slice slice, List<Triangle>? triangles)
+    private async Task<byte[]> GenerateGLTFAsync(Slice slice, List<Triangle>? triangles, Dictionary<string, Material>? materials = null)
     {
         var boundingBox = JsonSerializer.Deserialize<BoundingBox3D>(slice.BoundingBox);
         if (boundingBox == null)
@@ -291,9 +294,10 @@ public class SlicingDataService
         }
 
         var generator = _tileGeneratorFactory.CreateGltfGenerator();
-        _logger.LogDebug("生成GLB：切片{SliceId}, 三角形数={Count}", slice.Id, triangles?.Count ?? 0);
+        _logger.LogDebug("生成GLB：切片{SliceId}, 三角形数={Count}, 材质数={MaterialCount}",
+            slice.Id, triangles?.Count ?? 0, materials?.Count ?? 0);
 
-        var glbData = generator.GenerateGLB(triangles ?? new List<Triangle>(), boundingBox, materials: null);
+        var glbData = generator.GenerateGLB(triangles ?? new List<Triangle>(), boundingBox, materials);
 
         _logger.LogDebug("GLB文件生成完成：切片{SliceId}, 大小{Size}字节", slice.Id, glbData.Length);
 
@@ -303,7 +307,7 @@ public class SlicingDataService
     /// <summary>
     /// 生成I3DM格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateI3DMAsync(Slice slice, List<Triangle>? triangles)
+    private async Task<byte[]> GenerateI3DMAsync(Slice slice, List<Triangle>? triangles, Dictionary<string, Material>? materials = null)
     {
         var boundingBox = JsonSerializer.Deserialize<BoundingBox3D>(slice.BoundingBox);
         if (boundingBox == null)
@@ -312,9 +316,10 @@ public class SlicingDataService
         }
 
         var generator = _tileGeneratorFactory.CreateI3dmGenerator();
-        _logger.LogDebug("生成I3DM：切片{SliceId}, 三角形数={Count}", slice.Id, triangles?.Count ?? 0);
+        _logger.LogDebug("生成I3DM：切片{SliceId}, 三角形数={Count}, 材质数={MaterialCount}",
+            slice.Id, triangles?.Count ?? 0, materials?.Count ?? 0);
 
-        var i3dmData = generator.GenerateTile(triangles ?? new List<Triangle>(), boundingBox, materials: null);
+        var i3dmData = generator.GenerateTile(triangles ?? new List<Triangle>(), boundingBox, materials);
 
         _logger.LogDebug("I3DM文件生成完成：切片{SliceId}, 大小{Size}字节", slice.Id, i3dmData.Length);
 

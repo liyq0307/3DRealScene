@@ -185,8 +185,8 @@ public class SlicingProcessor : ISlicingProcessor
     /// <param name="task">切片任务</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>返回元组：(三角形列表, 空间索引, 模型包围盒, 材质字典)</returns>
-    private async Task<(List<Triangle> triangles, Dictionary<string, List<Triangle>> spatialIndex, BoundingBox3D bounds, Dictionary<string, Material> materials)> LoadModelDataAsync(
-        SlicingTask task, CancellationToken cancellationToken)
+    private async Task<(List<Triangle> triangles, Dictionary<string, List<Triangle>> spatialIndex, BoundingBox3D bounds, Dictionary<string, Material> materials)> 
+    LoadModelDataAsync(SlicingTask task, CancellationToken cancellationToken)
     {
         // 加载源模型的三角形数据*
         _logger.LogInformation("开始加载源模型三角形数据：{SourceModelPath}", task.SourceModelPath);
@@ -264,6 +264,7 @@ public class SlicingProcessor : ISlicingProcessor
         bool actuallyUseIncrementalUpdate,
         bool hasSliceChanges,
         HashSet<string> processedSliceKeys,
+        Dictionary<string, Material> materials,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("处理级别{Level}：策略{Strategy}", level, config.Strategy);
@@ -284,13 +285,13 @@ public class SlicingProcessor : ISlicingProcessor
         {
             hasSliceChanges = await ProcessSlicesInParallelForLevelAsync(
                 task, level, config, slices, triangleSpatialIndex, modelBounds, existingSlicesMap,
-                actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, cancellationToken);
+                actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, materials, cancellationToken);
         }
         else
         {
             hasSliceChanges = await ProcessSlicesSeriallyForLevelAsync(
                 task, level, config, slices, triangleSpatialIndex, modelBounds, existingSlicesMap,
-                actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, cancellationToken);
+                actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, materials, cancellationToken);
         }
 
         // 更新进度
@@ -316,6 +317,7 @@ public class SlicingProcessor : ISlicingProcessor
         bool actuallyUseIncrementalUpdate,
         bool hasSliceChanges,
         HashSet<string> processedSliceKeys,
+        Dictionary<string, Material> materials,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("使用并行处理：级别{Level}, 切片数量{Count}, 并行度{ParallelCount}",
@@ -323,7 +325,7 @@ public class SlicingProcessor : ISlicingProcessor
 
         var (processedCount, hasChanges) = await ProcessSlicesInParallelAsync(
             task, level, config, slices, triangleSpatialIndex, modelBounds, existingSlicesMap,
-            actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, [], [], cancellationToken);
+            actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, materials, [], [], cancellationToken);
 
         _logger.LogInformation("并行处理完成：级别{Level}, 处理{Processed}个切片, 是否有变化{HasChanges}",
             level, processedCount, hasChanges);
@@ -345,6 +347,7 @@ public class SlicingProcessor : ISlicingProcessor
         bool actuallyUseIncrementalUpdate,
         bool hasSliceChanges,
         HashSet<string> processedSliceKeys,
+        Dictionary<string, Material> materials,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("使用串行处理：任务{TaskId}({TaskName}), 级别{Level}, 切片数量{Count}",
@@ -409,7 +412,7 @@ public class SlicingProcessor : ISlicingProcessor
                     slice.X, slice.Y, slice.Z, sliceTriangles.Count);
 
                 // 生成切片文件内容，获取是否成功
-                var generated = await _dataService.GenerateSliceFileAsync(slice, config, sliceTriangles, cancellationToken);
+                var generated = await _dataService.GenerateSliceFileAsync(slice, config, sliceTriangles, materials, cancellationToken);
                 if (!generated)
                 {
                     _logger.LogDebug("切片({Level},{X},{Y},{Z})无几何数据，跳过保存",
@@ -558,8 +561,9 @@ public class SlicingProcessor : ISlicingProcessor
         {
             if (cancellationToken.IsCancellationRequested) break;
 
-            hasSliceChanges = await ProcessLevelAsync(task, level, config, strategy, triangleSpatialIndex, modelBounds,
-                existingSlicesMap, actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, cancellationToken);
+            hasSliceChanges = await ProcessLevelAsync(
+                task, level, config, strategy, triangleSpatialIndex, modelBounds, existingSlicesMap,
+                actuallyUseIncrementalUpdate, hasSliceChanges, processedSliceKeys, materials, cancellationToken);
         }
 
         // 增量更新：删除不再存在的旧切片（模型中已删除的部分）
@@ -1344,6 +1348,7 @@ public class SlicingProcessor : ISlicingProcessor
         bool actuallyUseIncrementalUpdate,
         bool hasSliceChanges,
         HashSet<string> processedSliceKeys,
+        Dictionary<string, Material> materials,
         List<Slice> slicesToAdd,
         List<Slice> slicesToUpdate,
         CancellationToken cancellationToken)
@@ -1411,7 +1416,7 @@ public class SlicingProcessor : ISlicingProcessor
                     var sliceTriangles = QueryTrianglesForSlice(slice, triangleSpatialIndex, modelBounds);
 
                     // 生成切片文件内容（传入实际的三角形数据）
-                    await _dataService.GenerateSliceFileAsync(slice, config, sliceTriangles, cancellationToken);
+                    await _dataService.GenerateSliceFileAsync(slice, config, sliceTriangles, materials, cancellationToken);
 
                     // 线程安全的计数更新和列表操作
                     lock (lockObject)
