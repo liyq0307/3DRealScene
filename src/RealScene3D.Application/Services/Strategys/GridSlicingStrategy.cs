@@ -833,19 +833,6 @@ public class GridSlicingStrategy : ISlicingStrategy
     }
 
     /// <summary>
-    /// 优化的文件大小计算方法 - 预计算常用值
-    /// </summary>
-    private long CalculateFileSizeOptimized(string format, int level)
-    {
-        var baseSize = GetBaseFileSize(format);
-        var levelFactor = 1.0 + (level * 0.3);
-        var formatFactor = GetFormatOverheadFactor(format);
-
-        var estimatedSize = (long)(baseSize * levelFactor * formatFactor);
-        return ApplySizeConstraints(estimatedSize, format);
-    }
-
-    /// <summary>
     /// 获取基础文件大小
     /// </summary>
     private long GetBaseFileSize(string format)
