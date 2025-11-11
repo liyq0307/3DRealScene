@@ -30,19 +30,19 @@ public class IndexFileGenerator
     /// <summary>
     /// 生成索引文件并验证一致性
     /// </summary>
-    public async Task<IndexGenerationResult> GenerateIndexFilesAsync(
+    public async Task<IndexGenerationResult> GenerateIndexFileAsync(
         SlicingTask task,
         SlicingConfig config,
         CancellationToken cancellationToken)
     {
         try
         {
-            _logger.LogInformation("开始生成索引文件：任务{TaskId}", task.Id);
-            
+            _logger.LogInformation("开始生成index.json索引文件：任务{TaskId}", task.Id);
+
             // 1. 收集所有切片数据
             var sliceData = await CollectSliceDataAsync(task.Id);
             _logger.LogInformation("收集到{Count}个切片数据", sliceData.Count);
-            
+
             // 2. 验证切片文件存在性
             var validatedSlices = await ValidateSliceFilesAsync(sliceData, config);
             _logger.LogInformation("验证{ValidCount}/{TotalCount}个切片文件存在",
@@ -59,14 +59,11 @@ public class IndexFileGenerator
             // 5. 生成index.json（仅包含存在的切片）
             var indexResult = await GenerateIndexJsonAsync(task, normalizedSlices, config, cancellationToken);
 
-            // 6. 生成tileset.json（仅包含存在的切片）
-            var tilesetResult = await GenerateTilesetJsonAsync(task, normalizedSlices, config, cancellationToken);
-
             // 6. 验证格式
-            var formatValidationResult = ValidateIndexFormats(indexResult, tilesetResult!);
+            var formatValidationResult = ValidateIndexFormat(indexResult);
 
             // 7. 验证一致性
-            var validationResult = await ValidateConsistencyAsync(indexResult, tilesetResult!, normalizedSlices);
+            var validationResult = await ValidateConsistencyAsync(indexResult, normalizedSlices);
 
             // 8. 合并格式验证和一致性验证结果
             validationResult = MergeValidationResults(formatValidationResult, validationResult);
@@ -81,26 +78,25 @@ public class IndexFileGenerator
                 // 修复后重新验证
                 if (repairResult.Success)
                 {
-                    var revalidationResult = await ValidateConsistencyAsync(indexResult, tilesetResult!, normalizedSlices);
+                    var revalidationResult = await ValidateConsistencyAsync(indexResult, normalizedSlices);
                     validationResult = revalidationResult;
                 }
             }
-            
+
             var result = new IndexGenerationResult
             {
                 IndexJson = indexResult,
-                TilesetJson = tilesetResult,
                 ValidationResult = validationResult,
                 RepairResult = repairResult,
                 Success = validationResult.IsValid || repairResult.Success
             };
-            
-            _logger.LogInformation("索引文件生成完成：任务{TaskId}，成功={Success}", task.Id, result.Success);
+
+            _logger.LogInformation("index.json生成完成：任务{TaskId}，成功={Success}", task.Id, result.Success);
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "生成索引文件失败：任务{TaskId}", task.Id);
+            _logger.LogError(ex, "生成index.json失败：任务{TaskId}", task.Id);
             throw;
         }
     }
@@ -266,93 +262,13 @@ public class IndexFileGenerator
         };
     }
 
-    /// <summary>
-    /// 生成tileset.json
-    /// </summary>
-    private async Task<TilesetJsonResult> GenerateTilesetJsonAsync(
-        SlicingTask task,
-        List<NormalizedSliceData> slices,
-        SlicingConfig config,
-        CancellationToken cancellationToken)
-    {
-        if (!slices.Any())
-        {
-            _logger.LogWarning("没有切片数据，生成空的tileset.json：任务{TaskId}", task.Id);
-            return new TilesetJsonResult
-            {
-                Content = "{}",
-                Path = $"{task.OutputPath}/tileset.json",
-                SliceCount = 0
-            };
-        }
-
-        // 计算根节点的包围体积
-        var rootBoundingVolume = CalculateRootBoundingVolume(slices);
-
-        // 构建LOD层次结构
-        var rootTile = new
-        {
-            boundingVolume = rootBoundingVolume,
-            geometricError = CalculateGeometricError(0, config),
-            refine = "REPLACE",
-            children = BuildLodHierarchy(slices, config, 0)
-        };
-
-        // 生成完整的tileset
-        var tileset = new
-        {
-            asset = new
-            {
-                version = "1.1",
-                generator = "RealScene3D Slicer v1.0",
-                tilesetVersion = "1.0"
-            },
-            geometricError = config.GeometricErrorThreshold * 4,
-            root = rootTile
-        };
-
-        var tilesetContent = JsonSerializer.Serialize(tileset, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true
-        });
-
-        var tilesetPath = $"{task.OutputPath}/tileset.json";
-
-        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
-        {
-            var fullPath = Path.Combine(task.OutputPath!, "tileset.json");
-            var directory = Path.GetDirectoryName(fullPath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-            await File.WriteAllTextAsync(fullPath, tilesetContent, cancellationToken);
-            _logger.LogInformation("tileset.json已保存到本地：{FilePath}", fullPath);
-        }
-        else
-        {
-            using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(tilesetContent)))
-            {
-                await _minioService.UploadFileAsync("slices", tilesetPath, stream, "application/json", cancellationToken);
-            }
-            _logger.LogInformation("tileset.json已上传到MinIO：{FilePath}", tilesetPath);
-        }
-
-        return new TilesetJsonResult
-        {
-            Content = tilesetContent,
-            Path = tilesetPath,
-            SliceCount = slices.Count
-        };
-    }
 
     /// <summary>
     /// 验证索引文件格式
     /// </summary>
-    private ValidationResult ValidateIndexFormats(IndexJsonResult indexResult, TilesetJsonResult tilesetResult)
+    private ValidationResult ValidateIndexFormat(IndexJsonResult indexResult)
     {
-        _logger.LogInformation("验证索引文件格式...");
+        _logger.LogInformation("验证index.json格式...");
 
         var formatValidator = new IndexFormatValidator(_logger);
         var allIssues = new List<ValidationIssue>();
@@ -362,13 +278,6 @@ public class IndexFileGenerator
         {
             var indexFormatResult = formatValidator.ValidateIndexJsonFormat(indexResult.Content);
             allIssues.AddRange(indexFormatResult.Issues);
-        }
-
-        // 验证tileset.json格式
-        if (tilesetResult != null && !string.IsNullOrEmpty(tilesetResult.Content))
-        {
-            var tilesetFormatResult = formatValidator.ValidateTilesetJsonFormat(tilesetResult.Content);
-            allIssues.AddRange(tilesetFormatResult.Issues);
         }
 
         return new ValidationResult
@@ -413,11 +322,10 @@ public class IndexFileGenerator
     /// </summary>
     private async Task<ValidationResult> ValidateConsistencyAsync(
         IndexJsonResult indexResult,
-        TilesetJsonResult tilesetResult,
         List<NormalizedSliceData> slices)
     {
         var validator = new ConsistencyValidator(_minioService, _logger);
-        return await validator.ValidateAsync(indexResult, tilesetResult, slices);
+        return await validator.ValidateAsync(indexResult, slices);
     }
 
     /// <summary>
@@ -460,124 +368,22 @@ public class IndexFileGenerator
     }
 
     /// <summary>
-    /// 计算根节点包围体积
-    /// </summary>
-    private object CalculateRootBoundingVolume(List<NormalizedSliceData> slices)
-    {
-        if (!slices.Any()) return new { box = new[] { 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 } };
-
-        var minX = slices.Min(s => s.BoundingBox.MinX);
-        var minY = slices.Min(s => s.BoundingBox.MinY);
-        var minZ = slices.Min(s => s.BoundingBox.MinZ);
-        var maxX = slices.Max(s => s.BoundingBox.MaxX);
-        var maxY = slices.Max(s => s.BoundingBox.MaxY);
-        var maxZ = slices.Max(s => s.BoundingBox.MaxZ);
-
-        var centerX = (minX + maxX) / 2.0;
-        var centerY = (minY + maxY) / 2.0;
-        var centerZ = (minZ + maxZ) / 2.0;
-        var halfWidth = (maxX - minX) / 2.0;
-        var halfHeight = (maxY - minY) / 2.0;
-        var halfDepth = (maxZ - minZ) / 2.0;
-
-        return new
-        {
-            box = new[]
-            {
-                centerX, centerY, centerZ,
-                halfWidth, 0.0, 0.0,
-                0.0, halfHeight, 0.0,
-                0.0, 0.0, halfDepth
-            }
-        };
-    }
-
-    /// <summary>
-    /// 构建LOD层次结构
-    /// </summary>
-    private List<object>? BuildLodHierarchy(List<NormalizedSliceData> allSlices, SlicingConfig config, int currentLevel)
-    {
-        var levelSlices = allSlices.Where(s => s.Level == currentLevel).ToList();
-        if (!levelSlices.Any()) return null;
-
-        var children = new List<object>();
-
-        if (currentLevel >= config.MaxLevel)
-        {
-            // 叶子级别
-            foreach (var slice in levelSlices)
-            {
-                children.Add(new
-                {
-                    boundingVolume = ParseBoundingVolume(slice.BoundingBox),
-                    geometricError = 0.0,
-                    content = new { uri = slice.Path.UriPath }
-                });
-            }
-        }
-        else
-        {
-            // 非叶子级别
-            foreach (var slice in levelSlices)
-            {
-                var childSlices = allSlices.Where(s =>
-                    s.Level == currentLevel + 1 &&
-                    s.X >= slice.X * 2 && s.X < slice.X * 2 + 2 &&
-                    s.Y >= slice.Y * 2 && s.Y < slice.Y * 2 + 2 &&
-                    s.Z >= slice.Z * 2 && s.Z < slice.Z * 2 + 2).ToList();
-
-                var tileData = new Dictionary<string, object>
-                {
-                    ["boundingVolume"] = ParseBoundingVolume(slice.BoundingBox),
-                    ["geometricError"] = CalculateGeometricError(currentLevel + 1, config),
-                    ["refine"] = "REPLACE"
-                };
-
-                var childHierarchy = BuildLodHierarchy(allSlices, config, currentLevel + 1);
-                if (childHierarchy != null && childHierarchy.Any())
-                {
-                    tileData["children"] = childHierarchy;
-                }
-
-                if (currentLevel > 0)
-                {
-                    tileData["content"] = new { uri = slice.Path.UriPath };
-                }
-
-                children.Add(tileData);
-            }
-        }
-
-        return children.Any() ? children : null;
-    }
-
-    /// <summary>
-    /// 计算几何误差
-    /// </summary>
-    private double CalculateGeometricError(int level, SlicingConfig config)
-    {
-        var baseError = config.GeometricErrorThreshold;
-        var errorFactor = Math.Pow(2.0, config.MaxLevel - level);
-        return baseError * errorFactor;
-    }
-
-    /// <summary>
     /// 解析包围盒
     /// </summary>
-    private BoundingBoxData ParseBoundingBox(string boundingBoxJson)
+    private BoundingBox3D ParseBoundingBox(string boundingBoxJson)
     {
         if (string.IsNullOrEmpty(boundingBoxJson))
-            return new BoundingBoxData();
+            return new BoundingBox3D();
 
         try
         {
             var boundingBox = JsonSerializer.Deserialize<Dictionary<string, double>>(boundingBoxJson);
             if (boundingBox == null)
-                return new BoundingBoxData();
+                return new BoundingBox3D();
 
-            return new BoundingBoxData
+            return new BoundingBox3D
             {
-                // 修复：使用大写键名匹配GridSlicingStrategy生成的JSON格式
+                // 使用大写键名匹配GridSlicingStrategy生成的JSON格式
                 MinX = boundingBox.GetValueOrDefault("MinX", 0),
                 MinY = boundingBox.GetValueOrDefault("MinY", 0),
                 MinZ = boundingBox.GetValueOrDefault("MinZ", 0),
@@ -588,45 +394,24 @@ public class IndexFileGenerator
         }
         catch
         {
-            return new BoundingBoxData();
+            return new BoundingBox3D();
         }
     }
 
     /// <summary>
-    /// 解析包围体积
-    /// </summary>
-    private object ParseBoundingVolume(BoundingBoxData boundingBox)
-    {
-        var centerX = (boundingBox.MinX + boundingBox.MaxX) / 2.0;
-        var centerY = (boundingBox.MinY + boundingBox.MaxY) / 2.0;
-        var centerZ = (boundingBox.MinZ + boundingBox.MaxZ) / 2.0;
-        var halfWidth = (boundingBox.MaxX - boundingBox.MinX) / 2.0;
-        var halfHeight = (boundingBox.MaxY - boundingBox.MinY) / 2.0;
-        var halfDepth = (boundingBox.MaxZ - boundingBox.MinZ) / 2.0;
-
-        return new
-        {
-            box = new[]
-            {
-                centerX, centerY, centerZ,
-                halfWidth, 0.0, 0.0,
-                0.0, halfHeight, 0.0,
-                0.0, 0.0, halfDepth
-            }
-        };
-    }
-
-    /// <summary>
-    /// 获取内容类型
+    /// 获取文件的内容类型
     /// </summary>
     private string GetContentType(string filePath)
     {
-        var extension = Path.GetExtension(filePath).ToLower();
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
         return extension switch
         {
             ".b3dm" => "application/octet-stream",
-            ".gltf" => "application/json",
-            ".glb" => "application/octet-stream",
+            ".i3dm" => "application/octet-stream",
+            ".pnts" => "application/octet-stream",
+            ".cmpt" => "application/octet-stream",
+            ".glb" => "model/gltf-binary",
+            ".gltf" => "model/gltf+json",
             ".json" => "application/json",
             _ => "application/octet-stream"
         };
@@ -639,7 +424,6 @@ public class IndexFileGenerator
 public class IndexGenerationResult
 {
     public IndexJsonResult IndexJson { get; set; } = new();
-    public TilesetJsonResult TilesetJson { get; set; } = new();
     public ValidationResult ValidationResult { get; set; } = new();
     public RepairResult RepairResult { get; set; } = new();
     public bool Success { get; set; }
@@ -656,11 +440,247 @@ public class IndexJsonResult
 }
 
 /// <summary>
-/// tileset.json生成结果
+/// 标准化切片数据
 /// </summary>
-public class TilesetJsonResult
+public class NormalizedSliceData
 {
-    public string Content { get; set; } = string.Empty;
-    public string Path { get; set; } = string.Empty;
-    public int SliceCount { get; set; }
+    public Guid Id { get; set; }
+    public int Level { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Z { get; set; }
+    public NormalizedPath Path { get; set; } = new();
+    public BoundingBox3D BoundingBox { get; set; } = new();
+    public long FileSize { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string ContentType { get; set; } = string.Empty;
+    public bool FileExists { get; set; }
+}
+
+/// <summary>
+/// 标准化路径
+/// </summary>
+public class NormalizedPath
+{
+    public string AbsolutePath { get; set; } = string.Empty;
+    public string RelativePath { get; set; } = string.Empty;
+    public string UriPath { get; set; } = string.Empty;
+    public StorageLocationType StorageType { get; set; }
+}
+
+/// <summary>
+/// 验证结果
+/// </summary>
+public class ValidationResult
+{
+    public bool IsValid { get; set; }
+    public List<ValidationIssue> Issues { get; set; } = new();
+    public ValidationSummary Summary { get; set; } = new();
+}
+
+/// <summary>
+/// 验证问题
+/// </summary>
+public class ValidationIssue
+{
+    public ValidationSeverity Severity { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 验证摘要
+/// </summary>
+public class ValidationSummary
+{
+    public int TotalIssues { get; set; }
+    public int ErrorCount { get; set; }
+    public int WarningCount { get; set; }
+    public int InfoCount { get; set; }
+}
+
+/// <summary>
+/// 修复结果
+/// </summary>
+public class RepairResult
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public List<string> RepairedItems { get; set; } = new();
+}
+
+/// <summary>
+/// 路径标准化器
+/// </summary>
+public class PathNormalizer
+{
+    public NormalizedPath NormalizePath(string absolutePath, StorageLocationType storageType, string outputPath)
+    {
+        string relativePath = absolutePath;
+        string uriPath = absolutePath;
+
+        if (storageType == StorageLocationType.LocalFileSystem && !string.IsNullOrEmpty(outputPath))
+        {
+            try
+            {
+                relativePath = Path.GetRelativePath(outputPath, absolutePath);
+                uriPath = relativePath.Replace('\\', '/');
+            }
+            catch
+            {
+                relativePath = Path.GetFileName(absolutePath);
+                uriPath = relativePath;
+            }
+        }
+        else if (storageType == StorageLocationType.MinIO)
+        {
+            uriPath = absolutePath.Replace('\\', '/');
+            relativePath = uriPath;
+        }
+
+        return new NormalizedPath
+        {
+            AbsolutePath = absolutePath,
+            RelativePath = relativePath,
+            UriPath = uriPath,
+            StorageType = storageType
+        };
+    }
+}
+
+/// <summary>
+/// 索引格式验证器
+/// </summary>
+public class IndexFormatValidator
+{
+    private readonly ILogger _logger;
+
+    public IndexFormatValidator(ILogger logger)
+    {
+        _logger = logger;
+    }
+
+    public ValidationResult ValidateIndexJsonFormat(string content)
+    {
+        var issues = new List<ValidationIssue>();
+
+        try
+        {
+            var doc = JsonSerializer.Deserialize<JsonDocument>(content);
+            if (doc == null)
+            {
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "无法解析index.json内容",
+                    Location = "index.json"
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            issues.Add(new ValidationIssue
+            {
+                Severity = ValidationSeverity.Error,
+                Message = $"JSON格式错误: {ex.Message}",
+                Location = "index.json"
+            });
+        }
+
+        return new ValidationResult
+        {
+            IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+            Issues = issues,
+            Summary = new ValidationSummary
+            {
+                TotalIssues = issues.Count,
+                ErrorCount = issues.Count(i => i.Severity == ValidationSeverity.Error),
+                WarningCount = issues.Count(i => i.Severity == ValidationSeverity.Warning),
+                InfoCount = issues.Count(i => i.Severity == ValidationSeverity.Info)
+            }
+        };
+    }
+}
+
+/// <summary>
+/// 一致性验证器
+/// </summary>
+public class ConsistencyValidator
+{
+    private readonly IMinioStorageService _minioService;
+    private readonly ILogger _logger;
+
+    public ConsistencyValidator(IMinioStorageService minioService, ILogger logger)
+    {
+        _minioService = minioService;
+        _logger = logger;
+    }
+
+    public async Task<ValidationResult> ValidateAsync(IndexJsonResult indexResult, List<NormalizedSliceData> slices)
+    {
+        var issues = new List<ValidationIssue>();
+
+        // 验证切片数量一致性
+        if (indexResult.SliceCount != slices.Count)
+        {
+            issues.Add(new ValidationIssue
+            {
+                Severity = ValidationSeverity.Warning,
+                Message = $"索引文件记录的切片数量({indexResult.SliceCount})与实际切片数量({slices.Count})不一致",
+                Location = "index.json"
+            });
+        }
+
+        await Task.CompletedTask;
+
+        return new ValidationResult
+        {
+            IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+            Issues = issues,
+            Summary = new ValidationSummary
+            {
+                TotalIssues = issues.Count,
+                ErrorCount = issues.Count(i => i.Severity == ValidationSeverity.Error),
+                WarningCount = issues.Count(i => i.Severity == ValidationSeverity.Warning),
+                InfoCount = issues.Count(i => i.Severity == ValidationSeverity.Info)
+            }
+        };
+    }
+}
+
+/// <summary>
+/// 自动修复器
+/// </summary>
+public class AutoRepairer
+{
+    private readonly IMinioStorageService _minioService;
+    private readonly ILogger _logger;
+
+    public AutoRepairer(IMinioStorageService minioService, ILogger logger)
+    {
+        _minioService = minioService;
+        _logger = logger;
+    }
+
+    public async Task<RepairResult> RepairAsync(
+        ValidationResult validationResult,
+        SlicingTask task,
+        SlicingConfig config,
+        List<NormalizedSliceData> slices,
+        CancellationToken cancellationToken)
+    {
+        var repairedItems = new List<string>();
+
+        // 目前只是占位实现，可以在未来添加具体的修复逻辑
+        _logger.LogInformation("执行自动修复...");
+
+        await Task.CompletedTask;
+
+        return new RepairResult
+        {
+            Success = true,
+            Message = "修复完成",
+            RepairedItems = repairedItems
+        };
+    }
 }

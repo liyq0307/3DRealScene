@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Application.Services.Loaders;
 
@@ -19,7 +17,7 @@ namespace RealScene3D.Application.Services.Loaders;
 ///
 /// 当前实现为基础框架，待集成第三方库后完善
 /// </summary>
-public class FbxModelLoader : IModelLoader
+public class FbxModelLoader : ModelLoader
 {
     private readonly ILogger<FbxModelLoader> _logger;
     private static readonly string[] SupportedFormats = { ".fbx" };
@@ -33,7 +31,7 @@ public class FbxModelLoader : IModelLoader
     /// 加载FBX模型文件并提取三角形网格数据
     /// </summary>
 #pragma warning disable CS1998 // 异步方法缺少 await 运算符
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
+    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
 #pragma warning restore CS1998
@@ -132,7 +130,7 @@ public class FbxModelLoader : IModelLoader
     /// <summary>
     /// 计算三角形集合的包围盒
     /// </summary>
-    private BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
+    private new BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
     {
         if (triangles.Count == 0)
         {
@@ -169,7 +167,7 @@ public class FbxModelLoader : IModelLoader
     /// <summary>
     /// 检查是否支持指定的文件格式
     /// </summary>
-    public bool SupportsFormat(string extension)
+    public override bool SupportsFormat(string extension)
     {
         return SupportedFormats.Contains(extension.ToLowerInvariant());
     }
@@ -177,7 +175,7 @@ public class FbxModelLoader : IModelLoader
     /// <summary>
     /// 获取支持的所有文件格式
     /// </summary>
-    public IEnumerable<string> GetSupportedFormats()
+    public override IEnumerable<string> GetSupportedFormats()
     {
         return SupportedFormats;
     }

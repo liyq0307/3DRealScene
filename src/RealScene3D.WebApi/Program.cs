@@ -1,10 +1,3 @@
-/// <summary>
-using RealScene3D.Domain.Enums;
-/// RealScene3D WebAPI程序入口点
-/// 配置异构融合存储系统，支持多种数据库和存储服务
-/// 架构：前端Vue.js + 后端ASP.NET Core WebAPI + 异构存储层
-/// </summary>
-
 using Microsoft.EntityFrameworkCore;
 using Minio;
 using MongoDB.Driver;
@@ -30,7 +23,18 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
 using RealScene3D.WebApi.Filters;
+using RealScene3D.Application.Services.Slicing;
 
+/// <summary>
+/// RealScene3D Web API 程序入口
+/// </summary>
+/// <remarks>
+/// 配置ASP.NET Core Web API应用程序
+/// 包括中间件、服务注册、存储系统初始化等
+/// 支持JWT认证、Swagger文档、CORS等功能
+/// 采用异构存储架构：PostgreSQL/PostGIS、MongoDB、Redis、MinIO
+/// </remarks>
+/// </summary>
 var builder = WebApplication.CreateBuilder(args);
 
 // ========== Kestrel服务器配置 ==========
@@ -59,7 +63,7 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new()
     {
-        Title = "RealScene3D API - 异构融合存储",
+        Title = "RealScene3D API - 实景三维管理系统",
         Version = "v1",
         Description = "实景三维管理系统 - 支持PostgreSQL/PostGIS、MongoDB、Redis、MinIO异构存储"
     });
@@ -417,6 +421,10 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 /// 适用于：倾斜摄影、BIM模型、海量点云等3D数据
 /// </summary>
 
+// 独立功能服务（依赖其他注册的服务，需要通过DI注入）
+builder.Services.AddScoped<IncrementalUpdateService>();
+builder.Services.AddScoped<SlicingDataService>();
+
 // 切片应用服务：提供切片任务管理的高层API接口
 builder.Services.AddScoped<ISlicingAppService, SlicingAppService>();
 
@@ -424,46 +432,26 @@ builder.Services.AddScoped<ISlicingAppService, SlicingAppService>();
 builder.Services.AddScoped<ISlicingProcessor, SlicingProcessor>();
 
 // 3D Tiles生成器工厂：支持动态创建不同格式的瓦片生成器
+// 工厂会自动创建生成器实例，无需单独注册各个生成器类
 builder.Services.AddScoped<ITileGeneratorFactory, TileGeneratorFactory>();
 
 // 切片策略工厂：支持动态创建不同的切片策略
 builder.Services.AddScoped<ISlicingStrategyFactory, SlicingStrategyFactory>();
 
-// 3D Tiles生成器：生成各种3D Tiles格式的瓦片文件
-builder.Services.AddScoped<B3dmGenerator>();
-builder.Services.AddScoped<GltfGenerator>();
-builder.Services.AddScoped<I3dmGenerator>();
-builder.Services.AddScoped<PntsGenerator>();
-builder.Services.AddScoped<CmptGenerator>();
-builder.Services.AddScoped<TilesetGenerator>();
-
-// 模型加载器：加载和解析各种3D模型格式
-builder.Services.AddScoped<MtlParser>();
-
-// 通用格式加载器
-builder.Services.AddScoped<ObjModelLoader>();     // OBJ格式（含MTL材质）
-builder.Services.AddScoped<GltfModelLoader>();    // GLTF/GLB格式
-builder.Services.AddScoped<StlModelLoader>();     // STL格式（3D打印常用）
-builder.Services.AddScoped<PlyModelLoader>();     // PLY格式（点云和网格）
-
-// 专业格式加载器（需要集成第三方库）
-builder.Services.AddScoped<FbxModelLoader>();     // FBX格式（游戏/影视，需要Assimp.NET）
-builder.Services.AddScoped<IfcModelLoader>();     // IFC格式（BIM建筑，需要xBIM）
-builder.Services.AddScoped<OsgbModelLoader>();    // OSGB格式（倾斜摄影，需要OSG或格式转换）
-
-// 组合模型加载器：自动根据文件扩展名选择合适的加载器
+// 模型加载器工厂：根据文件扩展名或枚举创建对应的加载器（抽象工厂模式）
 // 支持格式: .obj, .gltf, .glb, .stl, .ply, .fbx, .ifc, .ifcxml, .ifczip, .osgb, .osg
-builder.Services.AddScoped<CompositeModelLoader>();
+// 工厂会自动创建加载器实例，无需单独注册各个加载器类
+builder.Services.AddScoped<IModelLoaderFactory, ModelLoaderFactory>();
 
-// 模型加载器接口注册（使用组合加载器支持多种格式）
-builder.Services.AddScoped<IModelLoader, CompositeModelLoader>();
+// MTL材质解析器（OBJ加载器需要）
+builder.Services.AddScoped<MtlParser>();
 
 // 网格处理服务：LOD生成和纹理优化
 builder.Services.AddScoped<MeshDecimationService>(); // QEM网格简化服务
 builder.Services.AddScoped<TextureAtlasGenerator>(); // 纹理图集生成器
 
-// Obj2Tiles集成服务：端到端OBJ/GLTF转3D Tiles
-builder.Services.AddScoped<Obj2TilesIntegrationService>();
+// Obj2Tiles服务：端到端OBJ/GLTF转3D Tiles
+builder.Services.AddScoped<Obj2TilesService>();
 
 // 添加索引文件生成服务（已存在）
 

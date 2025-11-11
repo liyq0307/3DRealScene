@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Interfaces;
 using System.Globalization;
 using System.Text;
 
@@ -13,7 +11,7 @@ namespace RealScene3D.Application.Services.Loaders;
 /// 支持MTL材质文件加载和材质关联
 /// 用于提取三角形网格数据供切片处理使用
 /// </summary>
-public class ObjModelLoader : IModelLoader
+public class ObjModelLoader : ModelLoader
 {
     private readonly ILogger<ObjModelLoader> _logger;
     private readonly MtlParser _mtlParser;
@@ -29,7 +27,7 @@ public class ObjModelLoader : IModelLoader
     /// 加载OBJ模型文件并提取三角形网格数据、材质信息
     /// 算法:逐行解析OBJ文件,提取v(顶点)、vn(法线)、vt(纹理坐标)和f(面片)数据
     /// </summary>
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
+    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -367,7 +365,7 @@ public class ObjModelLoader : IModelLoader
     /// <summary>
     /// 检查是否支持指定的文件格式
     /// </summary>
-    public bool SupportsFormat(string extension)
+    public override bool SupportsFormat(string extension)
     {
         return SupportedFormats.Contains(extension.ToLowerInvariant());
     }
@@ -375,7 +373,7 @@ public class ObjModelLoader : IModelLoader
     /// <summary>
     /// 获取支持的所有文件格式
     /// </summary>
-    public IEnumerable<string> GetSupportedFormats()
+    public override IEnumerable<string> GetSupportedFormats()
     {
         return SupportedFormats;
     }

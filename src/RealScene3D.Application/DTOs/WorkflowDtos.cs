@@ -1,4 +1,3 @@
-using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Application.DTOs;

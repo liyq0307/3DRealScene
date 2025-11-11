@@ -15,7 +15,7 @@ public class SlicingStrategyFactory : ISlicingStrategyFactory
 {
     private readonly ILogger<SlicingStrategyFactory> _logger;
     private readonly ITileGeneratorFactory _tileGeneratorFactory;
-    private readonly IModelLoader _modelLoader;
+    private readonly IModelLoaderFactory _modelLoaderFactory;
     private readonly IMinioStorageService _minioService;
     private readonly MeshDecimationService? _meshDecimationService;
 
@@ -24,19 +24,19 @@ public class SlicingStrategyFactory : ISlicingStrategyFactory
     /// </summary>
     /// <param name="logger">日志记录器</param>
     /// <param name="tileGeneratorFactory">瓦片生成器工厂</param>
-    /// <param name="modelLoader">模型加载器</param>
+    /// <param name="modelLoaderFactory">模型加载器工厂</param>
     /// <param name="minioService">MinIO存储服务</param>
     /// <param name="meshDecimationService">网格简化服务（可选）</param>
     public SlicingStrategyFactory(
         ILogger<SlicingStrategyFactory> logger,
         ITileGeneratorFactory tileGeneratorFactory,
-        IModelLoader modelLoader,
+        IModelLoaderFactory modelLoaderFactory,
         IMinioStorageService minioService,
         MeshDecimationService? meshDecimationService = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _tileGeneratorFactory = tileGeneratorFactory ?? throw new ArgumentNullException(nameof(tileGeneratorFactory));
-        _modelLoader = modelLoader ?? throw new ArgumentNullException(nameof(modelLoader));
+        _modelLoaderFactory = modelLoaderFactory ?? throw new ArgumentNullException(nameof(modelLoaderFactory));
         _minioService = minioService ?? throw new ArgumentNullException(nameof(minioService));
         _meshDecimationService = meshDecimationService;
     }
@@ -56,19 +56,19 @@ public class SlicingStrategyFactory : ISlicingStrategyFactory
             SlicingStrategy.Grid => new GridSlicingStrategy(
                 CreateGenericLogger<GridSlicingStrategy>(),
                 _tileGeneratorFactory,
-                _modelLoader,
+                _modelLoaderFactory,
                 _meshDecimationService),
 
             SlicingStrategy.Octree => new OctreeSlicingStrategy(
                 CreateGenericLogger<OctreeSlicingStrategy>(),
                 _tileGeneratorFactory,
-                _modelLoader,
+                _modelLoaderFactory,
                 _meshDecimationService),
 
             SlicingStrategy.KdTree => new KdTreeSlicingStrategy(
                 CreateGenericLogger<KdTreeSlicingStrategy>(),
                 _tileGeneratorFactory,
-                _modelLoader,
+                _modelLoaderFactory,
                 _meshDecimationService),
 
             SlicingStrategy.Adaptive => new AdaptiveSlicingStrategy(
@@ -79,7 +79,7 @@ public class SlicingStrategyFactory : ISlicingStrategyFactory
             SlicingStrategy.Recursive => new RecursiveSubdivisionStrategy(
                 CreateTypedLogger<RecursiveSubdivisionStrategy>(),
                 _tileGeneratorFactory,
-                _modelLoader,
+                _modelLoaderFactory,
                 _meshDecimationService),
 
             _ => throw new NotSupportedException($"不支持的切片策略: {strategy}")

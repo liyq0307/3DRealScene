@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Application.Services.Loaders;
 
@@ -29,7 +27,7 @@ namespace RealScene3D.Application.Services.Loaders;
 /// 建议OSGB数据预处理为3D Tiles格式后使用，
 /// 或通过外部工具转换为GLTF后用GltfModelLoader加载
 /// </summary>
-public class OsgbModelLoader : IModelLoader
+public class OsgbModelLoader : ModelLoader
 {
     private readonly ILogger<OsgbModelLoader> _logger;
     private static readonly string[] SupportedFormats = { ".osgb", ".osg" };
@@ -43,7 +41,7 @@ public class OsgbModelLoader : IModelLoader
     /// 加载OSGB模型文件并提取三角形网格数据
     /// </summary>
 #pragma warning disable CS1998 // 异步方法缺少 await 运算符
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
+    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
 #pragma warning restore CS1998
@@ -111,7 +109,7 @@ public class OsgbModelLoader : IModelLoader
     /// <summary>
     /// 计算三角形集合的包围盒
     /// </summary>
-    private BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
+    private new BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
     {
         if (triangles.Count == 0)
         {
@@ -148,7 +146,7 @@ public class OsgbModelLoader : IModelLoader
     /// <summary>
     /// 检查是否支持指定的文件格式
     /// </summary>
-    public bool SupportsFormat(string extension)
+    public override bool SupportsFormat(string extension)
     {
         return SupportedFormats.Contains(extension.ToLowerInvariant());
     }
@@ -156,7 +154,7 @@ public class OsgbModelLoader : IModelLoader
     /// <summary>
     /// 获取支持的所有文件格式
     /// </summary>
-    public IEnumerable<string> GetSupportedFormats()
+    public override IEnumerable<string> GetSupportedFormats()
     {
         return SupportedFormats;
     }

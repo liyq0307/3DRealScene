@@ -125,7 +125,7 @@ public class UserService : IUserService
     /// </summary>
     /// <param name="id">用户唯一标识符</param>
     /// <returns>用户实体，如果不存在则返回null</returns>
-    public async Task<Domain.Entities.User?> GetUserEntityAsync(Guid id)
+    public async Task<User?> GetUserEntityAsync(Guid id)
     {
         return await _userRepository.GetByIdAsync(id);
     }

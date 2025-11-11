@@ -576,7 +576,7 @@ public class WorkflowService : IWorkflowService, IWorkflowExecutorService
                 await UpdateWorkflowInstanceContextAsync(instance.Id, variables, completedNodes);
 
                 // 更新执行历史
-                await HandleNodeCompletedAsync(instance.Id, nodeInfo.Node.Id, new Domain.Interfaces.WorkflowNodeResult
+                await HandleNodeCompletedAsync(instance.Id, nodeInfo.Node.Id, new WorkflowNodeResult
                 {
                     Status = result.Status,
                     OutputData = result.OutputData,
@@ -648,7 +648,7 @@ public class WorkflowService : IWorkflowService, IWorkflowExecutorService
         }
     }
 
-    public async Task HandleNodeCompletedAsync(Guid instanceId, string nodeId, Domain.Interfaces.WorkflowNodeResult result)
+    public async Task HandleNodeCompletedAsync(Guid instanceId, string nodeId, WorkflowNodeResult result)
     {
         try
         {

@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Interfaces;
 using System.Text;
 
 namespace RealScene3D.Application.Services.Loaders;
@@ -11,7 +9,7 @@ namespace RealScene3D.Application.Services.Loaders;
 /// 支持ASCII和二进制两种PLY格式
 /// 广泛用于点云和三角网格数据的存储
 /// </summary>
-public class PlyModelLoader : IModelLoader
+public class PlyModelLoader : ModelLoader
 {
     private readonly ILogger<PlyModelLoader> _logger;
     private static readonly string[] SupportedFormats = { ".ply" };
@@ -24,7 +22,7 @@ public class PlyModelLoader : IModelLoader
     /// <summary>
     /// 加载PLY模型文件并提取三角形网格数据
     /// </summary>
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
+    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -274,7 +272,7 @@ public class PlyModelLoader : IModelLoader
     /// <summary>
     /// 计算三角形法线
     /// </summary>
-    private Vector3D CalculateNormal(Vector3D v0, Vector3D v1, Vector3D v2)
+    private new Vector3D CalculateNormal(Vector3D v0, Vector3D v1, Vector3D v2)
     {
         var edge1 = new Vector3D
         {
@@ -313,7 +311,7 @@ public class PlyModelLoader : IModelLoader
     /// <summary>
     /// 计算三角形集合的包围盒
     /// </summary>
-    private BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
+    private new BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
     {
         if (triangles.Count == 0)
         {
@@ -350,7 +348,7 @@ public class PlyModelLoader : IModelLoader
     /// <summary>
     /// 检查是否支持指定的文件格式
     /// </summary>
-    public bool SupportsFormat(string extension)
+    public override bool SupportsFormat(string extension)
     {
         return SupportedFormats.Contains(extension.ToLowerInvariant());
     }
@@ -358,7 +356,7 @@ public class PlyModelLoader : IModelLoader
     /// <summary>
     /// 获取支持的所有文件格式
     /// </summary>
-    public IEnumerable<string> GetSupportedFormats()
+    public override IEnumerable<string> GetSupportedFormats()
     {
         return SupportedFormats;
     }

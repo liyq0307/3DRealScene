@@ -165,179 +165,27 @@ public class SlicingConfig
     public (bool IsValid, string ErrorMessage) Validate()
     {
         if (TileSize <= 0)
-            return (false, "TileSize must be greater than 0");
+            return (false, "瓦片尺寸必须大于0");
 
         if (MaxLevel < 0 || MaxLevel > 20)
-            return (false, "MaxLevel must be between 0 and 20");
+            return (false, "最大LOD级别必须在0到20之间");
 
         if (ParallelProcessingCount < 1)
-            return (false, "ParallelProcessingCount must be at least 1");
+            return (false, "并行处理数量至少为1");
 
         if (string.IsNullOrWhiteSpace(Strategy.ToString()))
-            return (false, "Strategy cannot be empty");
+            return (false, "策略不能为空");
 
         // 验证格式特定参数
         if (TileFormat == TileFormat.I3DM && InstanceCount < 1)
-            return (false, "InstanceCount must be at least 1 for I3DM format");
+            return (false, "I3DM格式的实例数量至少为1");
 
         if (TileFormat == TileFormat.PNTS && PointCloudSamplingDensity < 1)
-            return (false, "PointCloudSamplingDensity must be at least 1 for PNTS format");
+            return (false, "PNTS格式的点云采样密度至少为1");
 
         if (EnableMeshDecimation && LodLevels < 1)
-            return (false, "LodLevels must be at least 1 when EnableMeshDecimation is true");
+            return (false, "启用网格简化时LOD级别至少为1");
 
         return (true, string.Empty);
-    }
-}
-
-/// <summary>
-/// 三维包围盒类 - 轴对齐包围盒（AABB）
-/// 用于定义三维空间中的矩形区域，支持空间查询和碰撞检测
-/// 提供高效的包围体表示和相交测试算法
-/// </summary>
-public class BoundingBox3D
-{
-    /// <summary>
-    /// 最小X坐标 - 包围盒在X轴的最小值
-    /// </summary>
-    public double MinX { get; set; }
-
-    /// <summary>
-    /// 最小Y坐标 - 包围盒在Y轴的最小值
-    /// </summary>
-    public double MinY { get; set; }
-
-    /// <summary>
-    /// 最小Z坐标 - 包围盒在Z轴的最小值
-    /// </summary>
-    public double MinZ { get; set; }
-
-    /// <summary>
-    /// 最大X坐标 - 包围盒在X轴的最大值
-    /// </summary>
-    public double MaxX { get; set; }
-
-    /// <summary>
-    /// 最大Y坐标 - 包围盒在Y轴的最大值
-    /// </summary>
-    public double MaxY { get; set; }
-
-    /// <summary>
-    /// 最大Z坐标 - 包围盒在Z轴的最大值
-    /// </summary>
-    public double MaxZ { get; set; }
-
-    /// <summary>
-    /// 默认构造函数
-    /// </summary>
-    public BoundingBox3D() { }
-
-    /// <summary>
-    /// 带参数构造函数
-    /// </summary>
-    public BoundingBox3D(double minX, double minY, double minZ, double maxX, double maxY, double maxZ)
-    {
-        MinX = minX;
-        MinY = minY;
-        MinZ = minZ;
-        MaxX = maxX;
-        MaxY = maxY;
-        MaxZ = maxZ;
-    }
-
-    /// <summary>
-    /// 计算包围盒的中心点
-    /// </summary>
-    public Vector3D GetCenter()
-    {
-        return new Vector3D
-        {
-            X = (MinX + MaxX) / 2,
-            Y = (MinY + MaxY) / 2,
-            Z = (MinZ + MaxZ) / 2
-        };
-    }
-
-    /// <summary>
-    /// 计算包围盒的尺寸
-    /// </summary>
-    public (double Width, double Height, double Depth) GetSize()
-    {
-        return (MaxX - MinX, MaxY - MinY, MaxZ - MinZ);
-    }
-
-    /// <summary>
-    /// 判断点是否在包围盒内
-    /// </summary>
-    public bool Contains(Vector3D point)
-    {
-        return point.X >= MinX && point.X <= MaxX &&
-               point.Y >= MinY && point.Y <= MaxY &&
-               point.Z >= MinZ && point.Z <= MaxZ;
-    }
-
-    /// <summary>
-    /// 判断两个包围盒是否相交
-    /// </summary>
-    public bool Intersects(BoundingBox3D other)
-    {
-        return !(MaxX < other.MinX || MinX > other.MaxX ||
-                 MaxY < other.MinY || MinY > other.MaxY ||
-                 MaxZ < other.MinZ || MinZ > other.MaxZ);
-    }
-
-    /// <summary>
-    /// 计算包围盒的体积
-    /// </summary>
-    public double GetVolume()
-    {
-        var size = GetSize();
-        return size.Width * size.Height * size.Depth;
-    }
-
-    /// <summary>
-    /// 验证包围盒的有效性
-    /// 要求包围盒至少在一个维度上有非零尺寸
-    /// </summary>
-    public bool IsValid()
-    {
-        // 检查坐标顺序是否正确
-        if (!(MinX <= MaxX && MinY <= MaxY && MinZ <= MaxZ))
-            return false;
-
-        // 检查是否至少有一个维度的尺寸大于0（避免退化为点或线）
-        // 对于有效的3D包围盒，应该在所有维度上都有非零尺寸
-        var sizeX = MaxX - MinX;
-        var sizeY = MaxY - MinY;
-        var sizeZ = MaxZ - MinZ;
-
-        // 至少需要在一个维度上有尺寸（避免全零包围盒）
-        return sizeX > 0 || sizeY > 0 || sizeZ > 0;
-    }
-
-    /// <summary>
-    /// 扩展包围盒以包含指定点
-    /// </summary>
-    public void Expand(Vector3D point)
-    {
-        MinX = Math.Min(MinX, point.X);
-        MinY = Math.Min(MinY, point.Y);
-        MinZ = Math.Min(MinZ, point.Z);
-        MaxX = Math.Max(MaxX, point.X);
-        MaxY = Math.Max(MaxY, point.Y);
-        MaxZ = Math.Max(MaxZ, point.Z);
-    }
-
-    /// <summary>
-    /// 扩展包围盒以包含另一个包围盒
-    /// </summary>
-    public void Expand(BoundingBox3D other)
-    {
-        MinX = Math.Min(MinX, other.MinX);
-        MinY = Math.Min(MinY, other.MinY);
-        MinZ = Math.Min(MinZ, other.MinZ);
-        MaxX = Math.Max(MaxX, other.MaxX);
-        MaxY = Math.Max(MaxY, other.MaxY);
-        MaxZ = Math.Max(MaxZ, other.MaxZ);
     }
 }

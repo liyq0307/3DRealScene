@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Interfaces;
 using System.Text;
 
 namespace RealScene3D.Application.Services.Loaders;
@@ -11,7 +9,7 @@ namespace RealScene3D.Application.Services.Loaders;
 /// 支持ASCII和二进制两种STL格式
 /// 用于3D打印、CAD等领域的模型数据提取
 /// </summary>
-public class StlModelLoader : IModelLoader
+public class StlModelLoader : ModelLoader
 {
     private readonly ILogger<StlModelLoader> _logger;
     private static readonly string[] SupportedFormats = { ".stl" };
@@ -24,7 +22,7 @@ public class StlModelLoader : IModelLoader
     /// <summary>
     /// 加载STL模型文件并提取三角形网格数据
     /// </summary>
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
+    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -233,7 +231,7 @@ public class StlModelLoader : IModelLoader
     /// <summary>
     /// 计算三角形集合的包围盒
     /// </summary>
-    private BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
+    private new BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
     {
         if (triangles.Count == 0)
         {
@@ -270,7 +268,7 @@ public class StlModelLoader : IModelLoader
     /// <summary>
     /// 检查是否支持指定的文件格式
     /// </summary>
-    public bool SupportsFormat(string extension)
+    public override bool SupportsFormat(string extension)
     {
         return SupportedFormats.Contains(extension.ToLowerInvariant());
     }
@@ -278,7 +276,7 @@ public class StlModelLoader : IModelLoader
     /// <summary>
     /// 获取支持的所有文件格式
     /// </summary>
-    public IEnumerable<string> GetSupportedFormats()
+    public override IEnumerable<string> GetSupportedFormats()
     {
         return SupportedFormats;
     }

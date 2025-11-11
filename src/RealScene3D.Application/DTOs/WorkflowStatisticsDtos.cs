@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace RealScene3D.Application.DTOs;
 
 /// <summary>

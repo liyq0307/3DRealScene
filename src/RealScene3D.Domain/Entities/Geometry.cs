@@ -145,8 +145,39 @@ public class Vector3D
     public Vector3D Normalize()
     {
         var length = Length();
-        if (length == 0) return new Vector3D(0, 0, 0);
+        if (length < 1e-10) return new Vector3D(0, 0, 1); // 避免除以零，返回默认向上方向
         return new Vector3D(X / length, Y / length, Z / length);
+    }
+
+    /// <summary>
+    /// 计算两点间的距离 - 欧几里得距离计算
+    /// </summary>
+    /// <param name="point">目标点</param>
+    /// <returns>两点间的欧几里得距离</returns>
+    public double DistanceTo(Vector3D point)
+    {
+        var dx = point.X - X;
+        var dy = point.Y - Y;
+        var dz = point.Z - Z;
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /// <summary>
+    /// 计算与另一向量的夹角 - 返回弧度值
+    /// </summary>
+    /// <param name="other">另一个向量</param>
+    /// <returns>夹角（弧度）</returns>
+    public double AngleTo(Vector3D other)
+    {
+        var dotProduct = Dot(other);
+        var magnitude1 = Length();
+        var magnitude2 = other.Length();
+
+        if (magnitude1 == 0 || magnitude2 == 0) return 0;
+
+        var cosAngle = dotProduct / (magnitude1 * magnitude2);
+        // 限制在 [-1, 1] 范围内，避免浮点误差导致的 Acos 参数越界
+        return Math.Acos(Math.Max(-1.0, Math.Min(1.0, cosAngle)));
     }
 }
 
@@ -231,53 +262,63 @@ public class ViewportInfo
 }
 
 /// <summary>
-/// 包围盒 - 轴对齐包围盒（AABB）结构
-/// 用于空间查询、碰撞检测、视锥剔除等几何计算
+/// 三维包围盒类 - 轴对齐包围盒（AABB）
+/// 用于定义三维空间中的矩形区域，支持空间查询和碰撞检测
 /// 提供高效的包围体表示和相交测试算法
 /// </summary>
-public class BoundingBox
+public class BoundingBox3D
 {
     /// <summary>
     /// 最小X坐标 - 包围盒在X轴的最小值
-    /// 定义了包围盒在X轴方向上的最小边界
     /// </summary>
     public double MinX { get; set; }
 
     /// <summary>
     /// 最小Y坐标 - 包围盒在Y轴的最小值
-    /// 定义了包围盒在Y轴方向上的最小边界
     /// </summary>
     public double MinY { get; set; }
 
     /// <summary>
     /// 最小Z坐标 - 包围盒在Z轴的最小值
-    /// 定义了包围盒在Z轴方向上的最小边界
     /// </summary>
     public double MinZ { get; set; }
 
     /// <summary>
     /// 最大X坐标 - 包围盒在X轴的最大值
-    /// 定义了包围盒在X轴方向上的最大边界
     /// </summary>
     public double MaxX { get; set; }
 
     /// <summary>
     /// 最大Y坐标 - 包围盒在Y轴的最大值
-    /// 定义了包围盒在Y轴方向上的最大边界
     /// </summary>
     public double MaxY { get; set; }
 
     /// <summary>
     /// 最大Z坐标 - 包围盒在Z轴的最大值
-    /// 定义了包围盒在Z轴方向上的最大边界
     /// </summary>
     public double MaxZ { get; set; }
 
     /// <summary>
-    /// 中心点计算 - 计算包围盒的几何中心
-    /// 用于距离计算、包围球近似等操作
+    /// 默认构造函数
     /// </summary>
-    /// <returns>包围盒中心点的坐标</returns>
+    public BoundingBox3D() { }
+
+    /// <summary>
+    /// 带参数构造函数
+    /// </summary>
+    public BoundingBox3D(double minX, double minY, double minZ, double maxX, double maxY, double maxZ)
+    {
+        MinX = minX;
+        MinY = minY;
+        MinZ = minZ;
+        MaxX = maxX;
+        MaxY = maxY;
+        MaxZ = maxZ;
+    }
+
+    /// <summary>
+    /// 计算包围盒的中心点
+    /// </summary>
     public Vector3D GetCenter()
     {
         return new Vector3D
@@ -289,21 +330,16 @@ public class BoundingBox
     }
 
     /// <summary>
-    /// 尺寸计算 - 计算包围盒在三个轴向的长度
-    /// 用于体积计算、大小比较等操作
+    /// 计算包围盒的尺寸
     /// </summary>
-    /// <returns>包含三个轴向尺寸的元组</returns>
     public (double Width, double Height, double Depth) GetSize()
     {
         return (MaxX - MinX, MaxY - MinY, MaxZ - MinZ);
     }
 
     /// <summary>
-    /// 点包容性测试 - 判断点是否在包围盒内
-    /// 用于快速剔除和空间查询优化
+    /// 判断点是否在包围盒内
     /// </summary>
-    /// <param name="point">待测试的点</param>
-    /// <returns>点是否在包围盒内</returns>
     public bool Contains(Vector3D point)
     {
         return point.X >= MinX && point.X <= MaxX &&
@@ -312,12 +348,9 @@ public class BoundingBox
     }
 
     /// <summary>
-    /// 包围盒相交测试 - 判断两个包围盒是否相交
-    /// 使用分离轴定理进行快速相交测试
+    /// 判断两个包围盒是否相交
     /// </summary>
-    /// <param name="other">另一个包围盒</param>
-    /// <returns>两个包围盒是否相交</returns>
-    public bool Intersects(BoundingBox other)
+    public bool Intersects(BoundingBox3D other)
     {
         return !(MaxX < other.MinX || MinX > other.MaxX ||
                  MaxY < other.MinY || MinY > other.MaxY ||
@@ -344,6 +377,61 @@ public class BoundingBox
         var dz = point.Z - closest.Z;
 
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /// <summary>
+    /// 计算包围盒的体积
+    /// </summary>
+    public double GetVolume()
+    {
+        var size = GetSize();
+        return size.Width * size.Height * size.Depth;
+    }
+
+    /// <summary>
+    /// 验证包围盒的有效性
+    /// 要求包围盒至少在一个维度上有非零尺寸
+    /// </summary>
+    public bool IsValid()
+    {
+        // 检查坐标顺序是否正确
+        if (!(MinX <= MaxX && MinY <= MaxY && MinZ <= MaxZ))
+            return false;
+
+        // 检查是否至少有一个维度的尺寸大于0（避免退化为点或线）
+        // 对于有效的3D包围盒，应该在所有维度上都有非零尺寸
+        var sizeX = MaxX - MinX;
+        var sizeY = MaxY - MinY;
+        var sizeZ = MaxZ - MinZ;
+
+        // 至少需要在一个维度上有尺寸（避免全零包围盒）
+        return sizeX > 0 || sizeY > 0 || sizeZ > 0;
+    }
+
+    /// <summary>
+    /// 扩展包围盒以包含指定点
+    /// </summary>
+    public void Expand(Vector3D point)
+    {
+        MinX = Math.Min(MinX, point.X);
+        MinY = Math.Min(MinY, point.Y);
+        MinZ = Math.Min(MinZ, point.Z);
+        MaxX = Math.Max(MaxX, point.X);
+        MaxY = Math.Max(MaxY, point.Y);
+        MaxZ = Math.Max(MaxZ, point.Z);
+    }
+
+    /// <summary>
+    /// 扩展包围盒以包含另一个包围盒
+    /// </summary>
+    public void Expand(BoundingBox3D other)
+    {
+        MinX = Math.Min(MinX, other.MinX);
+        MinY = Math.Min(MinY, other.MinY);
+        MinZ = Math.Min(MinZ, other.MinZ);
+        MaxX = Math.Max(MaxX, other.MaxX);
+        MaxY = Math.Max(MaxY, other.MaxY);
+        MaxZ = Math.Max(MaxZ, other.MaxZ);
     }
 }
 
@@ -551,9 +639,9 @@ public class Triangle
     /// 计算包围盒 - 计算三角形的轴对齐包围盒
     /// </summary>
     /// <returns>三角形的包围盒</returns>
-    public BoundingBox ComputeBoundingBox()
+    public BoundingBox3D ComputeBoundingBox()
     {
-        return new BoundingBox
+        return new BoundingBox3D
         {
             MinX = Math.Min(V1.X, Math.Min(V2.X, V3.X)),
             MinY = Math.Min(V1.Y, Math.Min(V2.Y, V3.Y)),

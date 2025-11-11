@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Domain.Enums;
 using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
@@ -22,24 +21,24 @@ public class OctreeSlicingStrategy : ISlicingStrategy
     private readonly ITileGeneratorFactory _tileGeneratorFactory;
 
     // 模型加载器
-    private readonly IModelLoader _modelLoader;
+    private readonly IModelLoaderFactory _modelLoaderFactory;
 
     /// <summary>
     /// 构造函数 - 注入日志记录器和必需的服务
     /// </summary>
     /// <param name="logger">日志记录器</param>
     /// <param name="tileGeneratorFactory">瓦片生成器工厂，用于动态创建不同格式的生成器</param>
-    /// <param name="modelLoader">模型加载器</param>
+    /// <param name="modelLoaderFactory">模型加载器工厂</param>
     /// <param name="meshDecimationService">网格简化服务（可选，用于LOD生成）</param>
     public OctreeSlicingStrategy(
         ILogger logger,
         ITileGeneratorFactory tileGeneratorFactory,
-        IModelLoader modelLoader,
+        IModelLoaderFactory modelLoaderFactory,
         MeshDecimationService? meshDecimationService = null)
     {
         _logger = logger;
         _tileGeneratorFactory = tileGeneratorFactory ?? throw new ArgumentNullException(nameof(tileGeneratorFactory));
-        _modelLoader = modelLoader ?? throw new ArgumentNullException(nameof(modelLoader));
+        _modelLoaderFactory = modelLoaderFactory ?? throw new ArgumentNullException(nameof(modelLoaderFactory));
         _meshDecimationService = meshDecimationService;
     }
 
@@ -307,7 +306,10 @@ public class OctreeSlicingStrategy : ISlicingStrategy
                 throw new InvalidOperationException($"无法确定模型文件的扩展名：{task.SourceModelPath}");
             }
 
-            if (!_modelLoader.SupportsFormat(fileExtension))
+            // 从工厂创建模型加载器
+            var modelLoader = _modelLoaderFactory.CreateLoaderFromPath(task.SourceModelPath);
+
+            if (!modelLoader.SupportsFormat(fileExtension))
             {
                 _logger.LogError("模型加载器不支持此文件格式：{FileExtension}", fileExtension);
                 throw new InvalidOperationException($"不支持的模型文件格式：{fileExtension}");
@@ -318,7 +320,7 @@ public class OctreeSlicingStrategy : ISlicingStrategy
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromMinutes(10));
 
-            var (triangles, boundingBox, materials) = await _modelLoader.LoadModelAsync(task.SourceModelPath, cts.Token);
+            var (triangles, boundingBox, materials) = await modelLoader.LoadModelAsync(task.SourceModelPath, cts.Token);
 
             if (triangles == null || triangles.Count == 0)
             {

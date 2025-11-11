@@ -7,32 +7,26 @@ using RealScene3D.Domain.Interfaces;
 namespace RealScene3D.Application.Services;
 
 /// <summary>
-/// Obj2Tiles集成服务 - 从OBJ到3D Tiles的端到端转换流程
+/// Obj2Tiles服务 - 从OBJ到3D Tiles的端到端转换流程
 /// 实现完整的工作流程：OBJ加载 -> LOD生成 -> B3DM -> Tileset.json
 /// </summary>
-public class Obj2TilesIntegrationService
+public class Obj2TilesService
 {
-    private readonly ILogger<Obj2TilesIntegrationService> _logger;
-    private readonly IModelLoader _modelLoader;
+    private readonly ILogger<Obj2TilesService> _logger;
+    private readonly IModelLoaderFactory _modelLoaderFactory;
+    private readonly ITileGeneratorFactory _tileGeneratorFactory;
     private readonly MeshDecimationService _meshDecimationService;
-    private readonly B3dmGenerator _b3dmGenerator;
-    private readonly TilesetGenerator _tilesetGenerator;
-    private readonly GltfGenerator _gltfGenerator;
 
-    public Obj2TilesIntegrationService(
-        ILogger<Obj2TilesIntegrationService> logger,
-        IModelLoader modelLoader,
-        MeshDecimationService meshDecimationService,
-        B3dmGenerator b3dmGenerator,
-        TilesetGenerator tilesetGenerator,
-        GltfGenerator gltfGenerator)
+    public Obj2TilesService(
+        ILogger<Obj2TilesService> logger,
+        IModelLoaderFactory modelLoaderFactory,
+        ITileGeneratorFactory tileGeneratorFactory,
+        MeshDecimationService meshDecimationService)
     {
         _logger = logger;
-        _modelLoader = modelLoader;
+        _modelLoaderFactory = modelLoaderFactory;
+        _tileGeneratorFactory = tileGeneratorFactory;
         _meshDecimationService = meshDecimationService;
-        _b3dmGenerator = b3dmGenerator;
-        _tilesetGenerator = tilesetGenerator;
-        _gltfGenerator = gltfGenerator;
     }
 
     /// <summary>
@@ -60,7 +54,8 @@ public class Obj2TilesIntegrationService
         {
             // 步骤 1: 加载OBJ模型
             _logger.LogInformation("步骤 1/6: 加载OBJ模型...");
-            var (triangles, modelBounds, materials) = await _modelLoader.LoadModelAsync(objFilePath, cancellationToken);
+            var modelLoader = _modelLoaderFactory.CreateLoaderFromPath(objFilePath);
+            var (triangles, modelBounds, materials) = await modelLoader.LoadModelAsync(objFilePath, cancellationToken);
             _logger.LogInformation("已加载 {Count} 个三角形, 包围盒: [{MinX:F2},{MinY:F2},{MinZ:F2}]-[{MaxX:F2},{MaxY:F2},{MaxZ:F2}]",
                 triangles.Count, modelBounds.MinX, modelBounds.MinY, modelBounds.MinZ,
                 modelBounds.MaxX, modelBounds.MaxY, modelBounds.MaxZ);
@@ -72,9 +67,12 @@ public class Obj2TilesIntegrationService
                 _logger.LogInformation("步骤 2/6: 生成纹理图集 ({MaterialCount} 个材质, 最大尺寸: {MaxSize}x{MaxSize}, 填充: {Padding}px)...",
                     materials.Count, atlasOptions.MaxAtlasSize, atlasOptions.MaxAtlasSize, atlasOptions.Padding);
 
+                // 从工厂创建GLTF生成器
+                var gltfGenerator = _tileGeneratorFactory.CreateGltfGenerator();
+
                 // 生成纹理图集并更新材质的UV映射
                 var atlasOutputPath = Path.Combine(outputDirectory, atlasOptions.AtlasFileName);
-                (materials, atlasResult) = await _gltfGenerator.GenerateTextureAtlasAsync(materials, atlasOutputPath);
+                (materials, atlasResult) = await gltfGenerator.GenerateTextureAtlasAsync(materials, atlasOutputPath);
 
                 if (atlasResult != null)
                 {
@@ -109,12 +107,16 @@ public class Obj2TilesIntegrationService
 
             // 步骤 4: 为每个LOD创建B3DM文件（并行处理）
             _logger.LogInformation("步骤 4/6: 并行生成B3DM文件...");
+
+            // 从工厂创建B3DM生成器
+            var b3dmGenerator = _tileGeneratorFactory.CreateB3dmGenerator();
+
             var sliceGenerationTasks = lodMeshes.Select(async (lodMesh, level) =>
             {
                 var outputPath = Path.Combine(outputDirectory, $"{level}", "tile.b3dm");
 
                 // 保存B3DM文件（传递材质信息）
-                await _b3dmGenerator.SaveB3DMFileAsync(lodMesh.Triangles, modelBounds, outputPath, materials);
+                await b3dmGenerator.SaveB3DMFileAsync(lodMesh.Triangles, modelBounds, outputPath, materials);
 
                 // 创建切片记录
                 var slice = new Slice
@@ -147,8 +149,11 @@ public class Obj2TilesIntegrationService
                 OutputFormat = "b3dm"
             };
 
+            // 从工厂创建Tileset生成器
+            var tilesetGenerator = _tileGeneratorFactory.CreateTilesetGenerator();
+
             var tilesetPath = Path.Combine(outputDirectory, "tileset.json");
-            await _tilesetGenerator.GenerateTilesetJsonAsync(slices.ToList(), config, modelBounds, tilesetPath);
+            await tilesetGenerator.GenerateTilesetJsonAsync(slices.ToList(), config, modelBounds, tilesetPath);
 
             // 步骤 6: 汇总
             var elapsed = DateTime.UtcNow - startTime;

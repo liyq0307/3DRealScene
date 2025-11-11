@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Enums;
-using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Interfaces;
 using SharpGLTF.Schema2;
 using System.Numerics;
 using Material = RealScene3D.Domain.Entities.Material;
@@ -14,7 +12,7 @@ namespace RealScene3D.Application.Services.Loaders;
 /// 支持 glTF 2.0 格式的二进制 (.glb) 和文本 (.gltf) 文件
 /// 完整支持顶点位置、法线、纹理坐标和PBR材质
 /// </summary>
-public class GltfModelLoader : IModelLoader
+public class GltfModelLoader : ModelLoader
 {
     private readonly ILogger<GltfModelLoader> _logger;
 
@@ -36,7 +34,7 @@ public class GltfModelLoader : IModelLoader
     /// <summary>
     /// 检查是否支持指定的文件格式
     /// </summary>
-    public bool SupportsFormat(string extension)
+    public override bool SupportsFormat(string extension)
     {
         return SupportedExtensions.Contains(extension);
     }
@@ -44,7 +42,7 @@ public class GltfModelLoader : IModelLoader
     /// <summary>
     /// 获取支持的文件格式列表
     /// </summary>
-    public IEnumerable<string> GetSupportedFormats()
+    public override IEnumerable<string> GetSupportedFormats()
     {
         return SupportedExtensions;
     }
@@ -55,7 +53,7 @@ public class GltfModelLoader : IModelLoader
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>三角形列表、包围盒和材质字典</returns>
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, RealScene3D.Domain.Entities.Material> Materials)> LoadModelAsync(
+    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -473,7 +471,7 @@ public class GltfModelLoader : IModelLoader
     /// 从MaterialChannel提取纹理路径
     /// 支持外部纹理引用和GLB内嵌纹理导出
     /// </summary>
-    private string? GetTexturePathFromChannel(SharpGLTF.Schema2.MaterialChannel channel, string basePath)
+    private string? GetTexturePathFromChannel(MaterialChannel channel, string basePath)
     {
         try
         {
@@ -530,7 +528,7 @@ public class GltfModelLoader : IModelLoader
     /// <param name="basePath">基础路径</param>
     /// <param name="textureIndex">纹理索引</param>
     /// <returns>导出的纹理文件路径，失败返回null</returns>
-    private string? ExportEmbeddedTexture(SharpGLTF.Schema2.Image image, string basePath, int textureIndex)
+    private string? ExportEmbeddedTexture(Image image, string basePath, int textureIndex)
     {
         try
         {
@@ -608,7 +606,7 @@ public class GltfModelLoader : IModelLoader
     /// <summary>
     /// 从IMaterialParameter提取数值
     /// </summary>
-    private double GetParameterValue(IReadOnlyList<SharpGLTF.Schema2.IMaterialParameter> parameters, int index)
+    private double GetParameterValue(IReadOnlyList<IMaterialParameter> parameters, int index)
     {
         if (index >= parameters.Count)
             return 0.0;

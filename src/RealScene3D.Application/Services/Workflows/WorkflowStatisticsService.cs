@@ -1,9 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RealScene3D.Domain.Enums;
-using RealScene3D.Application.DTOs;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Infrastructure.Data;
-using System.Text.Json;
 using WorkflowStats = RealScene3D.Application.DTOs.WorkflowStatisticsDtos;
 
 namespace RealScene3D.Application.Services.Workflows;
