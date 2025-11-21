@@ -413,13 +413,22 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 /// <summary>
 /// 配置3D模型切片处理系统，支持多种切片算法和渲染优化
 /// 功能特性：
-/// - 多层次细节（LOD）切片生成
-/// - 多种空间剖分算法（网格、八叉树、KD树、自适应）
-/// - 视锥剔除和预测加载优化
+/// - 多层次细节（LOD）切片生成 - 使用 Fast Quadric Mesh Simplification
+/// - 递归空间分割算法 - 参考 Obj2Tiles 实现
+/// - 真正的网格分割 - MeshSplitter 支持三角形与平面相交
+/// - 统一流水线处理 - Decimation -> Splitting -> 3D Tiles Conversion
 /// - 并行处理和增量更新支持
 /// - 索引文件一致性验证和自动修复
 /// 适用于：倾斜摄影、BIM模型、海量点云等3D数据
 /// </summary>
+
+// === 核心切片服务（新架构）===
+// 网格分割器：实现真正的网格分割逻辑（参考 Obj2Tiles）
+builder.Services.AddScoped<MeshSplitter>();
+builder.Services.AddScoped<ISpatialSplitterService, SpatialSplitterService>();
+
+// 统一切片流水线：三阶段处理（Decimation -> Splitting -> Conversion）
+builder.Services.AddScoped<UnifiedSlicingPipeline>();
 
 // 独立功能服务（依赖其他注册的服务，需要通过DI注入）
 builder.Services.AddScoped<IncrementalUpdateService>();
@@ -428,15 +437,12 @@ builder.Services.AddScoped<SlicingDataService>();
 // 切片应用服务：提供切片任务管理的高层API接口
 builder.Services.AddScoped<ISlicingAppService, SlicingAppService>();
 
-// 切片后台处理器：执行实际的切片处理任务，支持异步队列
+// 切片后台处理器：执行实际的切片处理任务，支持异步队列（已简化）
 builder.Services.AddScoped<ISlicingProcessor, SlicingProcessor>();
 
 // 3D Tiles生成器工厂：支持动态创建不同格式的瓦片生成器
 // 工厂会自动创建生成器实例，无需单独注册各个生成器类
 builder.Services.AddScoped<ITileGeneratorFactory, TileGeneratorFactory>();
-
-// 切片策略工厂：支持动态创建不同的切片策略
-builder.Services.AddScoped<ISlicingStrategyFactory, SlicingStrategyFactory>();
 
 // 模型加载器工厂：根据文件扩展名或枚举创建对应的加载器（抽象工厂模式）
 // 支持格式: .obj, .gltf, .glb, .stl, .ply, .fbx, .ifc, .ifcxml, .ifczip, .osgb, .osg

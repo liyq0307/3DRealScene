@@ -16,17 +16,20 @@ public class Obj2TilesService
     private readonly IModelLoaderFactory _modelLoaderFactory;
     private readonly ITileGeneratorFactory _tileGeneratorFactory;
     private readonly MeshDecimationService _meshDecimationService;
+    private readonly ISpatialSplitterService _spatialSplitterService; // 新增
 
     public Obj2TilesService(
         ILogger<Obj2TilesService> logger,
         IModelLoaderFactory modelLoaderFactory,
         ITileGeneratorFactory tileGeneratorFactory,
-        MeshDecimationService meshDecimationService)
+        MeshDecimationService meshDecimationService,
+        ISpatialSplitterService spatialSplitterService) // 新增
     {
         _logger = logger;
         _modelLoaderFactory = modelLoaderFactory;
         _tileGeneratorFactory = tileGeneratorFactory;
         _meshDecimationService = meshDecimationService;
+        _spatialSplitterService = spatialSplitterService; // 新增
     }
 
     /// <summary>
@@ -103,43 +106,80 @@ public class Obj2TilesService
 
             // 步骤 3: 生成LOD级别
             _logger.LogInformation("步骤 3/6: 生成 {Levels} 个LOD级别...", lodLevels);
-            var lodMeshes = _meshDecimationService.GenerateLODs(triangles, lodLevels);
+            var lodDecimatedMeshes = _meshDecimationService.GenerateLODs(triangles, lodLevels);
 
-            // 步骤 4: 为每个LOD创建B3DM文件（并行处理）
-            _logger.LogInformation("步骤 4/6: 并行生成B3DM文件...");
+            // 用于存储所有LOD级别和分割后的子网格生成的Slice
+            var allGeneratedSlices = new List<Slice>();
+            var allLODInfos = new List<LODInfo>();
 
-            // 从工厂创建B3DM生成器
-            var b3dmGenerator = _tileGeneratorFactory.CreateB3dmGenerator();
+            // 步骤 4: 对每个LOD级别进行空间分割，并为每个子网格生成B3DM文件
+            _logger.LogInformation("步骤 4/6: 对每个LOD级别进行空间分割并并行生成B3DM文件...");
 
-            var sliceGenerationTasks = lodMeshes.Select(async (lodMesh, level) =>
+            // 默认最大分割深度和最小三角形数量 (可配置)
+            const int maxSplitDepth = 4; // 例如：四叉树/八叉树深度
+            const int minTrianglesPerSplit = 100; // 每个子网格至少包含的三角形数量
+
+            // 针对每个LOD级别进行处理
+            foreach (var lodDecimatedMesh in lodDecimatedMeshes)
             {
-                var outputPath = Path.Combine(outputDirectory, $"{level}", "tile.b3dm");
+                var currentLODLevel = lodDecimatedMeshes.IndexOf(lodDecimatedMesh);
+                _logger.LogInformation("  LOD级别 {Level}: 开始空间分割 {Count} 个三角形...",
+                    currentLODLevel, lodDecimatedMesh.SimplifiedTriangleCount);
 
-                // 保存B3DM文件（传递材质信息）
-                await b3dmGenerator.SaveB3DMFileAsync(lodMesh.Triangles, modelBounds, outputPath, materials);
+                // 执行空间分割
+                // 确保将更新后的材质（包含图集UV）传递给分割服务
+                var splitMeshes = await _spatialSplitterService.SplitMeshRecursivelyAsync(
+                    lodDecimatedMesh.Triangles,
+                    materials, // 传递更新后的材质
+                    maxSplitDepth,
+                    minTrianglesPerSplit);
 
-                // 创建切片记录
-                var slice = new Slice
+                _logger.LogInformation("  LOD级别 {Level}: 分割成 {Count} 个子网格...",
+                    currentLODLevel, splitMeshes.Count);
+
+                // 为每个分割后的子网格生成B3DM
+                var b3dmGenerator = _tileGeneratorFactory.CreateB3dmGenerator();
+                var splitSliceGenerationTasks = splitMeshes.Select(async (splitMesh) =>
                 {
-                    Level = level,
-                    X = 0,
-                    Y = 0,
-                    Z = 0,
-                    FilePath = outputPath,
-                    BoundingBox = SerializeBoundingBox(modelBounds),
-                    FileSize = new FileInfo(outputPath).Length,
-                    CreatedAt = DateTime.UtcNow
-                };
+                    // 生成子网格的唯一路径
+                    var tileOutputDirectory = Path.Combine(outputDirectory, $"LOD{currentLODLevel}");
+                    Directory.CreateDirectory(tileOutputDirectory); // 确保目录存在
+                    var outputPath = Path.Combine(tileOutputDirectory, $"{splitMesh.Id}.b3dm");
 
-                _logger.LogInformation("已生成LOD {Level}: {Triangles} 个三角形, 文件大小: {Size} 字节",
-                    level, lodMesh.SimplifiedTriangleCount, slice.FileSize);
+                    // 保存B3DM文件
+                    await b3dmGenerator.SaveB3DMFileAsync(splitMesh.Triangles, splitMesh.BoundingBox, outputPath, splitMesh.Materials);
 
-                return slice;
-            }).ToArray();
+                    // 创建切片记录
+                    var slice = new Slice
+                    {
+                        Level = currentLODLevel,
+                        X = splitMesh.Coordinates.X, // 使用空间分割后的X坐标
+                        Y = splitMesh.Coordinates.Y, // 使用空间分割后的Y坐标
+                        Z = splitMesh.Coordinates.Z, // 使用空间分割后的Z坐标
+                        FilePath = outputPath,
+                        BoundingBox = SerializeBoundingBox(splitMesh.BoundingBox),
+                        FileSize = new FileInfo(outputPath).Length,
+                        CreatedAt = DateTime.UtcNow,
+                        TileId = splitMesh.Id // 存储子网格的唯一ID
+                    };
 
-            // 等待所有B3DM文件生成完成
-            var slices = await Task.WhenAll(sliceGenerationTasks);
-            _logger.LogInformation("所有B3DM文件生成完成（并行处理 {Count} 个级别）", slices.Length);
+                    _logger.LogInformation("    已生成LOD {Level} 子网格 {TileId}: {Triangles} 个三角形, 文件大小: {Size} 字节",
+                        currentLODLevel, splitMesh.Id, splitMesh.Triangles.Count, slice.FileSize);
+
+                    return slice;
+                }).ToList(); // .ToList() 强制立即创建所有任务
+
+                allGeneratedSlices.AddRange(await Task.WhenAll(splitSliceGenerationTasks));
+
+                allLODInfos.Add(new LODInfo
+                {
+                    Level = currentLODLevel,
+                    TriangleCount = lodDecimatedMesh.SimplifiedTriangleCount,
+                    ReductionRatio = lodDecimatedMesh.ReductionRatio
+                });
+            }
+
+            _logger.LogInformation("所有LOD级别和子网格的B3DM文件生成完成（总计 {Count} 个B3DM文件）", allGeneratedSlices.Count);
 
             // 步骤 5: 生成tileset.json
             _logger.LogInformation("步骤 5/6: 生成tileset.json...");
@@ -153,7 +193,8 @@ public class Obj2TilesService
             var tilesetGenerator = _tileGeneratorFactory.CreateTilesetGenerator();
 
             var tilesetPath = Path.Combine(outputDirectory, "tileset.json");
-            await tilesetGenerator.GenerateTilesetJsonAsync(slices.ToList(), config, modelBounds, tilesetPath);
+            // Tileset生成器现在需要接收所有生成的子网格slice
+            await tilesetGenerator.GenerateTilesetJsonAsync(allGeneratedSlices, config, modelBounds, tilesetPath);
 
             // 步骤 6: 汇总
             var elapsed = DateTime.UtcNow - startTime;
@@ -165,15 +206,10 @@ public class Obj2TilesService
                 InputFile = objFilePath,
                 OutputDirectory = outputDirectory,
                 OriginalTriangleCount = triangles.Count,
-                LODLevels = lodMeshes.Select(m => new LODInfo
-                {
-                    Level = lodMeshes.IndexOf(m),
-                    TriangleCount = m.SimplifiedTriangleCount,
-                    ReductionRatio = m.ReductionRatio
-                }).ToList(),
+                LODLevels = allLODInfos, // 使用收集到的LOD信息
                 TilesetPath = tilesetPath,
-                TotalFiles = slices.Length + 1,
-                TotalSize = slices.Sum(s => s.FileSize),
+                TotalFiles = allGeneratedSlices.Count + 1, // B3DM文件数 + tileset.json
+                TotalSize = allGeneratedSlices.Sum(s => s.FileSize),
                 ProcessingTime = elapsed
             };
 
