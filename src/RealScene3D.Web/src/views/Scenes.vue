@@ -579,7 +579,7 @@ const convertModelsToTiles = async () => {
           // TODO: 调用切片服务API创建切片任务
           // const response = await slicingService.createSlicingTask({
           //   sceneObjectId: obj.id,
-          //   strategy: 'Grid', // 或 'Octree' / 'KDTree'
+          //   granularity: 'Medium',
           //   maxLevel: 5,
           //   parallelProcessingCount: 4
           // })

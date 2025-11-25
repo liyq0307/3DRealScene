@@ -196,6 +196,7 @@ public class SlicingDataService
 
     /// <summary>
     /// 生成切片文件 - 多格式切片文件生成算法
+    /// 支持纹理重打包策略
     /// </summary>
     public async Task<bool> GenerateSliceFileAsync(
         Slice slice,
@@ -212,22 +213,25 @@ public class SlicingDataService
             return false;
         }
 
+        // 根据纹理策略处理材质
+        var processedMaterials = await ProcessTextureStrategyAsync(
+            triangles, materials, config, slice, cancellationToken);
+
         // 根据输出格式生成文件内容
         byte[]? fileContent = config.OutputFormat.ToLower() switch
         {
-            "b3dm" => await GenerateB3DMAsync(slice, triangles, materials),
-            "gltf" => await GenerateGLTFAsync(slice, triangles, materials),
-            "i3dm" => await GenerateI3DMAsync(slice, triangles, materials),
+            "b3dm" => await GenerateB3DMAsync(slice, triangles, processedMaterials),
+            "gltf" => await GenerateGLTFAsync(slice, triangles, processedMaterials),
+            "i3dm" => await GenerateI3DMAsync(slice, triangles, processedMaterials),
             "pnts" => await GeneratePNTSAsync(slice, triangles),
             "cmpt" => await GenerateCmptAsync(slice, triangles),
-            _ => await GenerateB3DMAsync(slice, triangles, materials)
+            _ => await GenerateB3DMAsync(slice, triangles, processedMaterials)
         };
 
-        // 应用压缩（如果启用）
-        if (config.CompressionLevel > 0)
-        {
-            fileContent = await CompressSliceContentAsync(fileContent, config.CompressionLevel);
-        }
+        // 注意：不要对 3D Tiles 格式文件进行 Gzip 压缩
+        // 3D Tiles 格式（B3DM、GLTF、I3DM、PNTS、CMPT）已经包含了压缩的几何数据
+        // HTTP 服务器应该在传输时处理压缩（Content-Encoding: gzip），而不是文件存储时
+        // 如果对文件本身进行 Gzip 压缩，会导致 3DTilesViewer 无法识别文件格式
 
         // 根据存储位置类型保存文件
         if (config.StorageLocation == StorageLocationType.LocalFileSystem)
@@ -257,8 +261,140 @@ public class SlicingDataService
             fileContent = null; // 释放引用，帮助GC回收
         }
 
+        // 根据纹理策略处理纹理文件
+        if (config.TextureStrategy == TextureStrategy.KeepOriginal)
+        {
+            // 保留原始纹理：复制材质纹理文件到输出目录/MinIO
+            await CopyMaterialTexturesToOutputAsync(materials, slice.FilePath, config.StorageLocation, cancellationToken);
+        }
+        // Repack 和 RepackCompressed 策略的纹理已经嵌入到切片文件中，不需要额外复制
+
         return true;
     }
+
+    /// <summary>
+    /// 根据纹理策略处理材质
+    /// Repack: 为切片生成专属纹理图集，重映射UV坐标
+    /// KeepOriginal: 保留原始材质不变
+    /// RepackCompressed: 生成压缩的纹理图集
+    /// </summary>
+    private async Task<Dictionary<string, Material>?> ProcessTextureStrategyAsync(
+        List<Triangle> triangles,
+        Dictionary<string, Material>? materials,
+        SlicingConfig config,
+        Slice slice,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("ProcessTextureStrategyAsync 被调用：LOD={Level}, 材质数={MaterialCount}, TextureStrategy={Strategy}",
+            slice.Level, materials?.Count ?? 0, config.TextureStrategy);
+
+        // 如果没有材质或使用 KeepOriginal 策略，直接返回原始材质
+        if (materials == null || materials.Count == 0)
+        {
+            _logger.LogWarning("切片({Level},{X},{Y},{Z})没有材质数据，跳过纹理处理",
+                slice.Level, slice.X, slice.Y, slice.Z);
+            return materials;
+        }
+
+        // KeepOriginal 策略：跳过纹理处理
+        if (config.TextureStrategy == TextureStrategy.KeepOriginal)
+        {
+            _logger.LogDebug("切片({Level},{X},{Y},{Z})使用 KeepOriginal 策略，跳过纹理处理",
+                slice.Level, slice.X, slice.Y, slice.Z);
+            return materials;
+        }
+
+        try
+        {
+            // 收集切片中实际使用的材质名称
+            var usedMaterialNames = triangles
+                .Where(t => !string.IsNullOrEmpty(t.MaterialName))
+                .Select(t => t.MaterialName!)
+                .Distinct()
+                .ToHashSet();
+
+            if (usedMaterialNames.Count == 0)
+            {
+                _logger.LogDebug("切片({Level},{X},{Y},{Z})没有使用材质，跳过纹理重打包",
+                    slice.Level, slice.X, slice.Y, slice.Z);
+                return materials;
+            }
+
+            // 获取切片使用的材质
+            var usedMaterials = materials
+                .Where(m => usedMaterialNames.Contains(m.Key))
+                .ToDictionary(m => m.Key, m => m.Value);
+
+            // 收集需要重打包的纹理路径
+            var texturePaths = new HashSet<string>();
+            foreach (var material in usedMaterials.Values)
+            {
+                foreach (var texture in material.GetAllTextures())
+                {
+                    if (!string.IsNullOrEmpty(texture.FilePath) && File.Exists(texture.FilePath))
+                    {
+                        texturePaths.Add(texture.FilePath);
+                    }
+                }
+            }
+
+            if (texturePaths.Count == 0)
+            {
+                _logger.LogDebug("切片({Level},{X},{Y},{Z})没有有效纹理文件，跳过纹理重打包",
+                    slice.Level, slice.X, slice.Y, slice.Z);
+                return materials;
+            }
+
+            _logger.LogDebug("切片({Level},{X},{Y},{Z})开始纹理重打包：{Count}个纹理",
+                slice.Level, slice.X, slice.Y, slice.Z, texturePaths.Count);
+
+            // 计算基于LOD级别的降采样因子
+            // LOD-0: 1.0 (原始大小)
+            // LOD-1: 0.5 (1/2大小)
+            // LOD-2: 0.25 (1/4大小)
+            // LOD-N: 1 / (2^N)
+            double downsampleFactor = slice.Level > 0 ? 1.0 / Math.Pow(2, slice.Level) : 1.0;
+
+            // 确定是否使用JPEG压缩
+            bool useJpegCompression = config.TextureStrategy == TextureStrategy.RepackCompressed;
+
+            _logger.LogDebug("切片({Level},{X},{Y},{Z})纹理策略={Strategy}, 降采样={Factor:F2}, 压缩={Compression}",
+                slice.Level, slice.X, slice.Y, slice.Z,
+                config.TextureStrategy, downsampleFactor, useJpegCompression ? "JPEG" : "PNG");
+
+            // 使用 GltfGenerator 的纹理图集功能（应用降采样和压缩）
+            var gltfGenerator = _tileGeneratorFactory.CreateGltfGenerator();
+            var (updatedMaterials, atlasResult) = await gltfGenerator.GenerateTextureAtlasAsync(
+                usedMaterials,
+                atlasOutputPath: null, // 切片不保存单独的图集文件，直接嵌入
+                downsampleFactor: downsampleFactor,
+                useJpegCompression: useJpegCompression);
+
+            if (atlasResult != null)
+            {
+                _logger.LogInformation("切片({Level},{X},{Y},{Z})纹理图集生成完成：{Width}x{Height}, 利用率={Utilization:P2}, 大小={Size}KB, 降采样={Factor:F2}x",
+                    slice.Level, slice.X, slice.Y, slice.Z,
+                    atlasResult.Width, atlasResult.Height, atlasResult.Utilization,
+                    atlasResult.ImageData.Length / 1024, downsampleFactor);
+
+                // 纹理压缩策略已在 TextureAtlasGenerator 中实现（JPEG质量75）
+                if (config.TextureStrategy == TextureStrategy.RepackCompressed)
+                {
+                    _logger.LogDebug("切片({Level},{X},{Y},{Z})使用JPEG压缩策略（质量75）",
+                        slice.Level, slice.X, slice.Y, slice.Z);
+                }
+            }
+
+            return updatedMaterials;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "切片({Level},{X},{Y},{Z})纹理重打包失败，使用原始材质",
+                slice.Level, slice.X, slice.Y, slice.Z);
+            return materials;
+        }
+    }
+
 
     /// <summary>
     /// 生成B3DM格式切片内容
@@ -427,7 +563,7 @@ public class SlicingDataService
             }
 
             _logger.LogInformation(
-                "tileset.json 生成成功，包含{SliceCount}个切片, LOD级别{MaxLevel}", taskSlices.Count, config.MaxLevel);
+                "tileset.json 生成成功，包含{SliceCount}个切片, LOD级别{MaxLevel}", taskSlices.Count, config.Divisions);
 
             return true;
         }
@@ -436,6 +572,122 @@ public class SlicingDataService
             _logger.LogError(ex, "生成 tileset.json 失败");
             return false;
         }
+    }
+
+    #endregion
+
+    #region 纹理文件处理
+
+    /// <summary>
+    /// 复制或上传材质纹理文件到输出目录/MinIO
+    /// 确保外部纹理引用能够正确解析
+    /// </summary>
+    private async Task CopyMaterialTexturesToOutputAsync(
+        Dictionary<string, Material>? materials,
+        string sliceFilePath,
+        StorageLocationType storageLocation,
+        CancellationToken cancellationToken)
+    {
+        if (materials == null || materials.Count == 0)
+        {
+            return;
+        }
+
+        // 收集所有纹理文件路径
+        var textureFiles = new HashSet<string>();
+        foreach (var material in materials.Values)
+        {
+            foreach (var texture in material.GetAllTextures())
+            {
+                if (!string.IsNullOrEmpty(texture.FilePath) && File.Exists(texture.FilePath))
+                {
+                    textureFiles.Add(texture.FilePath);
+                }
+            }
+        }
+
+        if (textureFiles.Count == 0)
+        {
+            return;
+        }
+
+        _logger.LogDebug("开始复制 {Count} 个纹理文件", textureFiles.Count);
+
+        // 根据存储位置处理纹理文件
+        if (storageLocation == StorageLocationType.LocalFileSystem)
+        {
+            var outputDirectory = Path.GetDirectoryName(sliceFilePath);
+            if (string.IsNullOrEmpty(outputDirectory))
+            {
+                return;
+            }
+
+            // 复制纹理文件到输出目录
+            foreach (var textureFile in textureFiles)
+            {
+                try
+                {
+                    var fileName = Path.GetFileName(textureFile);
+                    var destinationPath = Path.Combine(outputDirectory, fileName);
+
+                    // 如果目标文件不存在，复制纹理文件
+                    if (!File.Exists(destinationPath))
+                    {
+                        File.Copy(textureFile, destinationPath, overwrite: false);
+                        _logger.LogDebug("纹理文件已复制: {FileName} -> {Destination}", fileName, destinationPath);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("纹理文件已存在，跳过复制: {FileName}", fileName);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "复制纹理文件失败: {TextureFile}", textureFile);
+                }
+            }
+        }
+        else // MinIO
+        {
+            // 上传纹理文件到MinIO
+            foreach (var textureFile in textureFiles)
+            {
+                try
+                {
+                    var fileName = Path.GetFileName(textureFile);
+                    var objectName = fileName; // 直接使用文件名作为对象名
+
+                    // TODO: 可以添加MinIO对象存在性检查以避免重复上传
+                    // 为了简化，这里直接上传（MinIO会覆盖同名文件）
+                    using var fileStream = File.OpenRead(textureFile);
+                    var contentType = GetTextureContentType(fileName);
+                    await _minioService.UploadFileAsync("slices", objectName, fileStream, contentType, cancellationToken);
+
+                    _logger.LogDebug("纹理文件已上传到MinIO: {FileName}", fileName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "上传纹理文件到MinIO失败: {TextureFile}", textureFile);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 获取纹理文件的Content-Type
+    /// </summary>
+    private string GetTextureContentType(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".bmp" => "image/bmp",
+            ".tga" => "image/tga",
+            ".dds" => "image/vnd-ms.dds",
+            _ => "application/octet-stream"
+        };
     }
 
     #endregion
@@ -463,7 +715,7 @@ public class SlicingDataService
     private double CalculateGeometricError(int level, SlicingConfig config)
     {
         var baseError = config.GeometricErrorThreshold;
-        var errorFactor = Math.Pow(2.0, config.MaxLevel - level);
+        var errorFactor = Math.Pow(2.0, config.Divisions - level);
         return baseError * errorFactor;
     }
 

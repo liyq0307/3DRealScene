@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
+using System.Reflection;
 
 namespace RealScene3D.WebApi.Filters;
 
@@ -11,12 +13,45 @@ public class FileUploadOperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
+        // 查找所有 IFormFile 类型的参数
         var formFileParameters = context.ApiDescription.ParameterDescriptions
-            .Where(p => p.ModelMetadata?.ModelType == typeof(IFormFile))
+            .Where(p =>
+                p.Type == typeof(IFormFile) ||
+                p.Type == typeof(IFormFileCollection) ||
+                (p.ModelMetadata?.ModelType == typeof(IFormFile)) ||
+                (p.ModelMetadata?.ModelType == typeof(IFormFileCollection)))
             .ToList();
 
         if (!formFileParameters.Any())
             return;
+
+        // 检查方法是否有 [Consumes("multipart/form-data")] 属性
+        var hasMultipartConsumes = context.MethodInfo
+            .GetCustomAttributes<Microsoft.AspNetCore.Mvc.ConsumesAttribute>()
+            .Any(x => x.ContentTypes.Contains("multipart/form-data"));
+
+        if (!hasMultipartConsumes)
+            return;
+
+        // 构建 multipart/form-data 请求体
+        var properties = new Dictionary<string, OpenApiSchema>();
+        var requiredParams = new HashSet<string>();
+
+        foreach (var param in formFileParameters)
+        {
+            properties[param.Name] = new OpenApiSchema
+            {
+                Type = "string",
+                Format = "binary",
+                Description = param.ModelMetadata?.Description
+            };
+
+            // 如果参数不可为空，则标记为必需
+            if (!param.IsRequired && param.ModelMetadata?.IsRequired == true)
+            {
+                requiredParams.Add(param.Name);
+            }
+        }
 
         operation.RequestBody = new OpenApiRequestBody
         {
@@ -27,17 +62,8 @@ public class FileUploadOperationFilter : IOperationFilter
                     Schema = new OpenApiSchema
                     {
                         Type = "object",
-                        Properties = formFileParameters.ToDictionary(
-                            p => p.Name,
-                            p => new OpenApiSchema
-                            {
-                                Type = "string",
-                                Format = "binary"
-                            }
-                        ),
-                        Required = formFileParameters
-                            .Select(p => p.Name)
-                            .ToHashSet()
+                        Properties = properties,
+                        Required = requiredParams
                     }
                 }
             }

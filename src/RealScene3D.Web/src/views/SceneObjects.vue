@@ -448,15 +448,6 @@
           </select>
         </div>
         <div class="form-group">
-          <label>切片策略</label>
-          <select v-model="slicingForm.slicingStrategy" class="form-select">
-            <option value="Octree">八叉树</option>
-            <option value="Grid">网格</option>
-            <option value="KdTree">KD树</option>
-            <option value="Adaptive">自适应</option>
-          </select>
-        </div>
-        <div class="form-group">
           <label>最大LOD级别 (建议≤8，过高会导致内存溢出)</label>
           <input v-model.number="slicingForm.maxLevel" type="number" class="form-input" min="0" max="10" />
           <small class="form-hint" v-if="slicingForm.maxLevel > 8" style="color: orange;">
@@ -580,7 +571,6 @@ const objectToSlice = ref<any>(null) // 新增：待切片的对象
 const slicingForm = ref({
   name: '',
   modelType: 'Model3D',
-  slicingStrategy: 'Octree',
   maxLevel: 10,
   tileSize: 100,
   geometricErrorThreshold: 1,
@@ -995,7 +985,7 @@ const submitSlicingTask = async () => {
       modelType: slicingForm.value.modelType,
       sceneObjectId: objectToSlice.value.id, // 关联场景对象ID
       slicingConfig: {
-        strategy: slicingForm.value.slicingStrategy,
+        granularity: 'Medium',
         maxLevel: slicingForm.value.maxLevel,
         tileSize: slicingForm.value.tileSize,
         geometricErrorThreshold: slicingForm.value.geometricErrorThreshold,

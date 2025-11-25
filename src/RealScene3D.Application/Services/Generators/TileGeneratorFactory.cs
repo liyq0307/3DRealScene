@@ -12,6 +12,7 @@ namespace RealScene3D.Application.Services.Generators;
 /// 2. 支持运行时动态选择格式
 /// 3. 自动创建生成器实例，无需预先注册
 /// 4. 易于扩展新的瓦片格式
+/// 5. 支持递归创建生成器依赖（如 B3dmGenerator 依赖 GltfGenerator）
 /// </summary>
 public class TileGeneratorFactory : ITileGeneratorFactory
 {
@@ -67,8 +68,9 @@ public class TileGeneratorFactory : ITileGeneratorFactory
     /// <summary>
     /// 创建生成器实例
     /// 使用反射自动创建，从 DI 容器解析构造函数依赖
+    /// 支持递归创建生成器依赖（如 B3dmGenerator 依赖 GltfGenerator）
     /// </summary>
-    private object? CreateGeneratorInstance(Type generatorType)
+    internal object? CreateGeneratorInstance(Type generatorType)
     {
         var constructors = generatorType.GetConstructors();
         if (constructors.Length == 0)
@@ -90,6 +92,12 @@ public class TileGeneratorFactory : ITileGeneratorFactory
             {
                 args[i] = service;
             }
+            // 如果是生成器类型（继承自 TileGenerator），递归创建
+            else if (IsGeneratorType(paramType))
+            {
+                _logger.LogDebug("递归创建生成器依赖: {GeneratorType}", paramType.Name);
+                args[i] = CreateGeneratorInstance(paramType);
+            }
             else if (parameters[i].HasDefaultValue)
             {
                 args[i] = parameters[i].DefaultValue;
@@ -105,6 +113,32 @@ public class TileGeneratorFactory : ITileGeneratorFactory
         }
 
         return Activator.CreateInstance(generatorType, args);
+    }
+
+    /// <summary>
+    /// 判断是否为生成器类型
+    /// 检查类型是否继承自 TileGenerator 或在 _generatorTypes 映射中
+    /// </summary>
+    private bool IsGeneratorType(Type type)
+    {
+        // 检查是否在已知生成器类型映射中
+        if (_generatorTypes.ContainsValue(type))
+        {
+            return true;
+        }
+
+        // 检查是否继承自 TileGenerator 基类
+        var baseType = type.BaseType;
+        while (baseType != null)
+        {
+            if (baseType.Name == "TileGenerator")
+            {
+                return true;
+            }
+            baseType = baseType.BaseType;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -186,48 +220,5 @@ public static class TileGeneratorFactoryExtensions
         }
 
         throw new InvalidOperationException("无法创建TilesetGenerator，工厂类型不匹配");
-    }
-
-    /// <summary>
-    /// 内部方法：创建指定类型的生成器实例（用于扩展方法）
-    /// 使用反射自动创建，从 DI 容器解析构造函数依赖
-    /// </summary>
-    private static object? CreateGeneratorInstance(this TileGeneratorFactory factory, Type generatorType)
-    {
-        var constructors = generatorType.GetConstructors();
-        if (constructors.Length == 0)
-        {
-            return null;
-        }
-
-        var constructor = constructors[0];
-        var parameters = constructor.GetParameters();
-        var args = new object?[parameters.Length];
-
-        for (int i = 0; i < parameters.Length; i++)
-        {
-            var paramType = parameters[i].ParameterType;
-
-            // 从 DI 容器解析参数（如 ILogger）
-            var service = factory.ServiceProvider.GetService(paramType);
-            if (service != null)
-            {
-                args[i] = service;
-            }
-            else if (parameters[i].HasDefaultValue)
-            {
-                args[i] = parameters[i].DefaultValue;
-            }
-            else if (paramType.IsValueType)
-            {
-                args[i] = Activator.CreateInstance(paramType);
-            }
-            else
-            {
-                args[i] = null;
-            }
-        }
-
-        return Activator.CreateInstance(generatorType, args);
     }
 }

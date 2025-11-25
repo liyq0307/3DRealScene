@@ -2,7 +2,7 @@
 
 本文档整合了编译、部署、存储架构等所有详细说明。基于实际代码库更新，确保与项目实现保持一致。
 
-**最后更新**: 2025-10-15
+**最后更新**: 2025-11-25
 **版本**: v1.0
 **技术栈**: ASP.NET Core 8.0 + Vue 3 + PostgreSQL/PostGIS + MongoDB + Redis + MinIO
 
@@ -12,12 +12,12 @@
 
 - [项目架构](#项目架构)
 - [编译和运行](#编译和运行)
-- [异构存储架构](#异构存储架构)
+- [存储架构](#存储架构)
 - [3D切片功能](#3d切片功能)
   - [切片功能概述](#切片功能概述)
-  - [切片策略详解](#切片策略详解)
+  - [四叉树空间分割](#四叉树空间分割)
   - [切片配置参数](#切片配置参数)
-  - [渲染优化算法](#渲染优化算法)
+  - [瓦片生成流水线](#瓦片生成流水线)
   - [API接口使用指南](#api接口使用指南)
   - [切片文件格式](#切片文件格式)
   - [切片处理流程](#切片处理流程)
@@ -48,23 +48,75 @@
 │                应用层 (Application Layer)                    │
 │  Services: SceneService, SlicingAppService,                 │
 │           WorkflowService, MonitoringService                │
+│                                                             │
+│  ┌─── 切片系统架构  ────────────────────────────────┐       │
+│  │  SlicingAppService (主入口)                     │       │
+│  │         ↓                                       │       │
+│  │  SlicingProcessor (任务调度)                    │       │
+│  │         ↓                                       │       │
+│  │  TileGenerationPipeline (四阶段流水线)          │       │
+│  │    ├─ Stage 0: 加载模型                         │       │
+│  │    ├─ Stage 1: 网格简化 (MeshDecimationService) │       │
+│  │    ├─ Stage 2: 空间分割 (SpatialSplitterService)│       │
+│  │    ├─ Stage 3: 切片生成 (GltfGenerator等)       │       │
+│  │    └─ Stage 4: 索引生成 (TilesetGenerator)      │       │
+│  │                                                  │       │
+│  │  增量更新: IncrementalUpdateService             │       │
+│  └──────────────────────────────────────────────────┘       │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
 │                领域层 (Domain Layer)                         │
-│  Entities: Scene3D, SlicingTask, Slice, User, Workflow      │
-│  Domain Services: SlicingService, SpatialAnalysisService    │
+│  Entities: Scene3D, SlicingTask, Slice, SlicingConfig,      │
+│            User, Workflow, Geometry                         │
+│  Enums: SlicingTaskStatus, TextureStrategy, StorageLocation │
+│  Domain Services: SpatialAnalysisService                    │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
 │             基础设施层 (Infrastructure Layer)                │
-│  - PostgreSqlDbContext (主数据库)                            │
-│  - MongoDbContext (文档存储)                                 │
-│  - RedisCacheService (缓存服务)                              │
-│  - MinioStorageService (对象存储)                            │
+│  - PostgreSqlDbContext (主数据库 - 切片任务、进度)           │
+│  - MongoDbContext (文档存储 - 元数据)                        │
+│  - RedisCacheService (缓存服务 - 热点数据)                   │
+│  - MinioStorageService (对象存储 - 切片文件、模型)           │
 │  - Repository<T> (仓储实现)                                  │
 │  - UnitOfWork (工作单元)                                     │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### 切片系统数据流
+
+```
+用户上传模型 (.obj/.gltf)
+    ↓
+MinIO 对象存储
+    ↓
+SlicingAppService 创建任务
+    ↓
+SlicingProcessor 启动处理
+    ↓
+TileGenerationPipeline 流水线处理
+    │
+    ├─→ Stage 0: 加载模型数据
+    │   └─ 解析几何、材质、纹理
+    │
+    ├─→ Stage 1: 网格简化 (可选)
+    │   └─ QEM算法生成多级LOD
+    │
+    ├─→ Stage 2: 四叉树空间分割
+    │   └─ SAT算法精确相交测试
+    │
+    ├─→ Stage 3: 切片生成
+    │   ├─ 纹理重打包 (TextureAtlasGenerator)
+    │   ├─ GLTF生成 (GltfGenerator)
+    │   └─ B3DM封装
+    │
+    └─→ Stage 4: 索引生成
+        └─ tileset.json (TilesetGenerator)
+    ↓
+切片文件存储 (MinIO/本地)
+    ↓
+前端加载渲染 (Cesium/Three.js)
 ```
 
 ### 项目结构
@@ -78,10 +130,14 @@ src/
 │   │   ├── Scene3D.cs                  # 场景实体
 │   │   ├── SceneObject.cs              # 场景对象实体
 │   │   ├── Slicing.cs                  # 切片任务和切片实体
+│   │   ├── SlicingConfig.cs            # 切片配置实体
+│   │   ├── Geometry.cs                 # 几何实体
 │   │   └── Workflow.cs                 # 工作流实体
 │   ├── Interfaces/                     # 接口定义
 │   │   ├── IRepository.cs              # 仓储接口
 │   │   └── IUnitOfWork.cs              # 工作单元接口
+│   ├── Enums/                          # 枚举定义
+│   │   └── SlicingEnums.cs             # 切片枚举（任务状态、纹理策略等）
 │   └── Services/                       # 领域服务
 │       ├── SlicingService.cs           # 切片领域服务
 │       └── SpatialAnalysisService.cs   # 空间分析服务
@@ -109,9 +165,31 @@ src/
 │   │   ├── UserService.cs              # 用户服务
 │   │   ├── SceneService.cs             # 场景服务
 │   │   ├── SceneObjectService.cs       # 场景对象服务
-│   │   ├── SlicingService.cs           # 切片应用服务
 │   │   ├── WorkflowService.cs          # 工作流服务
-│   │   └── MonitoringAppService.cs     # 监控服务
+│   │   ├── MonitoringAppService.cs     # 监控服务
+│   │   ├── Obj2TilesService.cs         # OBJ转3D Tiles服务
+│   │   │
+│   │   ├── Slicing/                    # 切片服务模块
+│   │   │   ├── SlicingAppService.cs            # 切片应用服务（主入口）
+│   │   │   ├── SlicingProcessor.cs             # 切片处理器
+│   │   │   ├── SlicingDataService.cs           # 切片数据服务
+│   │   │   ├── TileGenerationPipeline.cs       # 瓦片生成流水线（四阶段处理）
+│   │   │   ├── IncrementalUpdateService.cs     # 增量更新服务
+│   │   │   └── TaskProgressHistory.cs          # 任务进度历史
+│   │   │
+│   │   ├── Generators/                 # 生成器模块
+│   │   │   ├── GltfGenerator.cs                # GLTF生成器
+│   │   │   ├── TilesetGenerator.cs             # Tileset索引生成器
+│   │   │   ├── TileGeneratorFactory.cs         # Tile生成器工厂
+│   │   │   └── TextureAtlasGenerator.cs        # 纹理图集生成器
+│   │   │
+│   │   ├── Loaders/                    # 加载器模块
+│   │   │   └── MtlParser.cs                    # MTL材质解析器
+│   │   │
+│   │   ├── MeshDecimationService.cs            # 网格简化服务（LOD生成）
+│   │   ├── SpatialSplitterService.cs           # 空间分割服务（四叉树算法）
+│   │   └── SlicingUtilities.cs                 # 切片工具类
+│   │
 │   ├── Interfaces/                     # 服务接口
 │   │   ├── IUserService.cs
 │   │   ├── ISceneService.cs
@@ -144,8 +222,6 @@ src/
     │   └── router/                     # 路由配置
     └── package.json
 ```
-
----
 
 ## 编译和运行
 
@@ -301,7 +377,7 @@ curl http://localhost:9000/minio/health/live
 当后端启动时，你会在控制台看到类似以下的初始化日志：
 
 ```
-=== 开始初始化异构融合存储系统 ===
+=== 开始初始化存储系统 ===
 系统架构：前端Vue.js + 后端ASP.NET Core WebAPI + 异构存储层
 支持存储：PostgreSQL/PostGIS、MongoDB、Redis、MinIO
 
@@ -358,7 +434,7 @@ docker restart realscene3d-postgres
 
 ---
 
-## 异构存储架构
+## 存储架构
 
 ### 存储系统设计理念
 
@@ -596,16 +672,17 @@ var url = await _minioService.GetPresignedUrlAsync(
 
 ### 切片功能概述
 
-3D切片功能是RealScene3D系统的核心特性之一，用于将大型3D模型分割成多个小的、可管理的切片，以提高渲染性能和数据传输效率。该功能采用了先进的计算机图形学算法，支持多种切片策略和渲染优化技术。
+3D切片功能是RealScene3D系统的核心特性之一，用于将大型3D模型分割成多个小的、可管理的切片，以提高渲染性能和数据传输效率。该功能采用了先进的计算机图形学算法，支持四叉树空间分割和LOD网格简化技术。
 
 #### 核心特性
 
-- **多策略切片**：支持网格、八叉树、KD树、自适应四种切片策略
-- **LOD支持**：多层次细节（Level of Detail）技术，根据视距动态切换切片精度
-- **渲染优化**：内置视锥剔除和预测加载算法，大幅提升渲染性能
-- **多格式输出**：支持B3DM、GLTF、JSON等多种3D Tiles标准格式
+- **四叉树空间分割**：采用递归四叉树算法进行精确的空间剖分
+- **LOD网格简化**：使用QEM（二次误差度量）算法生成多级细节，根据视距动态切换模型精度
+- **智能纹理处理**：自动纹理重打包，每个切片只包含实际使用的纹理区域，大幅减少文件体积
+- **多格式输出**：支持B3DM、GLTF等3D Tiles标准格式
 - **增量更新**：支持模型的增量切片更新，无需完全重新处理
-- **并行处理**：采用多线程并行处理，提高切片生成速度
+- **精确相交测试**：基于分离轴定理（SAT）的三角面-AABB相交测试，确保空间分割的准确性
+- **并行处理**：支持多线程并行切片生成，提高处理速度
 
 #### 适用场景
 
@@ -616,132 +693,89 @@ var url = await _minioService.GetPresignedUrlAsync(
 
 #### 技术优势
 
-1. **智能剖分算法**：根据几何密度和视点重要性自动调整切片大小
+1. **四叉树空间分割**：根据模型几何分布自动调整切片大小，平衡细节和性能
 2. **高效空间索引**：采用层次化索引结构，支持快速空间查询
-3. **内存优化**：采用流式处理和内存映射技术，处理超大规模模型
-4. **网络传输优化**：支持压缩和增量传输，减少带宽占用
+3. **内存优化**：采用流式处理和增量生成，处理超大规模模型
+4. **网络传输优化**：支持纹理压缩和智能重打包，减少带宽占用
 
-### 切片策略详解
+### 四叉树空间分割
 
-系统提供了四种不同的切片策略，每种策略适用于不同的场景和数据特征：
+系统采用递归四叉树算法进行空间剖分，这是一种高效的二维空间分割技术，特别适合地理空间数据和大规模3D场景的处理。
 
-#### 1. 网格切片策略 (Grid)
+#### 算法原理
 
-**适用场景**：规则地形、均匀分布的建筑群、矩形区域的城市模型
+四叉树分割是一种递归的空间剖分算法，每次递归将当前空间单元沿X和Y轴同时分割，产生4个子节点：
 
-**算法原理**：
-- 采用均匀网格剖分算法
-- 在三维空间中进行规则的网格划分
-- 计算简单，内存占用规律
+- **XL-YL**：左下象限（X低，Y低）
+- **XL-YH**：左上象限（X低，Y高）
+- **XH-YL**：右下象限（X高，Y低）
+- **XH-YH**：右上象限（X高，Y高）
+
+**分割深度控制**：
+- `Divisions = 1`：产生 2×2 = 4 个空间单元
+- `Divisions = 2`：产生 4×4 = 16 个空间单元
+- `Divisions = 3`：产生 8×8 = 64 个空间单元
+- `Divisions = n`：产生 2^n × 2^n 个空间单元
+
+#### 相交测试
+
+使用基于分离轴定理（SAT）的精确三角面-AABB相交测试，确保空间分割的准确性：
+
+1. **测试3个AABB法线**（X、Y、Z轴）：检测三角形是否在包围盒外侧
+2. **测试三角形法线**：检测包围盒是否在三角形平面外侧
+3. **测试9个边叉乘轴**：检测三角形边与包围盒边的交叉情况
+
+通过这些测试，确保只有真正相交的三角形才会被分配到该空间单元，避免重复和遗漏。
+
+#### 优势特点
 
 **优点**：
-- 处理速度快，适合实时切片
-- 切片大小均匀，易于管理
-- 空间查询效率高
+- 自适应几何分布，细节丰富区域自动获得更多切片
+- 空间索引结构简单高效，查询性能优秀
+- 适合地理空间数据和大规模城市模型
+- 平衡了切片数量和渲染性能
 
-**缺点**：
-- 对不规则模型适应性差
-- 可能产生大量空切片
+**适用场景**：
+- 地形数据和倾斜摄影模型
+- 城市建筑群和大规模场景
+- 地理信息系统（GIS）应用
+- 需要快速空间查询的场景
+
+#### 配置示例
 
 ```csharp
-// 网格切片配置示例
+// 基础配置 - 适合中小型模型（4个空间单元）
 var config = new SlicingConfig
 {
-    Strategy = SlicingStrategy.Grid,
-    TileSize = 100.0,        // 切片大小100米
-    MaxLevel = 8,           // 最大8级LOD
+    TileSize = 100.0,
+    Divisions = 1,              // 产生 2×2 = 4 个空间单元
+    LodLevels = 3,
+    EnableMeshDecimation = true,
+    GenerateTileset = true,
     OutputFormat = "b3dm"
 };
-```
 
-#### 2. 八叉树切片策略 (Octree)
-
-**适用场景**：不规则分布的城市模型、复杂建筑群、异构场景
-
-**算法原理**：
-- 采用递归八叉树剖分算法
-- 基于空间密度和几何复杂度进行自适应剖分
-- 平衡细节表现和性能开销
-
-**优点**：
-- 自适应精度，细节丰富区域切片更细
-- 有效减少总切片数量
-- 适合复杂不规则模型
-
-**缺点**：
-- 剖分算法较为复杂
-- 切片大小差异较大
-
-```csharp
-// 八叉树切片配置示例
+// 标准配置 - 适合中等规模模型（16个空间单元）
 var config = new SlicingConfig
 {
-    Strategy = SlicingStrategy.Octree,
-    TileSize = 50.0,         // 基础切片大小50米
-    MaxLevel = 12,          // 支持更深层次剖分
-    GeometricErrorThreshold = 1.0,
-    OutputFormat = "gltf"
-};
-```
-
-#### 3. KD树切片策略 (KdTree)
-
-**适用场景**：高维空间数据、复杂几何分布、优化空间查询的场景
-
-**算法原理**：
-- 采用基于方差的二分剖分算法
-- 交替在X、Y、Z轴上进行剖分
-- 适用于高维空间查询优化
-
-**优点**：
-- 剖分轴交替选择，避免轴偏向
-- 适合高维空间查询
-- 自适应数据分布
-
-**缺点**：
-- 构建时间相对较长
-- 内存消耗较高
-
-```csharp
-// KD树切片配置示例
-var config = new SlicingConfig
-{
-    Strategy = SlicingStrategy.KdTree,
-    TileSize = 75.0,
-    MaxLevel = 10,
-    DensityAnalysisSampleRate = 0.7,
+    TileSize = 100.0,
+    Divisions = 2,              // 产生 4×4 = 16 个空间单元
+    LodLevels = 3,
+    EnableMeshDecimation = true,
+    TextureStrategy = TextureStrategy.Repack,
     OutputFormat = "b3dm"
 };
-```
 
-#### 4. 自适应切片策略 (Adaptive)
-
-**适用场景**：几何密度差异大的复杂场景、需要精细控制切片大小的场景
-
-**算法原理**：
-- 基于几何密度分析的智能剖分
-- 自动调整切片大小和LOD级别
-- 结合多种算法的优点
-
-**优点**：
-- 最高程度的适应性
-- 最优的细节表现
-- 智能资源分配
-
-**缺点**：
-- 计算复杂度最高
-- 需要较长的预处理时间
-
-```csharp
-// 自适应切片配置示例
+// 高精度配置 - 适合大规模城市模型（64个空间单元）
 var config = new SlicingConfig
 {
-    Strategy = SlicingStrategy.Adaptive,
-    TileSize = 60.0,
-    MaxLevel = 15,
-    DensityAnalysisSampleRate = 0.8,
-    ViewportOptimizationThreshold = 10.0,
-    OutputFormat = "gltf"
+    TileSize = 50.0,
+    Divisions = 3,              // 产生 8×8 = 64 个空间单元
+    LodLevels = 4,
+    EnableMeshDecimation = true,
+    TextureStrategy = TextureStrategy.RepackCompressed,
+    EnableIncrementalUpdates = true,
+    OutputFormat = "b3dm"
 };
 ```
 
@@ -752,80 +786,121 @@ var config = new SlicingConfig
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `TileSize` | double | 100.0 | 基础切片大小（米），影响剖分粒度 |
-| `MaxLevel` | int | 10 | LOD最大级别，每级切片数为2^level |
-| `OutputFormat` | string | "b3dm" | 输出格式：b3dm、gltf、json |
+| `Divisions` | int | 2 | 空间分割递归深度，产生 2^n × 2^n 个空间单元 |
+| `LodLevels` | int | 3 | LOD级别数量，控制网格简化层次 |
+| `EnableMeshDecimation` | bool | true | 是否启用网格简化（LOD生成） |
+| `GenerateTileset` | bool | true | 是否生成 tileset.json 索引文件 |
+| `OutputFormat` | string | "b3dm" | 输出格式：b3dm、gltf |
 | `CompressOutput` | bool | true | 是否压缩输出文件 |
-| `GeometricErrorThreshold` | double | 1.0 | LOD切换的几何误差阈值 |
-| `TextureQuality` | double | 0.8 | 纹理质量（0-1之间） |
-| `Strategy` | SlicingStrategy | Octree | 切片策略选择 |
-| `EnableIncrementalUpdates` | bool | false | 是否启用增量更新 |
-| `ViewportOptimizationThreshold` | double | 10.0 | 视点优化距离阈值 |
-| `DensityAnalysisSampleRate` | double | 0.5 | 密度分析采样率 |
-| `CompressionLevel` | int | 6 | 压缩级别（0-9） |
-| `ParallelProcessingCount` | int | 4 | 并行处理线程数 |
+| `TextureQuality` | double | 0.8 | 纹理质量（0-1之间），仅用于压缩时 |
+| `TextureStrategy` | enum | Repack | 纹理处理策略：Repack、KeepOriginal、RepackCompressed |
+| `EnableIncrementalUpdates` | bool | false | 是否启用增量更新支持 |
+| `StorageLocation` | enum | MinIO | 存储位置：MinIO 或 LocalFileSystem |
+| `GeometricErrorThreshold` | double | 0.001 | LOD切换的几何误差阈值 |
+| `CompressionLevel` | int | 6 | 压缩级别（0-9，越高压缩率越大但速度越慢） |
 
-### 渲染优化算法
+### 瓦片生成流水线
 
-#### 视锥剔除算法 (Frustum Culling)
+`TileGenerationPipeline` 是切片系统的核心处理流程，集成了网格简化、空间分割和切片生成的完整流程。
 
-视锥剔除是3D渲染的核心优化技术，用于剔除不可见的切片，减少渲染负载。
+#### Stage 0: 加载模型数据
 
-**算法原理**：
-1. 计算相机视锥体的6个裁剪面
-2. 判断切片包围盒与视锥体的相交关系
-3. 只渲染可见或部分可见的切片
+**功能**：
+- 加载源3D模型文件（OBJ、GLTF等格式）
+- 解析几何数据（顶点、法线、UV坐标）
+- 加载材质和纹理信息
+- 计算模型整体包围盒
 
-**API使用示例**：
-```bash
-POST /api/slicing/tasks/{taskId}/frustum-culling
-Content-Type: application/json
+**输出**：
+- 完整的网格数据结构
+- 材质和纹理映射关系
+- 模型空间边界信息
 
+#### Stage 1: Decimation（网格简化）
+
+**功能**：
+- 使用QEM（二次误差度量）算法对整个模型进行网格简化
+- 生成多级LOD（Level of Detail）
+- 每个LOD级别保持视觉质量的同时减少三角形数量
+
+**LOD级别示例**：
+- **LOD0**：原始模型（100%三角形）
+- **LOD1**：简化50%（50%三角形）
+- **LOD2**：简化75%（25%三角形）
+- **LOD3**：简化87.5%（12.5%三角形）
+
+**参数控制**：
+- `LodLevels`：控制生成的LOD级别数量
+- `EnableMeshDecimation`：是否启用网格简化
+
+#### Stage 2 & 3: Quadtree Splitting & Tile Generation
+
+**功能**：
+- 对每个LOD级别的网格进行递归四叉树空间分割
+- 每次递归同时沿X和Y轴分割，产生4个子节点
+- 使用精确的三角面-AABB相交测试筛选每个空间单元的三角形
+- 每个空间单元只包含实际使用的材质，减小切片大小
+- 为每个非空空间单元生成切片文件
+
+**空间分割过程**：
+1. 计算模型的整体包围盒
+2. 根据 `Divisions` 参数递归分割空间
+3. 对每个空间单元，使用SAT算法测试三角形相交
+4. 筛选出相交的三角形，生成子网格
+5. 应用纹理重打包策略（可选）
+6. 输出B3DM或GLTF格式文件
+
+**参数控制**：
+- `Divisions`：控制空间分割深度
+- `TextureStrategy`：纹理处理策略
+- `OutputFormat`：输出文件格式
+
+#### Stage 4: 生成 tileset.json
+
+**功能**：
+- 生成3D Tiles标准的索引文件
+- 包含切片层次结构和包围盒信息
+- 定义LOD切换的几何误差阈值
+- 支持Cesium等渲染引擎直接加载
+
+**tileset.json结构**：
+```json
 {
-  "cameraPosition": {"x": 0, "y": 0, "z": 100},
-  "cameraDirection": {"x": 0, "y": 0, "z": -1},
-  "fieldOfView": 1.047,    // 60度视野
-  "nearPlane": 1.0,
-  "farPlane": 10000.0
+  "asset": {
+    "version": "1.0"
+  },
+  "geometricError": 1000.0,
+  "root": {
+    "boundingVolume": {
+      "box": [...]
+    },
+    "geometricError": 500.0,
+    "refine": "ADD",
+    "content": {
+      "uri": "0_0_0.b3dm"
+    },
+    "children": [...]
+  }
 }
 ```
 
-**算法优势**：
-- 显著减少渲染物体数量
-- 提高帧率和响应速度
-- 降低GPU和内存压力
+#### 流程图
 
-#### 预测加载算法 (Predictive Loading)
-
-预测加载基于用户视点移动趋势，提前加载将要可见的切片。
-
-**算法原理**：
-1. 分析用户视点移动向量
-2. 预测未来2-3秒的视口位置
-3. 提前加载预测可见的切片
-
-**API使用示例**：
-```bash
-POST /api/slicing/tasks/{taskId}/predict-loading
-Content-Type: application/json
-
-{
-  "cameraPosition": {"x": 0, "y": 0, "z": 100},
-  "cameraDirection": {"x": 0, "y": 0, "z": -1},
-  "fieldOfView": 1.047,
-  "nearPlane": 1.0,
-  "farPlane": 10000.0
-}
-
-# 请求体中的移动向量
-{
-  "x": 10, "y": 5, "z": 0
-}
 ```
-
-**算法优势**：
-- 消除加载等待时间
-- 提供流畅的用户体验
-- 减少网络请求峰值
+输入模型 (OBJ/GLTF)
+    ↓
+Stage 0: 加载模型
+    ↓
+Stage 1: 网格简化 → 生成 LOD0, LOD1, LOD2, ...
+    ↓
+Stage 2: 四叉树分割 → 空间单元划分（2^n × 2^n）
+    ↓
+Stage 3: 切片生成 → 生成 B3DM/GLTF 文件
+    ↓
+Stage 4: 生成索引 → tileset.json
+    ↓
+输出切片集合
+```
 
 ### API接口使用指南
 
@@ -837,13 +912,16 @@ Content-Type: application/json
 
 {
   "name": "城市模型切片任务",
-  "sourceModelPath": "models/city.ifc",
-  "modelType": "ifc",
+  "sourceModelPath": "models/city.obj",
+  "modelType": "obj",
   "slicingConfig": {
     "tileSize": 100.0,
-    "maxLevel": 10,
+    "divisions": 2,
+    "lodLevels": 3,
+    "enableMeshDecimation": true,
+    "generateTileset": true,
     "outputFormat": "b3dm",
-    "strategy": 1,
+    "textureStrategy": "Repack",
     "compressOutput": true
   }
 }
@@ -871,9 +949,9 @@ GET /api/slicing/tasks/{taskId}/progress
 {
   "taskId": "123e4567-e89b-12d3-a456-426614174000",
   "progress": 45,
-  "currentStage": "处理中",
-  "processedTiles": 1250,
-  "totalTiles": 2800,
+  "currentStage": "Stage 2: Quadtree Splitting",
+  "processedTiles": 12,
+  "totalTiles": 16,
   "estimatedTimeRemaining": 120
 }
 ```
@@ -906,66 +984,123 @@ Content-Type: application/json
 GET /api/slicing/tasks/{taskId}/slices/{level}/{x}/{y}/{z}/download
 ```
 
-#### 获取切片策略
+#### 获取增量更新索引
 
 ```bash
-GET /api/slicing/strategies
+GET /api/slicing/tasks/{taskId}/incremental-index
 ```
 
 **响应示例**：
 ```json
-[
-  {
-    "id": 0,
-    "name": "Grid",
-    "description": "规则网格切片算法，适用于规则地形和均匀分布的数据"
-  },
-  {
-    "id": 1,
-    "name": "Octree",
-    "description": "八叉树切片算法，适用于不规则模型，自适应精度"
-  }
-]
+{
+  "version": 2,
+  "changedTiles": [
+    {"level": 0, "x": 1, "y": 1, "z": 0, "hash": "abc123..."},
+    {"level": 1, "x": 2, "y": 3, "z": 0, "hash": "def456..."}
+  ],
+  "deletedTiles": [
+    {"level": 0, "x": 0, "y": 2, "z": 0}
+  ]
+}
 ```
 
 ### 切片文件格式
 
-系统支持多种3D Tiles标准格式：
+系统支持两种主要的3D Tiles标准格式：
 
-#### 1. B3DM格式
+#### 1. B3DM格式（推荐）
 
 **用途**：二进制glTF格式，Cesium默认支持
+
 **优点**：
-- 二进制格式，文件小巧
-- 支持纹理和材质
-- 压缩效率高
+- 二进制格式，文件小巧高效
+- 支持纹理和复杂材质
+- 压缩效率高，传输速度快
+- 广泛支持（Cesium、CesiumJS等）
+
+**文件结构**：
+```
+B3DM文件 = Header + Feature Table + Batch Table + GLB (Binary glTF)
+```
 
 #### 2. GLTF格式
 
 **用途**：JSON格式的3D模型标准
+
 **优点**：
-- 文本格式，可读性好
+- 文本格式，可读性好，便于调试
 - 跨平台兼容性强
 - 支持复杂材质和动画
-
-#### 3. JSON格式
-
-**用途**：轻量级自定义格式
-**优点**：
-- 格式简单，处理速度快
 - 易于扩展和定制
-- 调试友好
+
+**使用场景**：
+- 需要调试和检查模型内容
+- 需要手动编辑模型数据
+- 需要非常精确的纹理和材质控制
 
 ### 切片处理流程
 
-1. **任务创建**：用户提交切片任务，指定模型路径和配置
-2. **模型分析**：系统分析源模型的几何特征和复杂度
-3. **策略选择**：根据模型特征选择最优的切片策略
-4. **空间剖分**：采用选择的策略进行空间剖分
-5. **切片生成**：为每个剖分单元生成切片文件
-6. **索引构建**：建立空间索引和LOD层次结构
-7. **格式转换**：转换为指定的输出格式
-8. **压缩存储**：压缩并存储到对象存储系统
+以下是完整的切片处理流程，从任务创建到切片生成：
+
+#### 1. 任务创建
+- 用户提交切片任务，指定模型路径和配置参数
+- 系统验证模型文件存在性和格式
+- 创建切片任务记录，状态设置为 `Created`
+
+#### 2. 任务排队
+- 任务加入处理队列
+- 根据优先级和资源可用性调度执行
+- 状态更新为 `Queued`
+
+#### 3. 模型加载与分析
+- 从存储系统（MinIO或本地文件系统）加载源模型
+- 解析几何数据：顶点、法线、UV坐标、材质
+- 计算模型包围盒和统计信息
+- 状态更新为 `Processing` - Stage 0
+
+#### 4. 网格简化（可选）
+- 如果 `EnableMeshDecimation = true`，执行网格简化
+- 使用QEM算法生成多级LOD
+- 每个LOD级别保持视觉质量同时减少三角形数量
+- Stage 1 进度更新
+
+#### 5. 空间剖分
+- 根据 `Divisions` 参数进行四叉树递归分割
+- 对每个空间单元使用SAT算法测试三角形相交
+- 筛选出相交的三角形，构建子网格
+- Stage 2 进度更新
+
+#### 6. 切片生成
+- 对每个非空空间单元生成切片文件
+- 根据 `TextureStrategy` 处理纹理：
+  - **Repack**: 重打包纹理，只包含使用的区域
+  - **KeepOriginal**: 保留原始纹理
+  - **RepackCompressed**: 重打包并压缩
+- 输出B3DM或GLTF格式文件
+- 存储到指定位置（MinIO或本地）
+- Stage 3 进度更新
+
+#### 7. 索引生成
+- 生成 `tileset.json` 索引文件
+- 定义切片层次结构和包围盒
+- 设置LOD切换的几何误差阈值
+- Stage 4 进度更新
+
+#### 8. 任务完成
+- 状态更新为 `Completed`
+- 记录完成时间和输出路径
+- 生成任务报告（切片数量、文件大小等）
+
+#### 流程时间估算
+
+| 模型规模 | 三角形数 | Divisions | LOD Levels | 预计时间 |
+|---------|---------|-----------|-----------|---------|
+| 小型 | < 1万 | 1 | 2 | 10-30秒 |
+| 中型 | 1-10万 | 2 | 3 | 1-5分钟 |
+| 大型 | 10-50万 | 2 | 3 | 5-20分钟 |
+| 超大型 | > 50万 | 3 | 4 | 20-60分钟 |
+
+**注意**：实际时间取决于硬件性能、纹理大小、材质复杂度等因素。
 
 ### 切片任务实体结构
 
@@ -1655,99 +1790,177 @@ mc policy set download myminio/models-3d
 
 #### 错误: 切片任务长时间卡在处理中
 **现象**：切片进度停滞不前，长时间无响应
+
 **可能原因**：
 1. 模型文件损坏或格式不支持
-2. 切片配置参数不合理
-3. 系统资源不足
+2. 切片配置参数不合理（Divisions过大）
+3. 系统资源不足（内存/CPU）
+4. 纹理文件过大或损坏
 
 **解决步骤**：
 ```bash
 # 1. 检查源模型文件
-mc stat myminio/models-3d/your-model.ifc
+mc stat myminio/models-3d/your-model.obj
 
 # 2. 查看应用日志
 tail -f logs/log-.txt | grep -i slicing
 
-# 3. 调整切片配置
+# 3. 调整切片配置（降低复杂度）
 {
-  "tileSize": 200.0,        # 增大切片大小
-  "maxLevel": 8,           # 减少LOD级别
-  "parallelProcessingCount": 2  # 减少并行度
+  "tileSize": 200.0,           # 增大切片大小
+  "divisions": 1,              # 减少分割深度（产生4个单元）
+  "lodLevels": 2,              # 减少LOD级别
+  "enableMeshDecimation": false  # 禁用网格简化加快速度
 }
+
+# 4. 检查系统资源
+# Windows
+tasklist | findstr dotnet
+
+# 5. 重启任务
+POST /api/slicing/tasks/{taskId}/cancel
+# 创建新任务
 ```
 
 #### 错误: 内存不足 (OutOfMemoryException)
 **现象**：切片处理过程中出现内存溢出
+
 **可能原因**：
-1. 模型过大，并行处理数量过多
-2. 切片大小设置过小导致切片数量爆炸
-3. 系统可用内存不足
+1. 模型过大，Divisions设置过高导致切片数量爆炸
+2. 纹理文件过大，重打包占用大量内存
+3. LOD级别过多，同时处理多个简化级别
+4. 系统可用内存不足
 
 **解决步骤**：
 ```csharp
-// 减小并行处理数量
+// 方案1：减小切片复杂度
 var config = new SlicingConfig
 {
-    ParallelProcessingCount = 2,  // 从4减少到2
-    TileSize = 150.0,            // 增大切片大小
-    MaxLevel = 8                 // 减少LOD级别
+    Divisions = 1,                  // 从2或3减少到1（4个单元 vs 16或64个）
+    LodLevels = 2,                  // 从3或4减少到2
+    TileSize = 150.0,               // 增大切片大小
+    EnableMeshDecimation = false,   // 禁用网格简化（减少内存峰值）
+    TextureStrategy = TextureStrategy.KeepOriginal  // 不重打包纹理
 };
+
+// 方案2：分批处理（手动拆分模型）
+// 将大模型拆分为多个小模型，分别切片后合并
+
+// 方案3：增加系统内存或使用更高配置的机器
 ```
 
-#### 错误: 视锥剔除效果不佳
-**现象**：渲染性能提升不明显，仍有较多切片被渲染
-**可能原因**：
-1. 视锥剔除参数配置不当
-2. 切片包围盒计算不准确
-3. 相机参数更新不及时
+**监控内存使用**：
+```bash
+# Windows PowerShell
+Get-Process -Name dotnet | Select-Object WorkingSet, VirtualMemorySize
 
-**解决步骤**：
-```csharp
-// 调整视锥剔除参数
-var viewport = new ViewportInfo
-{
-    FarPlane = 5000.0,           // 减少远裁剪面
-    FieldOfView = Math.PI / 4,   // 缩小视野角度
-    NearPlane = 10.0             // 增大近裁剪面
-};
+# 如果内存使用超过可用内存的80%，考虑降低复杂度
 ```
 
 #### 错误: 切片文件损坏或无法加载
-**现象**：前端无法正常显示切片内容
+**现象**：前端无法正常显示切片内容，或加载时报错
+
 **可能原因**：
 1. 切片文件生成过程中断
-2. 压缩参数设置错误
+2. 纹理重打包过程出错
 3. 存储过程中文件损坏
+4. tileset.json格式错误
 
 **解决步骤**：
 ```bash
 # 1. 检查切片文件完整性
 mc stat myminio/slices/task-output/tileset.json
+mc stat myminio/slices/task-output/0_0_0.b3dm
 
-# 2. 验证切片索引
-GET /api/slicing/tasks/{taskId}/incremental-index
+# 2. 验证切片文件格式
+# 下载文件并用Cesium Viewer或其他工具测试
 
-# 3. 重新生成损坏的切片
-POST /api/slicing/tasks/{taskId}/regenerate-slices
+# 3. 查看生成日志
+GET /api/slicing/tasks/{taskId}
+# 检查errorMessage字段
+
+# 4. 重新生成切片
+POST /api/slicing/tasks/{taskId}/cancel
+# 创建新任务，使用更保守的配置
+
+# 5. 验证 tileset.json
+# 确保JSON格式正确，包围盒坐标有效
 ```
 
 #### 错误: 增量更新失败
 **现象**：增量更新索引生成失败或更新不准确
+
 **可能原因**：
 1. 原模型变化检测算法不准确
 2. 切片哈希计算冲突
-3. 增量更新索引损坏
+3. 增量更新索引损坏或版本不兼容
 
 **解决步骤**：
 ```bash
-# 1. 重新计算切片哈希
+# 1. 检查增量更新索引
+GET /api/slicing/tasks/{taskId}/incremental-index
+
+# 2. 重新计算切片哈希
 POST /api/slicing/tasks/{taskId}/recalculate-hashes
 
-# 2. 重建增量更新索引
+# 3. 重建增量更新索引
 POST /api/slicing/tasks/{taskId}/rebuild-incremental-index
 
-# 3. 执行完整重新切片（最后手段）
-POST /api/slicing/tasks/{taskId}/full-reslice
+# 4. 如果以上方法都失败，执行完整重新切片
+# 禁用增量更新，重新生成所有切片
+{
+  "enableIncrementalUpdates": false
+}
+```
+
+#### 错误: 纹理重打包失败
+**现象**：切片生成时纹理处理失败
+
+**可能原因**：
+1. 纹理文件格式不支持
+2. 纹理文件损坏
+3. UV坐标超出[0,1]范围
+4. 内存不足无法加载大纹理
+
+**解决步骤**：
+```csharp
+// 方案1：使用 KeepOriginal 策略，不重打包
+var config = new SlicingConfig
+{
+    TextureStrategy = TextureStrategy.KeepOriginal
+};
+
+// 方案2：检查并修复纹理文件
+// 使用图像处理工具转换为标准格式（PNG、JPEG）
+
+// 方案3：减小纹理尺寸
+// 在建模软件中将纹理缩小到合理大小（例如 2048x2048）
+```
+
+#### 错误: 空间分割结果不正确
+**现象**：某些三角形被分配到错误的切片，或缺失三角形
+
+**可能原因**：
+1. 模型包围盒计算错误
+2. SAT相交测试边界情况处理不当
+3. 浮点精度问题
+
+**解决步骤**：
+```bash
+# 1. 查看日志，检查包围盒计算
+tail -f logs/log-.txt | grep -i "bounding box"
+
+# 2. 尝试增大 TileSize，减少边界情况
+{
+  "tileSize": 150.0  # 从100增加到150
+}
+
+# 3. 减少 Divisions，减少空间单元数量
+{
+  "divisions": 1  # 从2减少到1
+}
+
+# 4. 联系开发团队报告问题，提供模型文件
 ```
 
 ---
@@ -2044,28 +2257,91 @@ A: 使用命令: `redis-cli -a redis123 FLUSHALL`（谨慎操作！）
 **Q: 数据库迁移失败怎么办?**
 A: 删除Migrations文件夹，重新创建迁移。如果数据库已存在，先备份后删除。
 
-**Q: 如何选择合适的切片策略?**
-A: 根据模型特征选择：网格策略适合规则模型，八叉树适合不规则模型，KD树适合复杂查询，自适应策略适合最高质量要求。
+**Q: 如何选择合适的切片配置?**
+A: 根据模型规模选择：
+- 小模型（<1万三角形）：Divisions=1, LodLevels=2
+- 中等模型（1-10万）：Divisions=2, LodLevels=3
+- 大模型（10-50万）：Divisions=2, LodLevels=3-4
+- 超大模型（>50万）：Divisions=3, LodLevels=4-5
+
+纹理策略推荐：
+- 需要最小文件体积：TextureStrategy.RepackCompressed
+- 平衡质量和大小：TextureStrategy.Repack
+- 快速处理：TextureStrategy.KeepOriginal
 
 **Q: 切片处理速度很慢怎么办?**
-A: 1. 调整并行处理数量；2. 增大切片大小减少切片总数；3. 降低LOD级别；4. 使用更高性能的硬件。
+A: 1. 减小 Divisions（空间分割深度）；2. 增大 TileSize 减少切片总数；3. 降低 LodLevels；4. 禁用 EnableMeshDecimation（牺牲LOD换速度）；5. 使用 KeepOriginal 纹理策略；6. 使用更高性能的硬件。
 
 **Q: 切片文件太大影响传输怎么办?**
-A: 1. 启用压缩输出；2. 调整纹理质量参数；3. 使用更高压缩级别；4. 优化几何误差阈值。
+A: 1. 使用 TextureStrategy.RepackCompressed 启用纹理压缩；2. 调整 TextureQuality 参数（降低到0.7-0.8）；3. 提高 CompressionLevel 到 7-9；4. 使用 B3DM 格式而非 GLTF；5. 考虑使用 CDN 加速传输。
 
-**Q: 视锥剔除不起作用怎么办?**
-A: 1. 检查视口参数是否正确更新；2. 调整远裁剪面距离；3. 验证包围盒计算准确性；4. 检查相机矩阵是否正确。
+**Q: Divisions参数如何选择？**
+A: Divisions 控制空间分割深度，产生 2^n × 2^n 个空间单元：
+- Divisions=1: 4个单元，适合小型模型
+- Divisions=2: 16个单元，适合中型模型（推荐）
+- Divisions=3: 64个单元，适合大型城市模型
+- Divisions=4: 256个单元，仅用于超大规模场景（慎用）
+
+**注意**：Divisions越大，内存占用越高，处理时间越长。建议从小值开始测试。
+
+**Q: LOD级别如何配置？**
+A: LodLevels 控制网格简化的层次数量：
+- LodLevels=2: 快速处理，适合预览
+- LodLevels=3: 标准配置，平衡质量和性能（推荐）
+- LodLevels=4-5: 高质量，适合远距离和近距离都需要清晰的场景
+- LodLevels=1: 不简化，保留原始模型（不推荐）
+
+每增加一个LOD级别，处理时间增加约30-50%。
 
 **Q: 增量更新不准确怎么办?**
-A: 1. 重新计算切片哈希值；2. 重建增量更新索引；3. 检查模型变化检测算法；4. 必要时执行完整重新切片。
+A: 1. 重新计算切片哈希值；2. 重建增量更新索引；3. 检查模型变化检测算法；4. 必要时禁用增量更新，执行完整重新切片。
 
 ---
 
 ## 总结
 
-本指南涵盖了从开发到生产的完整流程。如有其他问题，请查阅：
+本指南涵盖了从开发到生产的完整流程，特别详细介绍了3D切片系统的核心功能。
 
-- [README.md](./README.md) - 项目概览
-- [Swagger API](http://localhost:5177/swagger) - API文档
+### 主要特性总结
 
-**^_^** 🚀
+#### 3D切片系统
+- **四叉树空间分割**：高效的二维空间剖分算法
+- **LOD网格简化**：QEM算法生成多级细节
+- **智能纹理处理**：三种纹理策略（Repack、KeepOriginal、RepackCompressed）
+- **瓦片生成流水线**：TileGenerationPipeline 四阶段处理流程
+- **增量更新支持**：避免完全重新处理模型
+
+#### 异构存储架构
+- **PostgreSQL/PostGIS**：结构化数据和GIS空间数据
+- **MongoDB**：非结构化元数据（视频、倾斜摄影、BIM）
+- **Redis**：高速缓存和会话管理
+- **MinIO**：对象存储（3D模型、纹理、视频）
+
+#### 高级功能
+- **工作流引擎**：可视化流程设计和自动化执行
+- **监控系统**：系统指标和业务指标全方位监控
+- **告警机制**：智能告警规则和多渠道通知
+
+### 最佳实践
+
+1. **切片配置选择**：根据模型规模选择合适的 Divisions 和 LodLevels
+2. **纹理策略**：平衡文件大小和处理速度，推荐使用 Repack
+3. **性能优化**：监控内存使用，必要时降低配置复杂度
+4. **故障排除**：遇到问题先检查日志，尝试降低配置复杂度
+5. **增量更新**：仅在需要频繁更新模型时启用
+
+### 相关文档
+
+- [README.md](./README.md) - 项目概览和快速入门
+- [Swagger API](http://localhost:5177/swagger) - API在线文档
+- [3D Tiles 规范](https://github.com/CesiumGS/3d-tiles) - 3D Tiles标准文档
+- [GLTF 规范](https://github.com/KhronosGroup/glTF) - GLTF格式文档
+
+### 技术支持
+
+如有其他问题，请查阅：
+- GitHub Issues: 提交问题和建议
+- 开发文档：查看详细的开发指南
+- API文档：参考Swagger在线文档
+
+**祝使用愉快！** 🚀

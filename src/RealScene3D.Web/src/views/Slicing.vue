@@ -72,6 +72,10 @@
                 <span class="value">{{ getStrategyName(task.slicingConfig?.strategy) }}</span>
               </div>
               <div class="info-item">
+                <span class="label">纹理策略:</span>
+                <span class="value">{{ getTextureStrategyName(task.slicingConfig?.textureStrategy) }}</span>
+              </div>
+              <div class="info-item">
                 <span class="label">LOD层级:</span>
                 <span class="value">{{ task.slicingConfig?.maxLevel }}</span>
               </div>
@@ -255,20 +259,80 @@
     <!-- 切片策略视图 -->
     <div v-if="activeTab === 'strategies'" class="tab-content">
       <div class="strategies-section">
-        <h2>切片策略说明</h2>
-        <div class="strategies-grid">
-          <div
-            v-for="strategy in strategies"
-            :key="strategy.id"
-            class="strategy-card"
-          >
-            <div class="strategy-icon">{{ getStrategyIcon(strategy.name) }}</div>
-            <h3>{{ strategy.name }}</h3>
-            <p>{{ strategy.description }}</p>
-            <div class="strategy-features">
-              <span v-for="feature in getStrategyFeatures(strategy.name)" :key="feature">
-                ✓ {{ feature }}
-              </span>
+        <div class="strategy-header">
+          <h2>切片策略说明</h2>
+          <Badge variant="success" label="新架构" />
+        </div>
+
+        <div class="strategy-main-card">
+          <div class="strategy-icon-large">🚀</div>
+          <h2>瓦片生成流水线（Tile Generation Pipeline）</h2>
+          <p class="strategy-description">
+            采用三阶段切片处理流程，提供真正的网格分割和高质量的 LOD 生成。
+          </p>
+
+          <div class="pipeline-stages">
+            <div class="stage">
+              <div class="stage-number">1</div>
+              <h4>网格简化（Decimation）</h4>
+              <p>使用 Fast Quadric Mesh Simplification 算法</p>
+              <ul>
+                <li>二次误差度量（QEM）</li>
+                <li>边折叠优化</li>
+                <li>多 LOD 级别生成</li>
+              </ul>
+            </div>
+
+            <div class="stage-arrow">→</div>
+
+            <div class="stage">
+              <div class="stage-number">2</div>
+              <h4>空间分割（Splitting）</h4>
+              <p>递归轴对齐空间分割（BSP）</p>
+              <ul>
+                <li>真正的网格分割</li>
+                <li>三角形与平面相交计算</li>
+                <li>自动处理跨越边界</li>
+              </ul>
+            </div>
+
+            <div class="stage-arrow">→</div>
+
+            <div class="stage">
+              <div class="stage-number">3</div>
+              <h4>格式转换（Conversion）</h4>
+              <p>生成 3D Tiles 格式</p>
+              <ul>
+                <li>B3DM、GLTF 等格式</li>
+                <li>自动生成 tileset.json</li>
+                <li>优化渲染性能</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="strategy-advantages">
+            <h4>核心优势</h4>
+            <div class="advantages-grid">
+              <div class="advantage">
+                <span class="advantage-icon">✅</span>
+                <strong>真正的网格分割</strong>
+                <p>支持三角形与平面相交，不是简单的包围盒提取</p>
+              </div>
+              <div class="advantage">
+                <span class="advantage-icon">🎯</span>
+                <strong>高质量 LOD</strong>
+                <p>Fast QEM 算法保证简化质量，性能提升 4 倍</p>
+              </div>
+              <div class="advantage">
+                <span class="advantage-icon">📦</span>
+                <strong>代码简化</strong>
+                <p>核心代码减少 86.2%，更易维护</p>
+              </div>
+              <div class="advantage">
+                <span class="advantage-icon">🔧</span>
+                <strong>清晰架构</strong>
+                <p>三阶段流程，职责明确，易于扩展</p>
+              </div>
             </div>
           </div>
         </div>
@@ -330,28 +394,15 @@
           </div>
 
           <div class="form-group">
-            <label>切片策略 *</label>
-            <select v-model.number="taskForm.slicingStrategy" class="form-select">
-              <option :value="0">Grid - 规则网格</option>
-              <option :value="1">Octree - 八叉树</option>
-              <option :value="2">KdTree - KD树</option>
-              <option :value="3">Adaptive - 自适应</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label>LOD层级数 * (建议≤8，过高会导致内存溢出)</label>
+            <label>LOD层级数（网格简化级别）*</label>
             <input
               v-model.number="taskForm.lodLevels"
               type="number"
               min="1"
-              max="10"
+              max="5"
               class="form-input"
-              placeholder="1-10"
+              placeholder="默认3"
             />
-            <small class="form-hint" v-if="taskForm.lodLevels > 8" style="color: orange; display: block; margin-top: 4px;">
-              ⚠️ 级别{{taskForm.lodLevels}}将生成约 {{ estimateSliceCount(taskForm.lodLevels) }} 个切片，可能导致内存不足
-            </small>
           </div>
 
           <div class="form-group">
@@ -375,13 +426,22 @@
             />
           </div>
 
+          <div class="form-group">
+            <label>纹理策略 *</label>
+            <select v-model.number="taskForm.textureStrategy" class="form-select">
+              <option :value="0">Repack - 仅打包（PNG格式）</option>
+              <option :value="2">RepackCompressed - 打包+压缩（JPEG质量75，推荐）✨</option>
+              <option :value="1">KeepOriginal - 保留原始（不推荐）</option>
+            </select>
+          </div>
+
           <div class="form-group full-width">
             <label class="checkbox-label">
               <input
                 v-model="taskForm.enableCompression"
                 type="checkbox"
               />
-              <span>启用压缩</span>
+              <span>启用几何压缩</span>
             </label>
           </div>
 
@@ -403,6 +463,38 @@
               />
               <span>启用增量更新</span>
             </label>
+          </div>
+
+          <div class="form-group full-width">
+            <label class="checkbox-label">
+              <input
+                v-model="taskForm.enableMeshDecimation"
+                type="checkbox"
+              />
+              <span>启用网格简化（LOD生成）</span>
+            </label>
+            <small class="form-hint" v-if="taskForm.enableMeshDecimation">
+              使用 Fast Quadric Mesh Simplification 算法生成多级 LOD
+            </small>
+          </div>
+
+          <div class="form-group" v-if="taskForm.enableMeshDecimation">
+            <label>空间分割递归深度（Divisions）</label>
+            <input
+              v-model.number="taskForm.divisions"
+              type="number"
+              min="1"
+              max="4"
+              class="form-input"
+              placeholder="默认2"
+            />
+            <small class="form-hint">
+              控制空间网格划分：2 → 4×4=16个单元，3 → 8×8=64个单元
+            </small>
+            <small class="form-hint" style="color: #2196F3; display: block; margin-top: 4px;">
+              📊 预估切片数：{{ estimateSliceCount(taskForm.lodLevels, taskForm.divisions) }} 个
+              （{{ taskForm.lodLevels }} LOD × {{ Math.pow(2, taskForm.divisions) }}×{{ Math.pow(2, taskForm.divisions) }} 空间单元）
+            </small>
           </div>
         </div>
 
@@ -616,13 +708,17 @@ const taskForm = ref({
   description: '',
   modelPath: '',
   outputPath: '',
-  slicingStrategy: 0,
+  slicingStrategy: 0,  // TileGenerationPipeline
+  textureStrategy: 2,  // RepackCompressed - JPEG压缩（默认推荐）
   lodLevels: 3,
+  divisions: 2,  // 空间分割递归深度
   tileSize: 100,
   maxVerticesPerTile: 65536,
   enableCompression: true,
   generateThumbnails: true,
-  enableIncrementalUpdate: false
+  enableIncrementalUpdate: false,
+  enableMeshDecimation: true,  // 启用网格简化
+  generateTileset: true  // 生成 tileset.json
 })
 
 // 计算属性
@@ -704,43 +800,32 @@ const getStatusVariant = (status: string): 'primary' | 'warning' | 'success' | '
 }
 
 const getStrategyName = (strategy: number | string | undefined) => {
-  // 如果是字符串，直接返回（后端已经转换为字符串名称）
+  // 新架构使用瓦片生成流水线，不再区分策略
+  return '瓦片生成流水线'
+}
+
+const getTextureStrategyName = (strategy: number | string | undefined) => {
+  // 如果是字符串
   if (typeof strategy === 'string') {
-    return strategy
+    const nameMap: Record<string, string> = {
+      'Repack': 'Repack（仅打包）',
+      'KeepOriginal': 'KeepOriginal（保留原始）',
+      'RepackCompressed': 'RepackCompressed（打包+JPEG压缩）'
+    }
+    return nameMap[strategy] || strategy
   }
 
-  // 如果是数字，进行映射
+  // 如果是数字
   if (typeof strategy === 'number') {
     const strategyMap: Record<number, string> = {
-      0: 'Grid',
-      1: 'Octree',
-      2: 'KdTree',
-      3: 'Adaptive'
+      0: 'Repack（仅打包，PNG格式）',
+      1: 'KeepOriginal（保留原始）',
+      2: 'RepackCompressed（打包+JPEG压缩）'
     }
-    return strategyMap[strategy] || '未知'
+    return strategyMap[strategy] || '未知纹理策略'
   }
 
-  return '未知'
-}
-
-const getStrategyIcon = (name: string) => {
-  const iconMap: Record<string, string> = {
-    'Grid': '📐',
-    'Octree': '🌳',
-    'KdTree': '🔷',
-    'Adaptive': '🎯'
-  }
-  return iconMap[name] || '📦'
-}
-
-const getStrategyFeatures = (name: string) => {
-  const featuresMap: Record<string, string[]> = {
-    'Grid': ['规则网格划分', '适用于规则地形', '处理速度快'],
-    'Octree': ['八叉树结构', '自适应精度', '适用于不规则模型'],
-    'KdTree': ['KD树空间剖分', '高效空间查询', '适用于复杂场景'],
-    'Adaptive': ['基于密度自适应', '动态调整大小', '最优存储效率']
-  }
-  return featuresMap[name] || []
+  return '未指定'
 }
 
 const formatBoundingBox = (bbox: any): string => {
@@ -850,13 +935,17 @@ const openCreateTaskDialog = () => {
     description: '',
     modelPath: '',
     outputPath: '',
-    slicingStrategy: 0,
+    slicingStrategy: 0,  // TileGenerationPipeline
+    textureStrategy: 2,  // RepackCompressed - JPEG压缩（默认推荐）
     lodLevels: 3,
+    divisions: 2,
     tileSize: 100,
     maxVerticesPerTile: 65536,
     enableCompression: true,
     generateThumbnails: true,
-    enableIncrementalUpdate: false
+    enableIncrementalUpdate: false,
+    enableMeshDecimation: true,  // 启用网格简化
+    generateTileset: true  // 生成 tileset.json
   }
   showCreateTaskDialog.value = true
 }
@@ -866,10 +955,11 @@ const closeCreateTaskDialog = () => {
 }
 
 // 估算切片数量
-const estimateSliceCount = (level: number): string => {
-  const tilesInLevel = Math.pow(2, level)
-  const zTiles = level === 0 ? 1 : tilesInLevel / 2
-  const count = tilesInLevel * tilesInLevel * zTiles
+const estimateSliceCount = (lodLevels: number, divisions: number = 2): string => {
+  // 计算空间单元数：(2^divisions)² 个网格单元（2D分割）
+  const spatialCells = Math.pow(Math.pow(2, divisions), 2)
+  // 总切片数 = LOD级别数 × 空间单元数
+  const count = lodLevels * spatialCells
 
   if (count >= 1000000) {
     return `${(count / 1000000).toFixed(1)}百万`
@@ -886,10 +976,27 @@ const createTask = async () => {
       return
     }
 
-    // 验证最大LOD级别，防止内存溢出
-    if (taskForm.value.lodLevels > 10) {
-      alert('最大LOD级别不能超过10，以防止内存溢出。请降低级别或增大切片尺寸。')
+    // 验证参数范围
+    if (taskForm.value.lodLevels > 5) {
+      alert('LOD级别建议不超过5，过高会导致生成时间过长。')
       return
+    }
+
+    if (taskForm.value.divisions > 4) {
+      alert('空间分割深度建议不超过4（最多256个空间单元），过高会导致内存不足。')
+      return
+    }
+
+    // 检查预估切片数量
+    const estimatedCount = taskForm.value.lodLevels * Math.pow(Math.pow(2, taskForm.value.divisions), 2)
+    if (estimatedCount > 1000) {
+      const confirmed = confirm(
+        `预估将生成 ${estimatedCount} 个切片，处理时间可能较长。是否继续？\n\n` +
+        `建议：减少 LOD 级别或降低空间分割深度`
+      )
+      if (!confirmed) {
+        return
+      }
     }
 
     // 将前端表单数据映射到后端期望的格式
@@ -900,11 +1007,15 @@ const createTask = async () => {
       outputPath: taskForm.value.outputPath, // 添加输出路径
       slicingConfig: {
         strategy: taskForm.value.slicingStrategy,
-        maxLevel: taskForm.value.lodLevels,
+        textureStrategy: taskForm.value.textureStrategy,  // 纹理策略：0=Repack, 1=KeepOriginal, 2=RepackCompressed
+        lodLevels: taskForm.value.lodLevels,  // LOD级别数量（对应 --lods）
+        divisions: taskForm.value.divisions,  // 空间分割递归深度（对应 --divisions）
+        enableMeshDecimation: taskForm.value.enableMeshDecimation,  // 启用网格简化
         tileSize: taskForm.value.tileSize,
         outputFormat: 'b3dm',
         compressOutput: taskForm.value.enableCompression,
         enableIncrementalUpdates: taskForm.value.enableIncrementalUpdate,
+        generateTileset: taskForm.value.generateTileset,
         geometricErrorThreshold: 1.0,
         textureQuality: 0.8
       }
@@ -2081,5 +2192,167 @@ onMounted(async () => {
   border-radius: 12px;
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+/* 策略页面新样式 */
+.strategy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.strategy-main-card {
+  background: white;
+  border-radius: 12px;
+  padding: 2.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.strategy-icon-large {
+  font-size: 4rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.strategy-description {
+  font-size: 1.1rem;
+  color: #666;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.strategy-description a {
+  color: #007acc;
+  text-decoration: none;
+}
+
+.strategy-description a:hover {
+  text-decoration: underline;
+}
+
+.pipeline-stages {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.stage {
+  flex: 1;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.stage-number {
+  width: 40px;
+  height: 40px;
+  background: #007acc;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.stage h4 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+}
+
+.stage p {
+  color: #666;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.stage ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.stage ul li {
+  margin: 0.3rem 0;
+}
+
+.stage-arrow {
+  font-size: 2rem;
+  color: #007acc;
+  display: flex;
+  align-items: center;
+}
+
+.strategy-advantages {
+  margin: 2rem 0;
+}
+
+.strategy-advantages h4 {
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.advantages-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.advantage {
+  background: #f0f7ff;
+  border-left: 4px solid #007acc;
+  padding: 1rem;
+  border-radius: 4px;
+}
+
+.advantage-icon {
+  font-size: 1.5rem;
+  margin-right: 0.5rem;
+}
+
+.advantage strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: #333;
+}
+
+.advantage p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.deprecation-notice {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 2rem;
+}
+
+.deprecation-notice h4 {
+  margin: 0 0 0.5rem 0;
+  color: #856404;
+}
+
+.deprecation-notice p {
+  margin: 0;
+  color: #856404;
+  line-height: 1.6;
+}
+
+/* 表单提示样式 */
+.form-hint {
+  display: block;
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 0.25rem;
+  line-height: 1.4;
 }
 </style>

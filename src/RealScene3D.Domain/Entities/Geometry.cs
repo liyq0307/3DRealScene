@@ -409,6 +409,13 @@ public class BoundingBox3D
     }
 
     /// <summary>
+    /// 判断包围盒是否为空（无效）
+    /// 包围盒为空表示没有有效的几何范围
+    /// </summary>
+    public bool IsEmpty => !IsValid();
+
+
+    /// <summary>
     /// 扩展包围盒以包含指定点
     /// </summary>
     public void Expand(Vector3D point)

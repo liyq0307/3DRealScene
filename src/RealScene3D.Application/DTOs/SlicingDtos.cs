@@ -55,18 +55,9 @@ public class SlicingDtos
     public class SlicingConfigDto
     {
         /// <summary>
-        /// 切片粒度，例如："High", "Medium", "Low"（已废弃，请使用 Strategy）
+        /// 切片粒度，例如："High", "Medium", "Low"
         /// </summary>
         public string? Granularity { get; set; }
-
-        /// <summary>
-        /// 切片策略，例如："Grid", "Octree", "KdTree", "Adaptive"
-        /// Grid = 0 - 规则网格切片
-        /// Octree = 1 - 八叉树切片（默认）
-        /// KdTree = 2 - KD树切片
-        /// Adaptive = 3 - 自适应切片
-        /// </summary>
-        public SlicingStrategy Strategy { get; set; } = SlicingStrategy.Grid;
 
         /// <summary>
         /// 输出格式，例如："3D Tiles", "Cesium3DTiles", "GLTF"
@@ -87,13 +78,51 @@ public class SlicingDtos
         /// </summary>
         public double TileSize { get; set; }
         /// <summary>
-        /// 最大层级
+        /// 最大层级（已废弃，请使用 Divisions）
         /// </summary>
         public int MaxLevel { get; set; }
+
+        /// <summary>
+        /// 空间分割递归深度
+        /// 控制空间二分递归的层数，最终产生 (2^Divisions)² 个网格单元
+        /// 例如：Divisions=2 → 4×4=16个网格，Divisions=3 → 8×8=64个网格
+        /// </summary>
+        public int Divisions { get; set; } = 2;
+
+        /// <summary>
+        /// LOD级别数量
+        /// </summary>
+        public int LodLevels { get; set; } = 3;
+
+        /// <summary>
+        /// 是否启用网格简化（LOD生成）
+        /// 使用QEM算法进行网格简化
+        /// </summary>
+        public bool EnableMeshDecimation { get; set; } = true;
+
+        /// <summary>
+        /// 是否生成 tileset.json
+        /// </summary>
+        public bool GenerateTileset { get; set; } = true;
+
+        /// <summary>
+        /// 是否压缩输出
+        /// </summary>
+        public bool CompressOutput { get; set; }
+
         /// <summary>
         /// 是否启用增量更新
         /// </summary>
         public bool EnableIncrementalUpdates { get; set; }
+
+        /// <summary>
+        /// 纹理处理策略
+        /// Repack = 0 - 重新打包纹理，为每个切片生成专属纹理图集（默认，推荐）
+        /// KeepOriginal = 1 - 保留原始纹理，直接复制（不推荐）
+        /// RepackCompressed = 2 - 重新打包并压缩纹理
+        /// </summary>
+        public TextureStrategy TextureStrategy { get; set; } = TextureStrategy.Repack;
+
         /// <summary>
         /// 存储位置
         /// </summary>

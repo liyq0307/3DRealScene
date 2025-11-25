@@ -6,14 +6,14 @@ namespace RealScene3D.Application.Services;
 
 /// <summary>
 /// 网格简化服务 - 基于二次误差度量(Quadric Error Metric)的网格简化算法
-/// 参考Obj2Tiles的Fast Quadric Mesh Simplification实现
+/// 参考Fast Quadric Mesh Simplification实现
 /// 用于生成多层次细节(LOD)的3D模型
 /// </summary>
 public class MeshDecimationService
 {
     private readonly ILogger _logger;
 
-    public MeshDecimationService(ILogger logger)
+    public MeshDecimationService(ILogger<MeshDecimationService> logger)
     {
         _logger = logger;
     }
@@ -40,6 +40,8 @@ public class MeshDecimationService
 
         /// <summary>
         /// 最大迭代次数
+        /// 100次迭代，通过动态阈值实现批量删除
+        /// 每次迭代删除所有误差低于阈值的三角形，而不是只删除一个
         /// </summary>
         public int MaxIterations { get; set; } = 100;
 
@@ -197,7 +199,7 @@ public class MeshDecimationService
 
     /// <summary>
     /// 生成多LOD网格
-    /// 参考Obj2Tiles的策略：quality[i] = 1 - ((i + 1) / lods)
+    /// 质量公式：quality[i] = 1 - ((i + 1) / lods)
     /// </summary>
     /// <param name="triangles">原始三角形列表</param>
     /// <param name="lodLevels">LOD级别数量</param>
@@ -209,7 +211,7 @@ public class MeshDecimationService
 
     /// <summary>
     /// 生成多LOD网格（支持并行处理）
-    /// 参考Obj2Tiles的策略：quality[i] = 1 - ((i + 1) / lods)
+    /// 质量公式：quality[i] = 1 - ((i + 1) / lods)
     /// </summary>
     /// <param name="triangles">原始三角形列表</param>
     /// <param name="lodLevels">LOD级别数量</param>
@@ -299,16 +301,20 @@ public class MeshDecimationService
 
     /// <summary>
     /// 计算LOD质量因子
+    /// 质量因子范围：LOD-0 约 0.33-0.67（轻度简化），LOD-N 约 0.0-0.33（重度简化）
     /// </summary>
     private double CalculateLODQuality(int level, int maxLevels)
     {
-        // Obj2Tiles的质量计算公式
-        if (level == 0)
-        {
-            return 1.0; // Level 0保持原始质量
-        }
+        // 质量计算公式：quality = 1 - ((level + 1) / maxLevels)
+        // 例如 maxLevels=3:
+        //   LOD-0: 1 - 1/3 = 0.667 (保留 67% 的三角形)
+        //   LOD-1: 1 - 2/3 = 0.333 (保留 33% 的三角形)
+        //   LOD-2: 1 - 3/3 = 0.0   (最大简化，但不会完全为0)
 
-        return 1.0 - ((double)(level + 1) / maxLevels);
+        double quality = 1.0 - ((double)(level + 1) / maxLevels);
+
+        // 确保质量因子不会太低（至少保留 5% 的三角形）
+        return Math.Max(quality, 0.05);
     }
 
     /// <summary>
@@ -441,43 +447,73 @@ public class MeshDecimationService
 
     /// <summary>
     /// 迭代简化网格
+    /// 每次迭代删除所有误差低于阈值的边
     /// </summary>
     private void SimplifyMeshIterative(List<Vertex> vertices, List<TriangleMesh> triangles,
         int targetTriangleCount, DecimationOptions options)
     {
         int deletedTriangles = 0;
         int iteration = 0;
+        int remainingTriangles = triangles.Count;
 
-        while (triangles.Count - deletedTriangles > targetTriangleCount && iteration < options.MaxIterations)
+        while (remainingTriangles > targetTriangleCount && iteration < options.MaxIterations)
         {
-            // 更新所有三角形的折叠误差
-            if (iteration % 5 == 0) // 每5次迭代重新计算
+            // 计算动态阈值
+            // threshold = 0.000000001 * Math.Pow(iteration + 3, aggressiveness)
+            double threshold = 0.000000001 * Math.Pow(iteration + 3, options.Aggressiveness);
+
+            // 更新所有三角形的折叠误差（每5次迭代更新一次）
+            if (iteration % 5 == 0)
             {
                 UpdateTriangleErrors(vertices, triangles);
             }
 
-            // 找到误差最小的边进行折叠
-            int bestTriIndex = FindBestTriangleToCollapse(triangles);
-            if (bestTriIndex == -1)
-                break;
-
-            // 折叠边
-            if (CollapseEdge(vertices, triangles, bestTriIndex, options))
+            // 清除 dirty 标记
+            foreach (var tri in triangles)
             {
-                deletedTriangles++;
+                tri.Dirty = false;
+            }
+
+            // 批量折叠误差低于阈值的边
+            int deletedInThisPass = 0;
+            for (int i = 0; i < triangles.Count; i++)
+            {
+                var tri = triangles[i];
+                if (tri.Deleted || tri.Error > threshold)
+                    continue;
+
+                // 尝试折叠这条边
+                if (CollapseEdge(vertices, triangles, i, options))
+                {
+                    deletedInThisPass++;
+                    deletedTriangles++;
+                    remainingTriangles--;
+
+                    // 如果已经达到目标，提前退出
+                    if (remainingTriangles <= targetTriangleCount)
+                        break;
+                }
             }
 
             iteration++;
 
-            if (iteration % 1000 == 0)
+            if (iteration % 5 == 0)
             {
-                _logger.LogDebug("简化迭代进度：第{Iteration}次，剩余三角形={Remaining}",
-                    iteration, triangles.Count - deletedTriangles);
+                var progress = (double)deletedTriangles / (triangles.Count - targetTriangleCount) * 100;
+                _logger.LogInformation("简化迭代进度：第{Iteration}次，本轮删除={PassDeleted}，总删除={Deleted}，剩余={Remaining}，进度={Progress:F1}%",
+                    iteration, deletedInThisPass, deletedTriangles, remainingTriangles, progress);
+            }
+
+            // 如果本轮没有删除任何三角形，说明无法继续简化
+            if (deletedInThisPass == 0 && iteration > 10)
+            {
+                _logger.LogWarning("第{Iteration}次迭代未删除任何三角形，提前终止简化", iteration);
+                break;
             }
         }
 
-        _logger.LogInformation("简化迭代完成：总迭代={Iterations}次，删除三角形={Deleted}个",
-            iteration, deletedTriangles);
+        _logger.LogInformation("简化迭代完成：总迭代={Iterations}次，删除三角形={Deleted}个，最终剩余={Remaining}个",
+            iteration, deletedTriangles, remainingTriangles);
     }
 
     /// <summary>

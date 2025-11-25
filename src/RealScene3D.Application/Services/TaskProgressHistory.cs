@@ -1,48 +1,4 @@
-using RealScene3D.Domain.Entities;
-
-namespace RealScene3D.Application.Services.Slicing;
-
-/// <summary>
-/// 几何图元数据结构
-/// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
-/// </summary>
-public class GeometricPrimitive
-{
-    public Vector3D[] Vertices { get; set; } = new Vector3D[3];
-    public required Triangle Triangle { get; set; }
-    public required Vector3D Normal { get; set; }
-    public double Area { get; set; }
-    public Vector3D Center => new Vector3D
-    {
-        X = (Vertices[0].X + Vertices[1].X + Vertices[2].X) / 3,
-        Y = (Vertices[0].Y + Vertices[1].Y + Vertices[2].Y) / 3,
-        Z = (Vertices[0].Z + Vertices[1].Z + Vertices[2].Z) / 3
-    };
-}
-
-/// <summary>
-/// 密度分析指标
-/// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
-/// </summary>
-public class DensityMetrics
-{
-    public double VertexDensity { get; set; }
-    public double TriangleDensity { get; set; }
-    public double CurvatureComplexity { get; set; }
-    public double SurfaceArea { get; set; }
-    public double Volume { get; set; }
-}
-
-/// <summary>
-/// 空间索引结构
-/// 共享类，供AdaptiveSlicingStrategy和GeometricDensityAnalyzer使用
-/// </summary>
-public class SpatialIndex
-{
-    public Dictionary<string, List<GeometricPrimitive>> Grid { get; set; } = new Dictionary<string, List<GeometricPrimitive>>();
-    public required BoundingBox3D Bounds { get; set; }
-}
-
+namespace RealScene3D.Application.Services;
 
 /// <summary>
 /// 任务进度历史记录 - 用于趋势分析和精确时间估算

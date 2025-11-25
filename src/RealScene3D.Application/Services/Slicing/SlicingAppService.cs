@@ -23,11 +23,11 @@ public class SlicingAppService : ISlicingAppService
     private readonly ILogger<SlicingAppService> _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
 
-    // FrustumCullingService 只依赖 ILogger，直接创建实例
-    private readonly FrustumCullingService _frustumCullingService;
-
     // 任务进度历史跟踪 - 用于趋势检测和精确时间估算
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, TaskProgressHistory> _progressHistoryCache = new();
+
+    // 后台任务取消令牌源 - 用于取消卡死的任务
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, CancellationTokenSource> _taskCancellationTokens = new();
 
     public SlicingAppService(
         IRepository<SlicingTask> slicingTaskRepository,
@@ -35,8 +35,7 @@ public class SlicingAppService : ISlicingAppService
         IMinioStorageService minioService,
         IUnitOfWork unitOfWork,
         ILogger<SlicingAppService> logger,
-        IServiceScopeFactory serviceScopeFactory,
-        ILoggerFactory loggerFactory)
+        IServiceScopeFactory serviceScopeFactory)
     {
         _slicingTaskRepository = slicingTaskRepository;
         _sliceRepository = sliceRepository;
@@ -44,10 +43,6 @@ public class SlicingAppService : ISlicingAppService
         _unitOfWork = unitOfWork;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
-
-        // 直接创建 FrustumCullingService 实例，使用传入的 loggerFactory
-        _frustumCullingService = new FrustumCullingService(
-            loggerFactory.CreateLogger<FrustumCullingService>());
     }
 
     /// <summary>
@@ -79,8 +74,8 @@ public class SlicingAppService : ISlicingAppService
             if (request.SlicingConfig.TileSize <= 0)
                 throw new ArgumentException("切片大小必须大于0", nameof(request.SlicingConfig.TileSize));
 
-            if (request.SlicingConfig.MaxLevel < 0 || request.SlicingConfig.MaxLevel > 20)
-                throw new ArgumentException("LOD级别数量必须在0-20之间", nameof(request.SlicingConfig.MaxLevel));
+            if (request.SlicingConfig.Divisions < 0 || request.SlicingConfig.Divisions > 20)
+                throw new ArgumentException("LOD级别数量必须在0-20之间", nameof(request.SlicingConfig.Divisions));
 
             // 验证源模型文件是否存在 - 关键业务规则检查
             var sourceFileExists = await _minioService.FileExistsAsync("models", request.SourceModelPath);
@@ -246,8 +241,8 @@ public class SlicingAppService : ISlicingAppService
                 }
             }
 
-            _logger.LogInformation("切片任务 {TaskId} 的最终存储位置类型为 {StorageLocation}, 策略为 {Strategy}.",
-                task.Id, domainConfig.StorageLocation, domainConfig.Strategy);
+            _logger.LogInformation("切片任务 {TaskId} 的最终存储位置类型为 {StorageLocation}.",
+                task.Id, domainConfig.StorageLocation);
 
             // 持久化切片任务 - 原子性操作确保数据一致性
             // 重要：在存储位置判断完成后才保存，确保 SlicingConfig 中的 StorageLocation 是正确的
@@ -256,19 +251,23 @@ public class SlicingAppService : ISlicingAppService
                 // 增量更新场景：更新现有任务
                 await _slicingTaskRepository.UpdateAsync(task);
                 await _unitOfWork.SaveChangesAsync();
-                _logger.LogInformation("切片任务已更新用于增量处理：{TaskId}，存储位置：{StorageLocation}，策略：{Strategy}",
-                    task.Id, domainConfig.StorageLocation, domainConfig.Strategy);
+                _logger.LogInformation("切片任务已更新用于增量处理：{TaskId}，存储位置：{StorageLocation}",
+                    task.Id, domainConfig.StorageLocation);
             }
             else
             {
                 // 新任务：添加到数据库
                 await _slicingTaskRepository.AddAsync(task);
                 await _unitOfWork.SaveChangesAsync();
-                _logger.LogInformation("新切片任务已创建：{TaskId}，存储位置：{StorageLocation}，策略：{Strategy}",
-                    task.Id, domainConfig.StorageLocation, domainConfig.Strategy);
+                _logger.LogInformation("新切片任务已创建：{TaskId}，存储位置：{StorageLocation}",
+                    task.Id, domainConfig.StorageLocation);
             }
 
             var taskId = task.Id;
+
+            // 创建可取消的令牌源（30分钟超时）
+            var cts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+            _taskCancellationTokens[taskId] = cts;
 
             // 异步启动切片处理 - 火与遗忘模式，避免阻塞HTTP响应
             // 注意：这里使用Task.Run而非直接调用，避免在ASP.NET线程池中执行长时间任务
@@ -282,7 +281,27 @@ public class SlicingAppService : ISlicingAppService
                     {
                         var processor = scope.ServiceProvider.GetRequiredService<ISlicingProcessor>();
 
-                        await processor.ProcessSlicingTaskAsync(taskId, CancellationToken.None);
+                        await processor.ProcessSlicingTaskAsync(taskId, cts.Token);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogWarning("切片任务被取消或超时：{TaskId}", taskId);
+
+                    // 更新任务状态为失败
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var repository = scope.ServiceProvider.GetRequiredService<IRepository<SlicingTask>>();
+                        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+                        var failedTask = await repository.GetByIdAsync(taskId);
+                        if (failedTask != null)
+                        {
+                            failedTask.Status = SlicingTaskStatus.Failed;
+                            failedTask.ErrorMessage = "任务超时（30分钟）或被取消";
+                            await repository.UpdateAsync(failedTask);
+                            await unitOfWork.SaveChangesAsync();
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -311,6 +330,14 @@ public class SlicingAppService : ISlicingAppService
                     catch (Exception updateEx)
                     {
                         _logger.LogError(updateEx, "更新任务状态失败：{TaskId}", taskId);
+                    }
+                }
+                finally
+                {
+                    // 清理取消令牌
+                    if (_taskCancellationTokens.TryRemove(taskId, out var removedCts))
+                    {
+                        removedCts.Dispose();
                     }
                 }
             });
@@ -737,71 +764,6 @@ public class SlicingAppService : ISlicingAppService
     }
 
     /// <summary>
-    /// 执行视锥剔除 - 渲染优化算法实现
-    /// 算法：基于视口参数剔除不可见的切片，减少渲染负载
-    /// 使用包围盒与视锥的相交测试，快速剔除不在视野范围内的切片
-    /// 时间复杂度：O(n)，其中n为切片数量，适合实时渲染需求
-    /// </summary>
-    /// <param name="viewport">视口参数，包含相机位置、视角、裁剪面等关键信息，必须有效</param>
-    /// <param name="allSlices">所有待测试的切片元数据集合，支持空集合（返回空结果）</param>
-    /// <returns>可见切片元数据集合，仅包含在视锥范围内的切片，按距离排序以便优先加载</returns>
-    /// <exception cref="ArgumentNullException">当输入参数为null时抛出</exception>
-    /// <exception cref="ArgumentException">当视口参数无效时抛出，如视野角度为负数、裁剪面距离无效等</exception>
-    /// <exception cref="JsonException">当切片包围盒JSON解析失败时抛出</exception>
-    public async Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PerformFrustumCullingAsync(ViewportInfo viewport, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices)
-    {
-        // 委托给 FrustumCullingService
-        return await _frustumCullingService.PerformFrustumCullingAsync(
-            viewport,
-            allSlices,
-            slice => ParseBoundingBox(slice.BoundingBox));
-    }
-
-    /// <summary>
-    /// 解析包围盒字符串为 BoundingBox3D 对象
-    /// </summary>
-    private BoundingBox3D ParseBoundingBox(string boundingBoxJson)
-    {
-        try
-        {
-            var boundingBoxDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(boundingBoxJson);
-            if (boundingBoxDict == null) return new BoundingBox3D();
-
-            return new BoundingBox3D
-            {
-                MinX = boundingBoxDict.GetValueOrDefault("minX", 0),
-                MinY = boundingBoxDict.GetValueOrDefault("minY", 0),
-                MinZ = boundingBoxDict.GetValueOrDefault("minZ", 0),
-                MaxX = boundingBoxDict.GetValueOrDefault("maxX", 0),
-                MaxY = boundingBoxDict.GetValueOrDefault("maxY", 0),
-                MaxZ = boundingBoxDict.GetValueOrDefault("maxZ", 0)
-            };
-        }
-        catch
-        {
-            return new BoundingBox3D();
-        }
-    }
-
-    /// <summary>
-    /// 预测加载算法 - 预加载优化算法实现
-    /// 算法：基于用户视点移动趋势预测需要加载的切片
-    /// </summary>
-    /// <param name="currentViewport">当前视口</param>
-    /// <param name="movementVector">移动向量</param>
-    /// <param name="allSlices">所有切片元数据</param>
-    /// <returns>预测加载的切片集合</returns>
-    public async Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3D movementVector, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices)
-    {
-        // 委托给 FrustumCullingService
-        return await _frustumCullingService.PredictLoadingAsync(
-            currentViewport,
-            movementVector,
-            allSlices,
-            slice => ParseBoundingBox(slice.BoundingBox));
-    }
-
-    /// <summary>
     /// 计算两点间距离 - 空间几何算法
     /// </summary>
     /// <param name="point1">点1</param>
@@ -999,13 +961,16 @@ public class SlicingAppService : ISlicingAppService
     {
         return new SlicingDtos.SlicingConfigDto
         {
-            Granularity = domainConfig.Strategy.ToString(),
-            Strategy = domainConfig.Strategy,
+            Granularity = "Medium",
             OutputFormat = domainConfig.OutputFormat,
             CoordinateSystem = "EPSG:4326", // 默认值
             CustomSettings = "{}", // 默认值
             TileSize = domainConfig.TileSize,
-            MaxLevel = domainConfig.MaxLevel,
+            MaxLevel = domainConfig.Divisions,  // MaxLevel 映射到 Divisions（向后兼容）
+            Divisions = domainConfig.Divisions,
+            LodLevels = domainConfig.LodLevels,
+            EnableMeshDecimation = domainConfig.EnableMeshDecimation,
+            GenerateTileset = domainConfig.GenerateTileset,
             EnableIncrementalUpdates = domainConfig.EnableIncrementalUpdates,
             StorageLocation = domainConfig.StorageLocation
         };
@@ -1013,26 +978,9 @@ public class SlicingAppService : ISlicingAppService
 
     /// <summary>
     /// 将 DTO 切片配置转换为 Domain 切片配置
-    /// 处理策略字符串到枚举的转换，支持 Granularity 和 Strategy 两种字段名
     /// </summary>
     private static SlicingConfig MapSlicingConfigToDomain(SlicingDtos.SlicingConfigDto dtoConfig)
     {
-        // 解析策略枚举：优先使用 Strategy 枚举字段，如果需要兼容旧的 Granularity 字符串字段
-        SlicingStrategy strategy = dtoConfig.Strategy; // 直接使用枚举值
-
-        // 如果 Granularity 不为空且不是默认值，可以从字符串解析来覆盖 Strategy
-        if (!string.IsNullOrWhiteSpace(dtoConfig.Granularity))
-        {
-            // 兼容旧的 Granularity 值映射
-            strategy = dtoConfig.Granularity.ToLowerInvariant() switch
-            {
-                "high" => SlicingStrategy.Grid,
-                "medium" => SlicingStrategy.Octree,
-                "low" => SlicingStrategy.Adaptive,
-                _ => dtoConfig.Strategy // 如果无法识别，保持原有的 Strategy 值
-            };
-        }
-
         // 解析输出格式
         var outputFormat = "b3dm";
         if (!string.IsNullOrWhiteSpace(dtoConfig.OutputFormat))
@@ -1049,12 +997,15 @@ public class SlicingAppService : ISlicingAppService
 
         return new SlicingConfig
         {
-            Strategy = strategy,
             TileSize = dtoConfig.TileSize > 0 ? dtoConfig.TileSize : 100.0,
-            MaxLevel = dtoConfig.MaxLevel >= 0 ? dtoConfig.MaxLevel : 10,
+            Divisions = dtoConfig.Divisions > 0 ? dtoConfig.Divisions : 2,  // 空间分割深度（对应 --divisions）
+            LodLevels = dtoConfig.LodLevels > 0 ? dtoConfig.LodLevels : 3,  // LOD级别数量（对应 --lods）
+            EnableMeshDecimation = dtoConfig.EnableMeshDecimation,          // 网格简化开关
+            GenerateTileset = dtoConfig.GenerateTileset,                    // tileset.json生成开关
             OutputFormat = outputFormat,
             EnableIncrementalUpdates = dtoConfig.EnableIncrementalUpdates,
-            StorageLocation = dtoConfig.StorageLocation
+            StorageLocation = dtoConfig.StorageLocation,
+            TextureStrategy = dtoConfig.TextureStrategy                     // 纹理处理策略（修复：添加映射）
         };
     }
 
@@ -1131,95 +1082,16 @@ public class SlicingAppService : ISlicingAppService
             var config = SlicingUtilities.ParseSlicingConfig(task.SlicingConfig);
             long totalCount = 0;
 
-            // 根据不同策略计算总切片数
-            switch (config.Strategy)
+            // 默认使用网格策略估算
+            for (int level = 0; level <= config.Divisions; level++)
             {
-                case SlicingStrategy.Grid:
-                    // 网格策略:规则网格剖分
-                    for (int level = 0; level <= config.MaxLevel; level++)
-                    {
-                        var tilesInLevel = (long)Math.Pow(2, level);
-                        var zTiles = level == 0 ? 1 : tilesInLevel / 2;
-                        totalCount += tilesInLevel * tilesInLevel * zTiles;
-                    }
-                    break;
-
-                case SlicingStrategy.Octree:
-                    // 八叉树策略:层次空间剖分，考虑几何衰减
-                    for (int level = 0; level <= config.MaxLevel; level++)
-                    {
-                        if (level == 0)
-                        {
-                            totalCount += 1;
-                        }
-                        else
-                        {
-                            // 八叉树每层理论切片数为8^level，实际考虑衰减因子
-                            var theoreticalCount = (long)Math.Pow(8, level);
-                            var attenuatedCount = (long)(theoreticalCount * 0.5); // 几何衰减因子
-                            totalCount += attenuatedCount;
-                        }
-                    }
-                    break;
-
-                case SlicingStrategy.KdTree:
-                    // KD树策略:二分剖分，考虑几何衰减
-                    for (int level = 0; level <= config.MaxLevel; level++)
-                    {
-                        if (level == 0)
-                        {
-                            totalCount += 1;
-                        }
-                        else
-                        {
-                            var theoreticalCount = (long)Math.Pow(2, level);
-                            var attenuatedCount = (long)(theoreticalCount * 0.5);
-                            totalCount += attenuatedCount;
-                        }
-                    }
-                    break;
-
-                case SlicingStrategy.Adaptive:
-                    // 自适应策略:基于几何复杂度的动态估算
-                    for (int level = 0; level <= config.MaxLevel; level++)
-                    {
-                        if (level == 0)
-                        {
-                            totalCount += 1;
-                        }
-                        else
-                        {
-                            // 自适应策略的切片数量随级别增加而增长，但增长率较低
-                            var geometricBase = (long)Math.Pow(4, level);
-                            var densityFactor = 1.0 + level * 0.15;
-                            var attenuationFactor = 0.6;
-                            var estimatedCount = (long)(geometricBase * densityFactor * attenuationFactor);
-
-                            // 考虑几何误差阈值的影响
-                            if (config.GeometricErrorThreshold > 0)
-                            {
-                                var precisionFactor = Math.Max(0.5, 1.0 / config.GeometricErrorThreshold);
-                                estimatedCount = (long)(estimatedCount * Math.Min(precisionFactor, 3.0));
-                            }
-
-                            totalCount += estimatedCount;
-                        }
-                    }
-                    break;
-
-                default:
-                    // 默认使用网格策略估算
-                    for (int level = 0; level <= config.MaxLevel; level++)
-                    {
-                        var tilesInLevel = (long)Math.Pow(2, level);
-                        var zTiles = level == 0 ? 1 : tilesInLevel / 2;
-                        totalCount += tilesInLevel * tilesInLevel * zTiles;
-                    }
-                    break;
+                var tilesInLevel = (long)Math.Pow(2, level);
+                var zTiles = level == 0 ? 1 : tilesInLevel / 2;
+                totalCount += tilesInLevel * tilesInLevel * zTiles;
             }
 
-            _logger.LogDebug("计算切片总数：任务{TaskId}, 策略{Strategy}, 最大级别{MaxLevel}, 总数{TotalCount}",
-                taskId, config.Strategy, config.MaxLevel, totalCount);
+            _logger.LogDebug("计算切片总数：任务{TaskId}, 最大级别{MaxLevel}, 总数{TotalCount}",
+                taskId, config.Divisions, totalCount);
 
             return totalCount;
         }

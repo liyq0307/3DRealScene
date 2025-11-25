@@ -3,6 +3,7 @@ using RealScene3D.Domain.Entities;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.Formats.Jpeg;
 
 namespace RealScene3D.Application.Services.Generators;
 
@@ -14,6 +15,12 @@ namespace RealScene3D.Application.Services.Generators;
 public class TextureAtlasGenerator
 {
     private readonly ILogger<TextureAtlasGenerator> _logger;
+
+    /// <summary>
+    /// JPEG编码器 - 用于纹理图集压缩
+    /// 质量75提供了良好的大小/质量平衡
+    /// </summary>
+    private static readonly JpegEncoder JpegEncoder = new() { Quality = 75 };
 
     public TextureAtlasGenerator(ILogger<TextureAtlasGenerator> logger)
     {
@@ -93,11 +100,15 @@ public class TextureAtlasGenerator
     /// <param name="texturePaths">纹理文件路径列表</param>
     /// <param name="maxAtlasSize">图集最大尺寸（默认2048）</param>
     /// <param name="padding">纹理间距（像素，防止纹理渗透）</param>
+    /// <param name="downsampleFactor">降采样因子（默认1.0，无缩放）。值越小，纹理越小</param>
+    /// <param name="useJpegCompression">是否使用JPEG压缩（默认true）</param>
     /// <returns>纹理图集结果</returns>
     public async Task<AtlasResult> GenerateAtlasAsync(
         IEnumerable<string> texturePaths,
         int maxAtlasSize = 2048,
-        int padding = 2)
+        int padding = 2,
+        double downsampleFactor = 1.0,
+        bool useJpegCompression = true)
     {
         var startTime = DateTime.UtcNow;
         var validTextures = texturePaths.Where(File.Exists).Distinct().ToList();
@@ -113,13 +124,28 @@ public class TextureAtlasGenerator
 
         try
         {
-            // 1. 加载所有纹理图像
+            // 1. 加载所有纹理图像（应用降采样）
             var loadedTextures = new List<LoadedTexture>();
             foreach (var path in validTextures)
             {
                 try
                 {
                     var image = await Image.LoadAsync<Rgba32>(path);
+
+                    // 应用降采样
+                    if (downsampleFactor < 1.0 && downsampleFactor > 0.0)
+                    {
+                        int newWidth = Math.Max(1, (int)(image.Width * downsampleFactor));
+                        int newHeight = Math.Max(1, (int)(image.Height * downsampleFactor));
+
+                        if (newWidth != image.Width || newHeight != image.Height)
+                        {
+                            image.Mutate(x => x.Resize(newWidth, newHeight));
+                            _logger.LogDebug("纹理降采样: {Path}, {OldW}x{OldH} → {NewW}x{NewH} (因子={Factor:F2})",
+                                path, image.Width, image.Height, newWidth, newHeight, downsampleFactor);
+                        }
+                    }
+
                     loadedTextures.Add(new LoadedTexture
                     {
                         Path = path,
@@ -177,28 +203,34 @@ public class TextureAtlasGenerator
                 var texture = loadedTextures[i];
                 var rect = packedRects[i];
 
-                // 复制纹理到图集（考虑padding）
-                int destX = rect.X + padding;
-                int destY = rect.Y + padding;
+                // 应用边缘像素扩展
+                // 防止纹理采样时的 seaming artifacts
+                var paddedTexture = BuildPaddedImage(texture.Image, padding);
+
+                // 复制带padding的纹理到图集
+                int destX = rect.X;
+                int destY = rect.Y;
 
                 atlasImage.Mutate(ctx => ctx.DrawImage(
-                    texture.Image,
+                    paddedTexture,
                     new Point(destX, destY),
                     1f));
 
-                // 计算归一化UV坐标
+                paddedTexture.Dispose();
+
+                // 计算归一化UV坐标（不包括padding）
                 var uvMin = new Vector2D(
-                    (double)destX / atlasWidth,
-                    (double)destY / atlasHeight);
+                    (double)(destX + padding) / atlasWidth,
+                    (double)(destY + padding) / atlasHeight);
 
                 var uvMax = new Vector2D(
-                    (double)(destX + texture.Width) / atlasWidth,
-                    (double)(destY + texture.Height) / atlasHeight);
+                    (double)(destX + padding + texture.Width) / atlasWidth,
+                    (double)(destY + padding + texture.Height) / atlasHeight);
 
                 textureRegions[texture.Path] = new TextureRegion
                 {
-                    X = destX,
-                    Y = destY,
+                    X = destX + padding,
+                    Y = destY + padding,
                     Width = texture.Width,
                     Height = texture.Height,
                     UVMin = uvMin,
@@ -212,18 +244,26 @@ public class TextureAtlasGenerator
                     texture.Path, uvMin.U, uvMin.V, uvMax.U, uvMax.V);
             }
 
-            // 5. 导出图集为PNG字节数组
+            // 5. 导出图集为图像字节数组（根据压缩策略选择格式）
             using var ms = new MemoryStream();
-            await atlasImage.SaveAsPngAsync(ms);
+            if (useJpegCompression)
+            {
+                await atlasImage.SaveAsJpegAsync(ms, JpegEncoder);
+            }
+            else
+            {
+                await atlasImage.SaveAsPngAsync(ms);
+            }
             var imageData = ms.ToArray();
 
             var utilization = usedArea / totalArea;
             var elapsed = DateTime.UtcNow - startTime;
+            var formatName = useJpegCompression ? "JPEG (质量75)" : "PNG";
 
             _logger.LogInformation("纹理图集生成完成: {Width}x{Height}, {Count}张纹理, " +
-                "利用率={Utilization:P2}, 大小={Size}KB, 耗时={Elapsed:F2}秒",
+                "利用率={Utilization:P2}, 大小={Size}KB, 格式={Format}, 耗时={Elapsed:F2}秒",
                 atlasWidth, atlasHeight, loadedTextures.Count,
-                utilization, imageData.Length / 1024.0, elapsed.TotalSeconds);
+                utilization, imageData.Length / 1024.0, formatName, elapsed.TotalSeconds);
 
             // 清理加载的图像
             foreach (var texture in loadedTextures)
@@ -263,13 +303,79 @@ public class TextureAtlasGenerator
     }
 
     /// <summary>
+    /// 构建带边缘像素扩展的纹理图像
+    /// 通过复制边缘像素到padding区域，防止纹理采样时的seaming artifacts
+    /// </summary>
+    /// <param name="source">源纹理图像</param>
+    /// <param name="padding">padding宽度（像素）</param>
+    /// <returns>带padding的新图像</returns>
+    private Image<Rgba32> BuildPaddedImage(Image<Rgba32> source, int padding)
+    {
+        if (padding <= 0)
+            return source.Clone();
+
+        int paddedWidth = source.Width + padding * 2;
+        int paddedHeight = source.Height + padding * 2;
+        var padded = new Image<Rgba32>(paddedWidth, paddedHeight);
+
+        // 1. 复制中心内容（原始纹理）
+        padded.Mutate(ctx => ctx.DrawImage(source, new Point(padding, padding), 1f));
+
+        // 2. 扩展边缘像素到padding区域
+        for (int p = 0; p < padding; p++)
+        {
+            // 上边缘：复制第一行像素
+            for (int x = 0; x < source.Width; x++)
+            {
+                padded[padding + x, p] = source[x, 0];
+            }
+
+            // 下边缘：复制最后一行像素
+            for (int x = 0; x < source.Width; x++)
+            {
+                padded[padding + x, paddedHeight - 1 - p] = source[x, source.Height - 1];
+            }
+
+            // 左边缘：复制第一列像素
+            for (int y = 0; y < source.Height; y++)
+            {
+                padded[p, padding + y] = source[0, y];
+            }
+
+            // 右边缘：复制最后一列像素
+            for (int y = 0; y < source.Height; y++)
+            {
+                padded[paddedWidth - 1 - p, padding + y] = source[source.Width - 1, y];
+            }
+        }
+
+        // 3. 填充四个角落（使用角落像素填充）
+        for (int py = 0; py < padding; py++)
+        {
+            for (int px = 0; px < padding; px++)
+            {
+                // 左上角
+                padded[px, py] = source[0, 0];
+                // 右上角
+                padded[paddedWidth - 1 - px, py] = source[source.Width - 1, 0];
+                // 左下角
+                padded[px, paddedHeight - 1 - py] = source[0, source.Height - 1];
+                // 右下角
+                padded[paddedWidth - 1 - px, paddedHeight - 1 - py] = source[source.Width - 1, source.Height - 1];
+            }
+        }
+
+        return padded;
+    }
+
+    /// <summary>
     /// 创建空图集
     /// </summary>
     private AtlasResult CreateEmptyAtlas()
     {
         using var emptyImage = new Image<Rgba32>(1, 1);
         using var ms = new MemoryStream();
-        emptyImage.SaveAsPng(ms);
+        emptyImage.SaveAsJpeg(ms, JpegEncoder);
 
         return new AtlasResult
         {
@@ -352,12 +458,13 @@ public class TextureAtlasGenerator
         }
 
         /// <summary>
-        /// 为新节点寻找最佳位置 - 使用Best Short Side Fit (BSSF)启发式
+        /// 为新节点寻找最佳位置 - 使用 Best Area Fit (BAF) 启发式
+        /// Best Area Fit: 选择剩余面积最小的自由矩形
         /// </summary>
         private (int X, int Y)? FindPositionForNewNode(int width, int height)
         {
+            int bestAreaFit = int.MaxValue;
             int bestShortSideFit = int.MaxValue;
-            int bestLongSideFit = int.MaxValue;
             int bestX = 0;
             int bestY = 0;
             bool found = false;
@@ -366,18 +473,20 @@ public class TextureAtlasGenerator
             {
                 if (free.Width >= width && free.Height >= height)
                 {
+                    // 计算剩余面积（Best Area Fit的核心指标）
+                    int areaFit = free.Width * free.Height - width * height;
                     int leftoverHoriz = free.Width - width;
                     int leftoverVert = free.Height - height;
                     int shortSideFit = Math.Min(leftoverHoriz, leftoverVert);
-                    int longSideFit = Math.Max(leftoverHoriz, leftoverVert);
 
-                    if (shortSideFit < bestShortSideFit ||
-                        (shortSideFit == bestShortSideFit && longSideFit < bestLongSideFit))
+                    // 优先选择剩余面积最小的，其次是短边剩余最小的
+                    if (areaFit < bestAreaFit ||
+                        (areaFit == bestAreaFit && shortSideFit < bestShortSideFit))
                     {
                         bestX = free.X;
                         bestY = free.Y;
+                        bestAreaFit = areaFit;
                         bestShortSideFit = shortSideFit;
-                        bestLongSideFit = longSideFit;
                         found = true;
                     }
                 }

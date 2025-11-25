@@ -103,7 +103,7 @@ public class IncrementalUpdateService
             LastModified = DateTime.UtcNow,
             SliceCount = slices.Count,
             Slices = sliceData,
-            Strategy = config.Strategy.ToString(),
+            Strategy = "Default",
             TileSize = config.TileSize
         };
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using RealScene3D.Domain.Enums;
+using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
 using Microsoft.Extensions.Logging;

@@ -257,6 +257,7 @@ public class MtlParser
     /// <summary>
     /// 解析纹理路径
     /// 支持选项参数（-blendu, -blendv, -cc等）
+    /// 返回规范化的绝对路径
     /// </summary>
     private string ParseTexturePath(string[] parts, string basePath)
     {
@@ -273,12 +274,33 @@ public class MtlParser
             }
         }
 
-        // 如果是相对路径，与基础路径组合
+        // 规范化路径：统一使用正斜杠
+        fileName = fileName.Replace('\\', '/');
+
+        // 如果是相对路径，与基础路径组合生成绝对路径
+        string absolutePath;
         if (!Path.IsPathRooted(fileName))
         {
-            fileName = Path.Combine(basePath, fileName);
+            absolutePath = Path.Combine(basePath, fileName);
+        }
+        else
+        {
+            absolutePath = fileName;
         }
 
-        return fileName;
+        // 规范化路径（解析 .. 和 .）
+        absolutePath = Path.GetFullPath(absolutePath);
+
+        // 记录日志
+        if (File.Exists(absolutePath))
+        {
+            _logger.LogDebug("纹理路径解析: {Original} -> {Absolute}", fileName, absolutePath);
+        }
+        else
+        {
+            _logger.LogWarning("纹理文件不存在: {Path} (原始: {Original})", absolutePath, fileName);
+        }
+
+        return absolutePath;
     }
 }

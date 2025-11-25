@@ -112,27 +112,6 @@ public interface ISlicingAppService
     Task<IEnumerable<SlicingDtos.SliceDto>> GetSlicesBatchAsync(Guid taskId, int level, IEnumerable<(int x, int y, int z)> coordinates);
 
     /// <summary>
-    /// 执行视锥剔除 - 渲染优化算法应用层接口
-    /// 算法：基于视口参数剔除不可见的切片，减少渲染负载
-    /// 调用领域层视锥剔除算法，返回优化的切片集合
-    /// </summary>
-    /// <param name="viewport">视口参数，包含相机位置、视角等信息</param>
-    /// <param name="allSlices">所有待测试的切片元数据集合</param>
-    /// <returns>可见切片元数据集合</returns>
-    Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PerformFrustumCullingAsync(ViewportInfo viewport, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices);
-
-    /// <summary>
-    /// 预测加载算法 - 预加载优化算法应用层接口
-    /// 算法：基于用户视点移动趋势预测需要加载的切片
-    /// 提供智能预加载建议，提升用户体验
-    /// </summary>
-    /// <param name="currentViewport">当前视口信息</param>
-    /// <param name="movementVector">用户移动向量</param>
-    /// <param name="allSlices">所有可用切片元数据</param>
-    /// <returns>预测加载的切片元数据集合</returns>
-    Task<IEnumerable<SlicingDtos.SliceMetadataDto>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3D movementVector, IEnumerable<SlicingDtos.SliceMetadataDto> allSlices);
-
-    /// <summary>
     /// 获取增量更新索引 - 获取切片任务的增量更新索引信息
     /// 从MinIO存储中读取增量更新索引文件
     /// </summary>

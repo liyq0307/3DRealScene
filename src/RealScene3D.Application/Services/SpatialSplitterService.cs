@@ -60,7 +60,7 @@ public class SpatialSplitterService : ISpatialSplitterService
         // 检查终止条件
         if (currentDepth >= maxDepth ||
             currentTriangles.Count <= minTrianglesPerSplit ||
-            currentBounds.IsEmpty()) // 如果包围盒为空，说明没有有效几何体
+            currentBounds.IsEmpty) // 如果包围盒为空，说明没有有效几何体
         {
             if (currentTriangles.Count > 0)
             {

@@ -287,144 +287,11 @@ public class SlicingController : ControllerBase
     }
 
     /// <summary>
-    /// 执行视锥剔除 - 渲染优化API
-    /// </summary>
-    [HttpPost("tasks/{taskId}/frustum-culling")]
-    /// <summary>
-    /// 基于视口参数执行视锥剔除，返回可见切片集合
-    /// </summary>
-    /// <param name="taskId">切片任务ID</param>
-    /// <param name="viewport">视口参数，包含相机位置、视角等信息</param>
-    /// <param name="level">LOD层级，可选，不指定则返回所有层级可见切片</param>
-    /// <returns>可见切片元数据集合</returns>
-    public async Task<ActionResult<IEnumerable<SlicingDtos.SliceMetadataDto>>> PerformFrustumCulling(
-        Guid taskId,
-        [FromBody] ViewportRequestDto viewport,
-        [FromQuery] int? level = null)
-    {
-        try
-        {
-            // 获取所有切片
-            var allSlices = await _slicingService.GetSliceMetadataAsync(taskId, level ?? 0);
-
-            // 转换视口信息
-            var viewportInfo = new ViewportInfo
-            {
-                CameraPosition = new Vector3D
-                {
-                    X = viewport.CameraPosition.X,
-                    Y = viewport.CameraPosition.Y,
-                    Z = viewport.CameraPosition.Z
-                },
-                CameraDirection = new Vector3D
-                {
-                    X = viewport.CameraDirection.X,
-                    Y = viewport.CameraDirection.Y,
-                    Z = viewport.CameraDirection.Z
-                },
-                FieldOfView = viewport.FieldOfView,
-                NearPlane = viewport.NearPlane,
-                FarPlane = viewport.FarPlane
-            };
-
-            // 执行视锥剔除
-            var visibleSlices = await _slicingService.PerformFrustumCullingAsync(new ViewportInfo
-            {
-                CameraPosition = new Vector3D
-                {
-                    X = viewport.CameraPosition.X,
-                    Y = viewport.CameraPosition.Y,
-                    Z = viewport.CameraPosition.Z
-                },
-                CameraDirection = new Vector3D
-                {
-                    X = viewport.CameraDirection.X,
-                    Y = viewport.CameraDirection.Y,
-                    Z = viewport.CameraDirection.Z
-                },
-                FieldOfView = viewport.FieldOfView,
-                NearPlane = viewport.NearPlane,
-                FarPlane = viewport.FarPlane
-            }, allSlices);
-
-            return Ok(visibleSlices);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "执行视锥剔除时发生错误：任务ID {TaskId}", taskId);
-            return StatusCode(500, new { message = "执行视锥剔除时发生错误" });
-        }
-    }
-
-    /// <summary>
-    /// 预测加载切片 - 预加载优化API
-    /// </summary>
-    [HttpPost("tasks/{taskId}/predict-loading")]
-    /// <summary>
-    /// 基于用户移动趋势预测需要加载的切片
-    /// </summary>
-    /// <param name="taskId">切片任务ID</param>
-    /// <param name="request">预测加载请求，包含当前视口和移动向量</param>
-    /// <param name="predictionTime">预测时间（秒），默认2秒</param>
-    /// <param name="level">LOD层级，可选</param>
-    /// <returns>预测需要加载的切片集合</returns>
-    public async Task<ActionResult<IEnumerable<SlicingDtos.SliceMetadataDto>>> PredictLoading(
-        Guid taskId,
-        [FromBody] PredictLoadingRequestDto request,
-        [FromQuery] double predictionTime = 2.0,
-        [FromQuery] int? level = null)
-    {
-        try
-        {
-            // 获取所有切片
-            var allSlices = await _slicingService.GetSliceMetadataAsync(taskId, level ?? 0);
-
-            // 转换视口信息
-            var viewportInfo = new ViewportInfo
-            {
-                CameraPosition = new Vector3D
-                {
-                    X = request.CurrentViewport.CameraPosition.X,
-                    Y = request.CurrentViewport.CameraPosition.Y,
-                    Z = request.CurrentViewport.CameraPosition.Z
-                },
-                CameraDirection = new Vector3D
-                {
-                    X = request.CurrentViewport.CameraDirection.X,
-                    Y = request.CurrentViewport.CameraDirection.Y,
-                    Z = request.CurrentViewport.CameraDirection.Z
-                },
-                FieldOfView = request.CurrentViewport.FieldOfView,
-                NearPlane = request.CurrentViewport.NearPlane,
-                FarPlane = request.CurrentViewport.FarPlane
-            };
-
-            // 转换移动向量
-            var movementVec = new Vector3D
-            {
-                X = request.MovementVector.X,
-                Y = request.MovementVector.Y,
-                Z = request.MovementVector.Z
-            };
-
-            // 执行预测加载
-            var predictedSlices = await _slicingService.PredictLoadingAsync(viewportInfo, movementVec, allSlices);
-
-            return Ok(predictedSlices);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "执行预测加载时发生错误：任务ID {TaskId}", taskId);
-            return StatusCode(500, new { message = "执行预测加载时发生错误" });
-        }
-    }
-
-    /// <summary>
     /// 获取切片策略信息 - 切片算法查询API
     /// </summary>
     [HttpGet("strategies")]
     /// <summary>
-    /// 获取所有支持的切片策略信息
+    /// 获取所有支持的切片策略信息（新架构：瓦片生成流水线）
     /// </summary>
     /// <returns>切片策略枚举和描述</returns>
     public IActionResult GetSlicingStrategies()
@@ -433,13 +300,29 @@ public class SlicingController : ControllerBase
         {
             var strategies = new[]
             {
-                new { Id = 0, Name = "Grid", Description = "规则网格切片算法，适用于规则地形和均匀分布的数据" },
-                new { Id = 1, Name = "Octree", Description = "八叉树切片算法，适用于不规则模型，自适应精度" },
-                new { Id = 2, Name = "KdTree", Description = "KD树切片算法，自适应空间剖分，适用于复杂场景" },
-                new { Id = 3, Name = "Adaptive", Description = "密度自适应切片算法，基于几何密度自动调整切片大小" }
+                new {
+                    Id = 0,
+                    Name = "TileGenerationPipeline",
+                    Description = "瓦片生成流水线（推荐）",
+                    Details = "三阶段处理：网格简化 → 递归空间分割 → 3D Tiles 转换。支持真正的网格分割和多 LOD 生成。",
+                    Features = new[] {
+                        "Fast Quadric Mesh Simplification 网格简化",
+                        "递归轴对齐空间分割（Recursive Axis-Aligned BSP）",
+                        "自动处理跨越边界的三角形",
+                        "多格式输出（B3DM、GLTF、I3DM、PNTS）",
+                        "自动生成 tileset.json"
+                    },
+                    DefaultConfig = new {
+                        EnableMeshDecimation = true,
+                        LodLevels = 5,
+                        MaxLevel = 8,
+                        TileFormat = "B3DM",
+                        GenerateTileset = true
+                    }
+                }
             };
 
-            return Ok(strategies);
+            return Ok(new { strategies });
         }
         catch (Exception ex)
         {

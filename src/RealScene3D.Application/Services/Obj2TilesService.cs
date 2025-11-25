@@ -7,7 +7,7 @@ using RealScene3D.Domain.Interfaces;
 namespace RealScene3D.Application.Services;
 
 /// <summary>
-/// Obj2Tiles服务 - 从OBJ到3D Tiles的端到端转换流程
+/// 从OBJ到3D Tiles的端到端转换流程
 /// 实现完整的工作流程：OBJ加载 -> LOD生成 -> B3DM -> Tileset.json
 /// </summary>
 public class Obj2TilesService
@@ -130,7 +130,7 @@ public class Obj2TilesService
                 // 确保将更新后的材质（包含图集UV）传递给分割服务
                 var splitMeshes = await _spatialSplitterService.SplitMeshRecursivelyAsync(
                     lodDecimatedMesh.Triangles,
-                    materials, // 传递更新后的材质
+                    materials ?? new Dictionary<string, Material>(), // 传递更新后的材质或空字典
                     maxSplitDepth,
                     minTrianglesPerSplit);
 
@@ -160,7 +160,6 @@ public class Obj2TilesService
                         BoundingBox = SerializeBoundingBox(splitMesh.BoundingBox),
                         FileSize = new FileInfo(outputPath).Length,
                         CreatedAt = DateTime.UtcNow,
-                        TileId = splitMesh.Id // 存储子网格的唯一ID
                     };
 
                     _logger.LogInformation("    已生成LOD {Level} 子网格 {TileId}: {Triangles} 个三角形, 文件大小: {Size} 字节",
@@ -185,7 +184,7 @@ public class Obj2TilesService
             _logger.LogInformation("步骤 5/6: 生成tileset.json...");
             var config = new SlicingConfig
             {
-                MaxLevel = lodLevels - 1,
+                Divisions = lodLevels - 1,
                 OutputFormat = "b3dm"
             };
 
@@ -284,10 +283,10 @@ public class TextureAtlasOptions
 
     /// <summary>
     /// 图集输出文件名
-    /// 默认值：atlas.png
+    /// 默认值：atlas.jpg（使用JPEG压缩以减小文件大小）
     /// 支持格式：.png, .jpg, .bmp
     /// </summary>
-    public string AtlasFileName { get; set; } = "atlas.png";
+    public string AtlasFileName { get; set; } = "atlas.jpg";
 
     /// <summary>
     /// 是否在日志中显示详细的图集信息

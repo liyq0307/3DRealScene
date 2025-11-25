@@ -6,7 +6,6 @@ using RealScene3D.Application.Interfaces;
 using RealScene3D.Application.Services;
 using RealScene3D.Application.Services.Generators;
 using RealScene3D.Application.Services.Loaders;
-using RealScene3D.Application.Services.Strategys;
 using RealScene3D.Application.Services.Workflows;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.Data;
@@ -414,21 +413,21 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 /// 配置3D模型切片处理系统，支持多种切片算法和渲染优化
 /// 功能特性：
 /// - 多层次细节（LOD）切片生成 - 使用 Fast Quadric Mesh Simplification
-/// - 递归空间分割算法 - 参考 Obj2Tiles 实现
+/// - 递归空间分割算法 
 /// - 真正的网格分割 - MeshSplitter 支持三角形与平面相交
-/// - 统一流水线处理 - Decimation -> Splitting -> 3D Tiles Conversion
+/// - 瓦片生成流水线处理 - Decimation -> Splitting -> 3D Tiles Conversion
 /// - 并行处理和增量更新支持
 /// - 索引文件一致性验证和自动修复
 /// 适用于：倾斜摄影、BIM模型、海量点云等3D数据
 /// </summary>
 
-// === 核心切片服务（新架构）===
-// 网格分割器：实现真正的网格分割逻辑（参考 Obj2Tiles）
+// === 核心切片服务 ===
+// 网格分割器：实现真正的网格分割逻辑
 builder.Services.AddScoped<MeshSplitter>();
 builder.Services.AddScoped<ISpatialSplitterService, SpatialSplitterService>();
 
-// 统一切片流水线：三阶段处理（Decimation -> Splitting -> Conversion）
-builder.Services.AddScoped<UnifiedSlicingPipeline>();
+// 瓦片生成流水线：三阶段处理（Decimation -> Splitting -> Conversion）
+builder.Services.AddScoped<TileGenerationPipeline>();
 
 // 独立功能服务（依赖其他注册的服务，需要通过DI注入）
 builder.Services.AddScoped<IncrementalUpdateService>();
@@ -458,8 +457,6 @@ builder.Services.AddScoped<TextureAtlasGenerator>(); // 纹理图集生成器
 
 // Obj2Tiles服务：端到端OBJ/GLTF转3D Tiles
 builder.Services.AddScoped<Obj2TilesService>();
-
-// 添加索引文件生成服务（已存在）
 
 // ========== 系统监控服务配置 ==========
 /// <summary>
