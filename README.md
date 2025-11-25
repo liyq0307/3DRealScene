@@ -1806,18 +1806,6 @@ mc cp --recursive myminio/videos /backup/minio/videos/
 
 ---
 
-## 🤝 贡献
-
-欢迎提交 Issues 和 Pull Requests！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
-
----
-
 ## 📚 相关文档
 
 - [GUIDE.md](./GUIDE.md) - 详细使用指南（已合并到本文档）
@@ -1853,14 +1841,6 @@ A: 1. 减小 Divisions（空间分割深度）；2. 增大 TileSize 减少切片
 ## 📄 许可证
 
 MIT License
-
----
-
-## 📞 支持
-
-- 📧 Email: support@example.com
-- 💬 Issues: [GitHub Issues](https://github.com/yourusername/3DRealScene/issues)
-- 📖 Wiki: [项目Wiki](https://github.com/yourusername/3DRealScene/wiki)
 
 ---
 
