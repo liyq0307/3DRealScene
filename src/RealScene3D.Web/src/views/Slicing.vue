@@ -20,12 +20,8 @@
 
     <!-- 选项卡导航 -->
     <div class="tabs">
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        @click="activeTab = tab.id"
-        :class="['tab', { active: activeTab === tab.id }]"
-      >
+      <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id"
+        :class="['tab', { active: activeTab === tab.id }]">
         <span class="icon">{{ tab.icon }}</span>
         {{ tab.label }}
       </button>
@@ -35,27 +31,15 @@
     <div v-if="activeTab === 'tasks'" class="tab-content">
       <div class="tasks-section">
         <!-- 搜索和筛选器 -->
-        <SearchFilter
-          v-model:searchText="searchKeyword"
-          :filters="filterConfigs"
-          placeholder="搜索任务名称或模型路径..."
-          @search="(text, filters) => { searchKeyword = text; filterStatus = filters.status || ''; currentPage = 1 }"
-        />
+        <SearchFilter v-model:searchText="searchKeyword" :filters="filterConfigs" placeholder="搜索任务名称或模型路径..."
+          @search="(text, filters) => { searchKeyword = text; filterStatus = filters.status || ''; currentPage = 1 }" />
 
         <!-- 任务列表 -->
         <div class="tasks-grid">
-          <div
-            v-for="task in paginatedTasks"
-            :key="task.id"
-            class="task-card"
-            @click="viewTaskDetail(task.id)"
-          >
+          <div v-for="task in paginatedTasks" :key="task.id" class="task-card" @click="viewTaskDetail(task.id)">
             <div class="task-header">
               <h3>{{ task.name }}</h3>
-              <Badge
-                :variant="getStatusVariant(task.status)"
-                :label="getStatusText(task.status)"
-              />
+              <Badge :variant="getStatusVariant(task.status)" :label="getStatusText(task.status)" />
             </div>
 
             <div class="task-info">
@@ -65,11 +49,11 @@
               </div>
               <div class="info-item">
                 <span class="label">输出路径:</span>
-                <span class="value">{{ task.outputPath }}</span>
+                <span class="value">{{ task.outputPath || '(MinIO存储)' }}</span>
               </div>
               <div class="info-item">
-                <span class="label">切片策略:</span>
-                <span class="value">{{ getStrategyName(task.slicingConfig?.strategy) }}</span>
+                <span class="label">输出格式:</span>
+                <span class="value">{{ (task.slicingConfig?.outputFormat || 'b3dm').toUpperCase() }}</span>
               </div>
               <div class="info-item">
                 <span class="label">纹理策略:</span>
@@ -77,21 +61,22 @@
               </div>
               <div class="info-item">
                 <span class="label">LOD层级:</span>
-                <span class="value">{{ task.slicingConfig?.maxLevel }}</span>
+                <span class="value">{{ task.slicingConfig?.lodLevels || 3 }}</span>
               </div>
               <div class="info-item">
-                <span class="label">切片大小:</span>
-                <span class="value">{{ task.slicingConfig?.tileSize }}m</span>
+                <span class="label">递归深度:</span>
+                <span class="value">{{ task.slicingConfig?.divisions || 2 }}</span>
+              </div>
+              <div class="info-item" v-if="task.status === 'failed' && task.errorMessage">
+                <span class="label error-label">失败原因:</span>
+                <span class="value error-value">{{ task.errorMessage }}</span>
               </div>
             </div>
 
             <!-- 进度条 -->
             <div v-if="task.status === 'processing'" class="progress-section">
               <div class="progress-bar">
-                <div
-                  class="progress-fill"
-                  :style="{ width: `${task.progress || 0}%` }"
-                ></div>
+                <div class="progress-fill" :style="{ width: `${task.progress || 0}%` }"></div>
               </div>
               <span class="progress-text">{{ task.progress || 0 }}%</span>
             </div>
@@ -101,31 +86,16 @@
                 创建时间: {{ formatDateTime(task.createdAt) }}
               </span>
               <div class="task-actions" @click.stop>
-                <button
-                  v-if="task.status === 'processing'"
-                  @click="cancelTask(task.id)"
-                  class="btn btn-sm btn-warning"
-                >
+                <button v-if="task.status === 'processing'" @click="cancelTask(task.id)" class="btn btn-sm btn-warning">
                   取消
                 </button>
-                <button
-                  v-if="task.status === 'completed'"
-                  @click="viewSlices(task.id)"
-                  class="btn btn-sm btn-primary"
-                >
+                <button v-if="task.status === 'completed'" @click="viewSlices(task.id)" class="btn btn-sm btn-primary">
                   查看切片
                 </button>
-                <button
-                  v-if="task.status === 'completed'"
-                  @click="previewSlices(task)"
-                  class="btn btn-sm btn-success"
-                >
+                <button v-if="task.status === 'completed'" @click="previewSlices(task)" class="btn btn-sm btn-success">
                   预览
                 </button>
-                <button
-                  @click="deleteTask(task.id)"
-                  class="btn btn-sm btn-danger"
-                >
+                <button @click="deleteTask(task.id)" class="btn btn-sm btn-danger">
                   删除
                 </button>
               </div>
@@ -142,12 +112,8 @@
         </div>
 
         <!-- 分页组件 -->
-        <Pagination
-          v-if="filteredTasks.length > 0"
-          v-model:currentPage="currentPage"
-          v-model:pageSize="pageSize"
-          :total="filteredTasks.length"
-        />
+        <Pagination v-if="filteredTasks.length > 0" v-model:currentPage="currentPage" v-model:pageSize="pageSize"
+          :total="filteredTasks.length" />
       </div>
     </div>
 
@@ -177,12 +143,9 @@
         <div v-if="selectedTaskId && lodLevelStats.size > 0" class="lod-stats-panel">
           <h3>📊 LOD层级统计</h3>
           <div class="lod-stats-grid">
-            <div
-              v-for="[level, stats] in Array.from(lodLevelStats.entries())"
-              :key="level"
+            <div v-for="[level, stats] in Array.from(lodLevelStats.entries())" :key="level"
               :class="['lod-stat-card', { active: selectedLevel === level }]"
-              @click="selectedLevel = level; loadSliceMetadata()"
-            >
+              @click="selectedLevel = level; loadSliceMetadata()">
               <div class="lod-level-badge">L{{ level }}</div>
               <div class="lod-stat-content">
                 <div class="lod-stat-item">
@@ -208,11 +171,8 @@
             <h3>Level {{ selectedLevel }} - 切片详情 ({{ sliceMetadata.length }}个)</h3>
           </div>
           <div class="slice-grid">
-            <div
-              v-for="slice in sliceMetadata"
-              :key="`${selectedLevel}_${slice.x}_${slice.y}_${slice.z}`"
-              class="slice-card-enhanced"
-            >
+            <div v-for="slice in sliceMetadata" :key="`${selectedLevel}_${slice.x}_${slice.y}_${slice.z}`"
+              class="slice-card-enhanced">
               <div class="slice-card-header">
                 <span class="slice-coord">
                   ({{ slice.x }}, {{ slice.y }}, {{ slice.z }})
@@ -238,11 +198,8 @@
               </div>
 
               <div class="slice-card-actions">
-                <button
-                  @click="downloadSlice(selectedTaskId, selectedLevel, slice.x, slice.y, slice.z)"
-                  class="btn-icon-small"
-                  title="下载切片"
-                >
+                <button @click="downloadSlice(selectedTaskId, selectedLevel, slice.x, slice.y, slice.z)"
+                  class="btn-icon-small" title="下载切片">
                   📥
                 </button>
               </div>
@@ -309,32 +266,6 @@
               </ul>
             </div>
           </div>
-
-          <div class="strategy-advantages">
-            <h4>核心优势</h4>
-            <div class="advantages-grid">
-              <div class="advantage">
-                <span class="advantage-icon">✅</span>
-                <strong>真正的网格分割</strong>
-                <p>支持三角形与平面相交，不是简单的包围盒提取</p>
-              </div>
-              <div class="advantage">
-                <span class="advantage-icon">🎯</span>
-                <strong>高质量 LOD</strong>
-                <p>Fast QEM 算法保证简化质量，性能提升 4 倍</p>
-              </div>
-              <div class="advantage">
-                <span class="advantage-icon">📦</span>
-                <strong>代码简化</strong>
-                <p>核心代码减少 86.2%，更易维护</p>
-              </div>
-              <div class="advantage">
-                <span class="advantage-icon">🔧</span>
-                <strong>清晰架构</strong>
-                <p>三阶段流程，职责明确，易于扩展</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -346,84 +277,41 @@
         <div class="form-grid">
           <div class="form-group">
             <label>任务名称 *</label>
-            <input
-              v-model="taskForm.name"
-              type="text"
-              class="form-input"
-              placeholder="输入任务名称"
-            />
+            <input v-model="taskForm.name" type="text" class="form-input" placeholder="输入任务名称" />
           </div>
 
           <div class="form-group">
             <label>描述</label>
-            <textarea
-              v-model="taskForm.description"
-              class="form-textarea"
-              placeholder="输入任务描述"
-            ></textarea>
+            <textarea v-model="taskForm.description" class="form-textarea" placeholder="输入任务描述"></textarea>
           </div>
 
           <div class="form-group">
             <label>模型路径 *</label>
-            <div class="input-with-button">
-              <input
-                v-model="taskForm.modelPath"
-                type="text"
-                class="form-input"
-                placeholder="输入模型文件路径"
-              />
-              <button @click="selectModelPath" type="button" class="btn btn-secondary">
-                浏览
-              </button>
-            </div>
+            <input v-model="taskForm.modelPath" type="text" class="form-input" placeholder="例如: F:/Data/3D/model.obj" />
+            <small class="form-hint">模型文件绝对路径或者minio服务器上路径</small>
           </div>
 
           <div class="form-group">
             <label>输出路径</label>
-            <div class="input-with-button">
-              <input
-                v-model="taskForm.outputPath"
-                type="text"
-                class="form-input"
-                placeholder="切片数据输出路径"
-              />
-              <button @click="selectOutputPath" type="button" class="btn btn-secondary">
-                浏览
-              </button>
-            </div>
+            <input v-model="taskForm.outputPath" type="text" class="form-input" placeholder="例如: F:/Data/3D/Output" />
+            <small class="form-hint">名称或绝对路径或空，名称或者为空则切片保存到minio</small>
           </div>
 
           <div class="form-group">
             <label>LOD层级数（网格简化级别）*</label>
-            <input
-              v-model.number="taskForm.lodLevels"
-              type="number"
-              min="1"
-              max="5"
-              class="form-input"
-              placeholder="默认3"
-            />
+            <input v-model.number="taskForm.lodLevels" type="number" min="1" max="5" class="form-input"
+              placeholder="默认3" />
           </div>
 
           <div class="form-group">
-            <label>切片大小 (米) *</label>
-            <input
-              v-model.number="taskForm.tileSize"
-              type="number"
-              min="1"
-              class="form-input"
-              placeholder="默认100"
-            />
-          </div>
-
-          <div class="form-group">
-            <label>最大顶点数</label>
-            <input
-              v-model.number="taskForm.maxVerticesPerTile"
-              type="number"
-              class="form-input"
-              placeholder="默认65536"
-            />
+            <label>输出格式 *</label>
+            <select v-model="taskForm.outputFormat" class="form-select">
+              <option value="b3dm">B3DM - Batched 3D Model（默认，推荐）✨</option>
+              <option value="gltf">GLTF - GL Transmission Format</option>
+              <option value="i3dm">I3DM - Instanced 3D Model</option>
+              <option value="pnts">PNTS - Point Cloud</option>
+              <option value="cmpt">CMPT - Composite</option>
+            </select>
           </div>
 
           <div class="form-group">
@@ -435,42 +323,20 @@
             </select>
           </div>
 
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input
-                v-model="taskForm.enableCompression"
-                type="checkbox"
-              />
-              <span>启用几何压缩</span>
-            </label>
+          <div class="form-group" v-if="taskForm.enableMeshDecimation">
+            <label>空间分割递归深度（Divisions）</label>
+            <input v-model.number="taskForm.divisions" type="number" min="1" max="4" class="form-input"
+              placeholder="默认2" />
+            <small class="form-hint" style="color: #2196F3; display: block; margin-top: 4px;">
+              📊 预估切片数：{{ estimateSliceCount(taskForm.lodLevels, taskForm.divisions) }} 个
+              （{{ taskForm.lodLevels }} LOD × {{ Math.pow(2, taskForm.divisions) }}×{{ Math.pow(2, taskForm.divisions)
+              }} 空间单元）
+            </small>
           </div>
 
           <div class="form-group full-width">
             <label class="checkbox-label">
-              <input
-                v-model="taskForm.generateThumbnails"
-                type="checkbox"
-              />
-              <span>生成缩略图</span>
-            </label>
-          </div>
-
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input
-                v-model="taskForm.enableIncrementalUpdate"
-                type="checkbox"
-              />
-              <span>启用增量更新</span>
-            </label>
-          </div>
-
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input
-                v-model="taskForm.enableMeshDecimation"
-                type="checkbox"
-              />
+              <input v-model="taskForm.enableMeshDecimation" type="checkbox" />
               <span>启用网格简化（LOD生成）</span>
             </label>
             <small class="form-hint" v-if="taskForm.enableMeshDecimation">
@@ -478,23 +344,18 @@
             </small>
           </div>
 
-          <div class="form-group" v-if="taskForm.enableMeshDecimation">
-            <label>空间分割递归深度（Divisions）</label>
-            <input
-              v-model.number="taskForm.divisions"
-              type="number"
-              min="1"
-              max="4"
-              class="form-input"
-              placeholder="默认2"
-            />
-            <small class="form-hint">
-              控制空间网格划分：2 → 4×4=16个单元，3 → 8×8=64个单元
-            </small>
-            <small class="form-hint" style="color: #2196F3; display: block; margin-top: 4px;">
-              📊 预估切片数：{{ estimateSliceCount(taskForm.lodLevels, taskForm.divisions) }} 个
-              （{{ taskForm.lodLevels }} LOD × {{ Math.pow(2, taskForm.divisions) }}×{{ Math.pow(2, taskForm.divisions) }} 空间单元）
-            </small>
+          <div class="form-group full-width">
+            <label class="checkbox-label">
+              <input v-model="taskForm.enableIncrementalUpdate" type="checkbox" />
+              <span>启用增量更新</span>
+            </label>
+          </div>
+
+          <div class="form-group full-width">
+            <label class="checkbox-label">
+              <input v-model="taskForm.enableCompression" type="checkbox" />
+              <span>启用几何压缩</span>
+            </label>
           </div>
         </div>
 
@@ -525,10 +386,7 @@
               </div>
               <div class="detail-item">
                 <span class="label">状态:</span>
-                <Badge
-                  :variant="getStatusVariant(currentTask.status)"
-                  :label="getStatusText(currentTask.status)"
-                />
+                <Badge :variant="getStatusVariant(currentTask.status)" :label="getStatusText(currentTask.status)" />
               </div>
               <div class="detail-item">
                 <span class="label">模型路径:</span>
@@ -536,24 +394,61 @@
               </div>
               <div class="detail-item">
                 <span class="label">输出路径:</span>
-                <span class="value">{{ currentTask.outputPath }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">切片策略:</span>
-                <span class="value">{{ getStrategyName(currentTask.slicingConfig?.strategy) }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">LOD层级:</span>
-                <span class="value">{{ currentTask.slicingConfig?.maxLevel }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">切片大小:</span>
-                <span class="value">{{ currentTask.slicingConfig?.tileSize }}m</span>
+                <span class="value">{{ currentTask.outputPath || '(MinIO存储)' }}</span>
               </div>
               <div class="detail-item">
                 <span class="label">创建时间:</span>
                 <span class="value">{{ formatDateTime(currentTask.createdAt) }}</span>
               </div>
+              <div class="detail-item" v-if="currentTask.completedAt">
+                <span class="label">完成时间:</span>
+                <span class="value">{{ formatDateTime(currentTask.completedAt) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h4>切片配置</h4>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <span class="label">输出格式:</span>
+                <span class="value">{{ (currentTask.slicingConfig?.outputFormat || 'b3dm').toUpperCase() }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">纹理策略:</span>
+                <span class="value">{{ getTextureStrategyName(currentTask.slicingConfig?.textureStrategy) }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">LOD层级:</span>
+                <span class="value">{{ currentTask.slicingConfig?.lodLevels || 3 }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">递归深度:</span>
+                <span class="value">{{ currentTask.slicingConfig?.divisions || 2 }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">网格简化:</span>
+                <span class="value">{{ currentTask.slicingConfig?.enableMeshDecimation ? '✓ 已启用' : '✗ 未启用' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">几何压缩:</span>
+                <span class="value">{{ currentTask.slicingConfig?.compressOutput ? '✓ 已启用' : '✗ 未启用' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">增量更新:</span>
+                <span class="value">{{ currentTask.slicingConfig?.enableIncrementalUpdates ? '✓ 已启用' : '✗ 未启用' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">坐标系统:</span>
+                <span class="value">{{ currentTask.slicingConfig?.coordinateSystem || 'EPSG:4326' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="currentTask.status === 'failed' && currentTask.errorMessage" class="detail-section error-section">
+            <h4>❌ 错误信息</h4>
+            <div class="error-message-box">
+              {{ currentTask.errorMessage }}
             </div>
           </div>
 
@@ -561,10 +456,7 @@
             <h4>执行进度</h4>
             <div class="progress-detail">
               <div class="progress-bar large">
-                <div
-                  class="progress-fill"
-                  :style="{ width: `${taskProgress.progress}%` }"
-                ></div>
+                <div class="progress-fill" :style="{ width: `${taskProgress.progress}%` }"></div>
               </div>
               <div class="progress-info">
                 <span>进度: {{ taskProgress.progress }}%</span>
@@ -619,14 +511,8 @@
           <button @click="closePreviewDialog" class="btn-close">✕</button>
         </div>
         <div class="modal-body">
-          <SlicePreview
-            v-if="previewTask"
-            :taskId="previewTask.id"
-            :outputPath="previewTask.outputPath"
-            :autoLoad="true"
-            @loaded="onPreviewLoaded"
-            @error="onPreviewError"
-          />
+          <SlicePreview v-if="previewTask" :taskId="previewTask.id" :outputPath="previewTask.outputPath"
+            :autoLoad="true" @loaded="onPreviewLoaded" @error="onPreviewError" />
         </div>
       </div>
     </div>
@@ -646,7 +532,6 @@ const authStore = useAuthStore()
 const userId = authStore.currentUser.value?.id || '00000000-0000-0000-0000-000000000001'
 
 import type { Filter } from '@/components/SearchFilter.vue'
-import fileHandleStore from '@/services/fileHandleStore'
 
 // 选项卡
 const tabs = [
@@ -709,13 +594,11 @@ const taskForm = ref({
   modelPath: '',
   outputPath: '',
   slicingStrategy: 0,  // TileGenerationPipeline
+  outputFormat: 'b3dm',  // 输出格式，默认b3dm
   textureStrategy: 2,  // RepackCompressed - JPEG压缩（默认推荐）
   lodLevels: 3,
   divisions: 2,  // 空间分割递归深度
-  tileSize: 100,
-  maxVerticesPerTile: 65536,
   enableCompression: true,
-  generateThumbnails: true,
   enableIncrementalUpdate: false,
   enableMeshDecimation: true,  // 启用网格简化
   generateTileset: true  // 生成 tileset.json
@@ -799,18 +682,13 @@ const getStatusVariant = (status: string): 'primary' | 'warning' | 'success' | '
   return variantMap[status] || 'gray'
 }
 
-const getStrategyName = (strategy: number | string | undefined) => {
-  // 新架构使用瓦片生成流水线，不再区分策略
-  return '瓦片生成流水线'
-}
-
 const getTextureStrategyName = (strategy: number | string | undefined) => {
   // 如果是字符串
   if (typeof strategy === 'string') {
     const nameMap: Record<string, string> = {
-      'Repack': 'Repack（仅打包）',
-      'KeepOriginal': 'KeepOriginal（保留原始）',
-      'RepackCompressed': 'RepackCompressed（打包+JPEG压缩）'
+      'Repack': 'Repack - 仅打包（PNG格式）',
+      'KeepOriginal': 'KeepOriginal - 保留原始',
+      'RepackCompressed': 'RepackCompressed - 打包+压缩（JPEG质量75）'
     }
     return nameMap[strategy] || strategy
   }
@@ -818,9 +696,9 @@ const getTextureStrategyName = (strategy: number | string | undefined) => {
   // 如果是数字
   if (typeof strategy === 'number') {
     const strategyMap: Record<number, string> = {
-      0: 'Repack（仅打包，PNG格式）',
-      1: 'KeepOriginal（保留原始）',
-      2: 'RepackCompressed（打包+JPEG压缩）'
+      0: 'Repack - 仅打包（PNG格式）',
+      1: 'KeepOriginal - 保留原始',
+      2: 'RepackCompressed - 打包+压缩（JPEG质量75）'
     }
     return strategyMap[strategy] || '未知纹理策略'
   }
@@ -866,7 +744,7 @@ const loadSliceMetadata = async () => {
   try {
     // 获取任务信息以确定最大LOD层级
     const taskInfo = await slicingService.getSlicingTask(selectedTaskId.value)
-    const maxLevel = taskInfo?.slicingConfig?.maxLevel || 5
+    const maxLevel = taskInfo?.slicingConfig?.lodLevels || 5
 
     // 更新可用层级列表
     availableLevels.value = Array.from({ length: maxLevel + 1 }, (_, i) => i)
@@ -936,13 +814,11 @@ const openCreateTaskDialog = () => {
     modelPath: '',
     outputPath: '',
     slicingStrategy: 0,  // TileGenerationPipeline
+    outputFormat: 'b3dm',  // 输出格式，默认b3dm
     textureStrategy: 2,  // RepackCompressed - JPEG压缩（默认推荐）
     lodLevels: 3,
     divisions: 2,
-    tileSize: 100,
-    maxVerticesPerTile: 65536,
     enableCompression: true,
-    generateThumbnails: true,
     enableIncrementalUpdate: false,
     enableMeshDecimation: true,  // 启用网格简化
     generateTileset: true  // 生成 tileset.json
@@ -1004,20 +880,18 @@ const createTask = async () => {
       name: taskForm.value.name,
       sourceModelPath: taskForm.value.modelPath,
       modelType: 'General3DModel', // 默认模型类型
-      outputPath: taskForm.value.outputPath, // 添加输出路径
+      outputPath: taskForm.value.outputPath || '', // 添加输出路径
       slicingConfig: {
-        strategy: taskForm.value.slicingStrategy,
-        textureStrategy: taskForm.value.textureStrategy,  // 纹理策略：0=Repack, 1=KeepOriginal, 2=RepackCompressed
-        lodLevels: taskForm.value.lodLevels,  // LOD级别数量（对应 --lods）
-        divisions: taskForm.value.divisions,  // 空间分割递归深度（对应 --divisions）
+        outputFormat: taskForm.value.outputFormat,  // 使用用户选择的输出格式
+        coordinateSystem: 'EPSG:4326',  // 后端必需字段
+        customSettings: '{}',  // 后端必需字段
+        divisions: taskForm.value.divisions,  // 空间分割递归深度
+        lodLevels: taskForm.value.lodLevels,  // LOD级别数量
         enableMeshDecimation: taskForm.value.enableMeshDecimation,  // 启用网格简化
-        tileSize: taskForm.value.tileSize,
-        outputFormat: 'b3dm',
-        compressOutput: taskForm.value.enableCompression,
-        enableIncrementalUpdates: taskForm.value.enableIncrementalUpdate,
-        generateTileset: taskForm.value.generateTileset,
-        geometricErrorThreshold: 1.0,
-        textureQuality: 0.8
+        generateTileset: taskForm.value.generateTileset,  // 生成tileset.json
+        compressOutput: taskForm.value.enableCompression,  // 压缩输出
+        enableIncrementalUpdates: taskForm.value.enableIncrementalUpdate,  // 启用增量更新
+        textureStrategy: taskForm.value.textureStrategy  // 纹理策略枚举
       }
     }
 
@@ -1042,16 +916,16 @@ const viewTaskDetail = async (taskId: string) => {
     } else {
       taskProgress.value = null
     }
-    
+
     // 计算总切片数
     await calculateTotalSliceCount(taskId, currentTask.value.status)
-    
+
     // 计算已处理切片数
     await calculateProcessedSliceCount(currentTask.value.status)
-    
+
     // 计算总数据大小
     await calculateTotalDataSize(taskId, currentTask.value.status)
-    
+
     showTaskDetailDialog.value = true
   } catch (error) {
     console.error('加载任务详情失败:', error)
@@ -1101,15 +975,15 @@ const calculateProcessedSliceCount = (status: string) => {
 // 计算总切片数
 const calculateTotalSliceCount = async (taskId: string, status: string) => {
   totalSliceCount.value = 0
-  
+
   try {
     if (status === 'completed' || status === 'failed') {
       // 对于已完成或已失败的任务，通过获取各层级切片元数据来统计总数
       let totalCount = 0
       let level = 0
       let hasSlices = true
-      
-      while (hasSlices && level <= (currentTask.value?.slicingConfig?.maxLevel || 10)) {
+
+      while (hasSlices && level <= (currentTask.value?.slicingConfig?.lodLevels || 10)) {
         try {
           const slices = await slicingService.getSliceMetadata(taskId, level)
           if (slices && slices.length > 0) {
@@ -1118,18 +992,18 @@ const calculateTotalSliceCount = async (taskId: string, status: string) => {
             // 如果当前层级没有切片，检查是否还有更多层级
             // 如果连续几个层级都没有切片，我们可以提前结束
             // 但为了安全，我们检查到最大层级
-            hasSlices = level < (currentTask.value?.slicingConfig?.maxLevel || 10)
+            hasSlices = level < (currentTask.value?.slicingConfig?.lodLevels || 10)
           }
           level++
         } catch (error) {
           // 如果获取特定层级失败，尝试下一个层级
           level++
-          if (level > (currentTask.value?.slicingConfig?.maxLevel || 10)) {
+          if (level > (currentTask.value?.slicingConfig?.lodLevels || 10)) {
             hasSlices = false
           }
         }
       }
-      
+
       totalSliceCount.value = totalCount
     } else if (status === 'processing' && taskProgress.value) {
       // 对于处理中的任务，使用进度信息中的总瓦片数
@@ -1148,7 +1022,7 @@ const calculateTotalSliceCount = async (taskId: string, status: string) => {
 // 计算总数据大小
 const calculateTotalDataSize = async (taskId: string, status: string) => {
   totalDataSize.value = 0
-  
+
   // 只对已完成或已失败的任务计算数据大小
   if (status === 'completed' || status === 'failed') {
     try {
@@ -1157,7 +1031,7 @@ const calculateTotalDataSize = async (taskId: string, status: string) => {
       let totalSize = 0
       let level = 0
       let hasSlices = true
-      
+
       while (hasSlices && level <= (currentTask.value?.slicingConfig?.maxLevel || 10)) {
         try {
           const slices = await slicingService.getSliceMetadata(taskId, level)
@@ -1176,7 +1050,7 @@ const calculateTotalDataSize = async (taskId: string, status: string) => {
           break
         }
       }
-      
+
       totalDataSize.value = totalSize
     } catch (error) {
       console.warn('计算任务数据大小失败:', error)
@@ -1249,111 +1123,6 @@ const onPreviewLoaded = (sliceCount: number) => {
 const onPreviewError = (error: string) => {
   console.error('切片预览加载失败:', error)
   alert(`切片预览加载失败: ${error}`)
-}
-
-// 文件路径选择方法
-const selectModelPath = async () => {
-  try {
-    if (!(window as any).showOpenFilePicker) {
-      alert('您的浏览器不支持文件系统访问API，无法直接获取文件路径。请手动输入路径。');
-      return;
-    }
-
-    const [fileHandle] = await (window as any).showOpenFilePicker({
-      types: [{
-        description: '3D Models',
-        accept: {
-          'model/gltf-binary': ['.glb'],
-          'model/gltf+json': ['.gltf'],
-          'text/plain': ['.obj'],
-          'application/octet-stream': ['.fbx', '.dae', '.3ds', '.stl'],
-        }
-      }],
-    });
-
-    // 浏览器出于安全原因，不允许直接访问文件的完整路径。
-    // 我们将使用文件名作为标识，并假设服务器可以在预设的目录中找到这个文件。
-    // 您也可以手动修改为服务器可访问的完整路径。
-    taskForm.value.modelPath = fileHandle.name;
-
-    // 将文件句柄存起来，以便后续可能的使用（例如，直接在前端进行预处理）
-    await fileHandleStore.saveHandle(fileHandle.name, fileHandle);
-
-    // 尝试获取文件路径，显示给用户参考
-    const filePath = await fileHandleStore.getFilePath(fileHandle);
-    if (filePath) {
-      alert(`已选择文件: ${fileHandle.name}\n路径: ${filePath}\n请确认路径对于服务器是可访问的。`);
-    } else {
-      alert(`已选择文件: ${fileHandle.name}。\n无法获取完整路径，请确认服务器可以访问此文件。`);
-    }
-
-  } catch (error) {
-    console.error('选择文件失败:', error);
-    if ((error as DOMException).name !== 'AbortError') {
-      alert('选择文件失败。这可能是因为您的浏览器不支持，或者您没有授予访问权限。');
-    }
-  }
-}
-
-const selectOutputPath = async () => {
-  // 尝试使用现代浏览器的 File System Access API
-  if ((window as any).showDirectoryPicker) {
-    try {
-      const dirHandle = await (window as any).showDirectoryPicker()
-      if (dirHandle) {
-        // 尝试获取完整路径，如果不可用则使用名称
-        taskForm.value.outputPath = dirHandle.name
-        // 存储目录句柄以便后续使用
-        console.log('选择的目录:', dirHandle.name)
-        // 提示用户输入完整路径（因为浏览器安全限制无法直接获取完整路径）
-        const fullPath = prompt('请输入完整的输出目录路径:', dirHandle.name)
-        if (fullPath) {
-          taskForm.value.outputPath = fullPath
-        }
-      }
-    } catch (error) {
-      // 用户取消选择或浏览器不支持
-      console.log('目录选择已取消或不支持')
-    }
-  } else {
-    // 降级方案：直接让用户输入目录路径
-    // 浏览器出于安全考虑无法直接访问文件系统路径
-    // 使用 webkitdirectory 也只能获取相对路径
-    const inputPath = prompt('请输入输出目录的完整路径:\n例如: C:\\Output\\Slicing 或 /home/user/output/slicing')
-    if (inputPath) {
-      taskForm.value.outputPath = inputPath.trim()
-    } else {
-      // 如果用户取消，尝试使用 webkitdirectory 作为备选
-      const input = document.createElement('input')
-      input.type = 'file'
-      // @ts-ignore - webkitdirectory 是非标准属性
-      input.webkitdirectory = true
-      // @ts-ignore - directory 是非标准属性
-      input.directory = true
-      input.onchange = (e: Event) => {
-        const target = e.target as HTMLInputElement
-        const files = target.files
-        if (files && files.length > 0) {
-          // 从第一个文件的路径中提取目录路径
-          const file = files[0]
-          // @ts-ignore - webkitRelativePath 是非标准属性
-          const relativePath = file.webkitRelativePath || ''
-          if (relativePath) {
-            const pathParts = relativePath.split('/')
-            // 提示用户输入完整路径
-            const fullPath = prompt('浏览器无法直接获取完整路径，请输入完整的输出目录路径:', pathParts[0])
-            if (fullPath) {
-              taskForm.value.outputPath = fullPath
-            } else {
-              // 如果用户没有输入，至少保存目录名
-              taskForm.value.outputPath = pathParts[0]
-            }
-          }
-        }
-      }
-      input.click()
-    }
-  }
 }
 
 // 生命周期
@@ -1532,6 +1301,19 @@ onMounted(async () => {
 .info-item .value {
   color: #333;
   word-break: break-all;
+}
+
+.info-item .error-label {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.info-item .error-value {
+  color: #c62828;
+  background: #ffebee;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
 }
 
 .progress-section {
@@ -1947,6 +1729,31 @@ onMounted(async () => {
   color: #666;
 }
 
+/* 错误信息样式 */
+.error-section {
+  background: #ffebee;
+  border: 1px solid #ef5350;
+  border-radius: 8px;
+  padding: 1.5rem !important;
+}
+
+.error-section h4 {
+  color: #c62828;
+  margin-bottom: 1rem;
+}
+
+.error-message-box {
+  background: white;
+  border-left: 4px solid #c62828;
+  padding: 1rem;
+  border-radius: 4px;
+  color: #c62828;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
 /* 空状态 */
 .empty-state {
   text-align: center;
@@ -2206,7 +2013,7 @@ onMounted(async () => {
   background: white;
   border-radius: 12px;
   padding: 2.5rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .strategy-icon-large {

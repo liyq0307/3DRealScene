@@ -60,9 +60,9 @@ public class SlicingDtos
         public string? Granularity { get; set; }
 
         /// <summary>
-        /// 输出格式，例如："3D Tiles", "Cesium3DTiles", "GLTF"
+        /// 输出格式，例如："b3dm", "gltf", "i3dm", "pnts", "cmpt"
         /// </summary>
-        public string OutputFormat { get; set; } = "3D Tiles";
+        public string OutputFormat { get; set; } = "b3dm";
 
         /// <summary>
         /// 坐标系，例如："EPSG:4326", "EPSG:3857"
