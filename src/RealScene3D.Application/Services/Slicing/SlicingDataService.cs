@@ -19,10 +19,7 @@ namespace RealScene3D.Application.Services.Slicing;
 /// 2. 切片文件生成：生成各种格式的切片文件（B3DM、GLTF、JSON等）
 /// 3. 文件存储：将生成的切片文件保存到本地或MinIO
 /// 4. 数据转换：提供各种数据格式之间的转换功能
-///
-/// 与 SlicingProcessor 的分工：
-/// - SlicingDataService: 负责数据加载和文件生成（本类）
-/// - SlicingProcessor: 负责切片逻辑和流程控制
+/// 5. 辅助功能：如纹理处理、元数据计算等
 /// </summary>
 public class SlicingDataService
 {

@@ -71,9 +71,6 @@ public class SlicingAppService : ISlicingAppService
                 throw new ArgumentException("模型类型不能为空", nameof(request.ModelType));
 
             // 边界情况检查：验证切片配置参数的合理性
-            if (request.SlicingConfig.TileSize <= 0)
-                throw new ArgumentException("切片大小必须大于0", nameof(request.SlicingConfig.TileSize));
-
             if (request.SlicingConfig.Divisions < 0 || request.SlicingConfig.Divisions > 20)
                 throw new ArgumentException("LOD级别数量必须在0-20之间", nameof(request.SlicingConfig.Divisions));
 
@@ -859,7 +856,6 @@ public class SlicingAppService : ISlicingAppService
                 LastModified = indexData.LastModified,
                 SliceCount = indexData.SliceCount,
                 Strategy = indexData.Strategy ?? "Octree",
-                TileSize = indexData.TileSize,
                 Slices = indexData.Slices?.Select(s => new SlicingDtos.IncrementalSliceInfo
                 {
                     Level = s.Level,
@@ -965,14 +961,14 @@ public class SlicingAppService : ISlicingAppService
             OutputFormat = domainConfig.OutputFormat,
             CoordinateSystem = "EPSG:4326", // 默认值
             CustomSettings = "{}", // 默认值
-            TileSize = domainConfig.TileSize,
             MaxLevel = domainConfig.Divisions,  // MaxLevel 映射到 Divisions（向后兼容）
             Divisions = domainConfig.Divisions,
             LodLevels = domainConfig.LodLevels,
             EnableMeshDecimation = domainConfig.EnableMeshDecimation,
             GenerateTileset = domainConfig.GenerateTileset,
             EnableIncrementalUpdates = domainConfig.EnableIncrementalUpdates,
-            StorageLocation = domainConfig.StorageLocation
+            StorageLocation = domainConfig.StorageLocation,
+            TextureStrategy = domainConfig.TextureStrategy  // 添加纹理策略映射
         };
     }
 
@@ -997,7 +993,6 @@ public class SlicingAppService : ISlicingAppService
 
         return new SlicingConfig
         {
-            TileSize = dtoConfig.TileSize > 0 ? dtoConfig.TileSize : 100.0,
             Divisions = dtoConfig.Divisions > 0 ? dtoConfig.Divisions : 2,  // 空间分割深度（对应 --divisions）
             LodLevels = dtoConfig.LodLevels > 0 ? dtoConfig.LodLevels : 3,  // LOD级别数量（对应 --lods）
             EnableMeshDecimation = dtoConfig.EnableMeshDecimation,          // 网格简化开关

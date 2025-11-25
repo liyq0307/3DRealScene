@@ -9,11 +9,6 @@ namespace RealScene3D.Domain.Entities;
 public class SlicingConfig
 {
     /// <summary>
-    /// 瓦片大小
-    /// </summary>
-    public double TileSize { get; set; } = 100.0;
-
-    /// <summary>
     /// 空间分割递归深度
     /// </summary>
     public int Divisions { get; set; } = 2;

@@ -426,9 +426,6 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 builder.Services.AddScoped<MeshSplitter>();
 builder.Services.AddScoped<ISpatialSplitterService, SpatialSplitterService>();
 
-// 瓦片生成流水线：三阶段处理（Decimation -> Splitting -> Conversion）
-builder.Services.AddScoped<TileGenerationPipeline>();
-
 // 独立功能服务（依赖其他注册的服务，需要通过DI注入）
 builder.Services.AddScoped<IncrementalUpdateService>();
 builder.Services.AddScoped<SlicingDataService>();
@@ -436,7 +433,7 @@ builder.Services.AddScoped<SlicingDataService>();
 // 切片应用服务：提供切片任务管理的高层API接口
 builder.Services.AddScoped<ISlicingAppService, SlicingAppService>();
 
-// 切片后台处理器：执行实际的切片处理任务，支持异步队列（已简化）
+// 切片后台处理器：执行实际的切片处理任务，支持异步队列
 builder.Services.AddScoped<ISlicingProcessor, SlicingProcessor>();
 
 // 3D Tiles生成器工厂：支持动态创建不同格式的瓦片生成器
@@ -454,9 +451,6 @@ builder.Services.AddScoped<MtlParser>();
 // 网格处理服务：LOD生成和纹理优化
 builder.Services.AddScoped<MeshDecimationService>(); // QEM网格简化服务
 builder.Services.AddScoped<TextureAtlasGenerator>(); // 纹理图集生成器
-
-// Obj2Tiles服务：端到端OBJ/GLTF转3D Tiles
-builder.Services.AddScoped<Obj2TilesService>();
 
 // ========== 系统监控服务配置 ==========
 /// <summary>

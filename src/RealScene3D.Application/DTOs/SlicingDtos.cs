@@ -73,10 +73,7 @@ public class SlicingDtos
         /// 其他自定义配置，JSON字符串
         /// </summary>
         public string CustomSettings { get; set; } = "{}";
-        /// <summary>
-        /// 瓦片大小
-        /// </summary>
-        public double TileSize { get; set; }
+
         /// <summary>
         /// 最大层级（已废弃，请使用 Divisions）
         /// </summary>
@@ -434,11 +431,6 @@ public class SlicingDtos
         /// 切片策略名称
         /// </summary>
         public string Strategy { get; set; } = string.Empty;
-
-        /// <summary>
-        /// 瓦片大小
-        /// </summary>
-        public double TileSize { get; set; }
     }
 
     /// <summary>

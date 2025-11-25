@@ -21,7 +21,6 @@ internal class IncrementalIndexJsonModel
     public int SliceCount { get; set; }
     public List<IncrementalSliceJsonModel>? Slices { get; set; }
     public string? Strategy { get; set; }
-    public double TileSize { get; set; }
 }
 
 /// <summary>
@@ -103,8 +102,7 @@ public class IncrementalUpdateService
             LastModified = DateTime.UtcNow,
             SliceCount = slices.Count,
             Slices = sliceData,
-            Strategy = "Default",
-            TileSize = config.TileSize
+            Strategy = "Default"
         };
 
         var indexContent = JsonSerializer.Serialize(updateIndex, new JsonSerializerOptions
