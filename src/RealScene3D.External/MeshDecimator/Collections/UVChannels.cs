@@ -1,4 +1,4 @@
-﻿namespace MeshDecimatorCore.Collections
+﻿namespace MeshDecimator.Collections
 {
     /// <summary>
     /// UV 通道集合。
@@ -7,15 +7,15 @@
     internal sealed class UVChannels<TVec>
     {
         #region 字段
-        private ResizableArray<TVec>[] channels = null;
-        private TVec[][] channelsData = null;
+        private ResizableArray<TVec>?[] channels = null!;
+        private TVec?[][] channelsData = null!;
         #endregion
 
         #region 属性
         /// <summary>
         /// 获取通道集合数据。
         /// </summary>
-        public TVec[][] Data
+        public TVec?[][] Data
         {
             get
             {
@@ -23,11 +23,11 @@
                 {
                     if (channels[i] != null)
                     {
-                        channelsData[i] = channels[i].Data;
+                        channelsData[i] = channels[i]!.Data;
                     }
                     else
                     {
-                        channelsData[i] = null;
+                        channelsData[i] = null!;
                     }
                 }
                 return channelsData;
@@ -38,7 +38,7 @@
         /// 获取或设置特定索引处的通道。
         /// </summary>
         /// <param name="index">通道索引。</param>
-        public ResizableArray<TVec> this[int index]
+        public ResizableArray<TVec>? this[int index]
         {
             get { return channels[index]; }
             set { channels[index] = value; }
@@ -51,8 +51,8 @@
         /// </summary>
         public UVChannels()
         {
-            channels = new ResizableArray<TVec>[Mesh.UVChannelCount];
-            channelsData = new TVec[Mesh.UVChannelCount][];
+            channels = new ResizableArray<TVec>?[Mesh.UVChannelCount];
+            channelsData = new TVec?[Mesh.UVChannelCount][];
         }
         #endregion
 
@@ -68,7 +68,7 @@
             {
                 if (channels[i] != null)
                 {
-                    channels[i].Resize(capacity, trimExess);
+                    channels[i]!.Resize(capacity, trimExess);
                 }
             }
         }

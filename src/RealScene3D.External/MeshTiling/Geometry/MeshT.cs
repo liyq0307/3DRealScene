@@ -1,6 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Globalization;
-using System.Numerics;
 using RealScene3D.MeshTiling.Algos;
 using RealScene3D.MeshTiling.Materials;
 using SixLabors.ImageSharp;
@@ -11,6 +9,9 @@ using Path = System.IO.Path;
 
 namespace RealScene3D.MeshTiling.Geometry;
 
+/// <summary>
+/// 纹理网格类，实现带有纹理坐标的网格操作，包括分割和纹理处理等功能
+/// </summary>
 public class MeshT : IMesh
 {
     private List<Vertex3> _vertices;
@@ -74,7 +75,7 @@ public class MeshT : IMesh
                 {
                     if (cSide)
                     {
-                        // All on the left
+                        // 全部在左侧
 
                         var indexALeft = leftVertices.AddIndex(vA);
                         var indexBLeft = leftVertices.AddIndex(vB);
@@ -162,7 +163,7 @@ public class MeshT : IMesh
                     }
                     else
                     {
-                        // All on the right
+                        // 全部在右侧
 
                         var indexARight = rightVertices.AddIndex(vA);
                         var indexBRight = rightVertices.AddIndex(vB);
@@ -238,32 +239,32 @@ public class MeshT : IMesh
         var indexVR1Right = rightVertices.AddIndex(vR1);
         var indexVR2Right = rightVertices.AddIndex(vR2);
 
-        // a on the left, b and c on the right
+        // a在左侧，b和c在右侧
 
-        // Prima intersezione
+        // 第一次相交
         var t1 = utils.CutEdge(vL, vR1, q);
         var indexT1Left = leftVertices.AddIndex(t1);
         var indexT1Right = rightVertices.AddIndex(t1);
 
-        // Seconda intersezione
+        // 第二次相交
         var t2 = utils.CutEdge(vL, vR2, q);
         var indexT2Left = leftVertices.AddIndex(t2);
         var indexT2Right = rightVertices.AddIndex(t2);
 
-        // Split texture
+        // 分割纹理
         var indexTextureVR1Right = rightTextureVertices.AddIndex(tVR1);
         var indexTextureVR2Right = rightTextureVertices.AddIndex(tVR2);
 
         var perc1 = Common.GetIntersectionPerc(vL, vR1, t1);
 
-        // Prima intersezione texture
+        // 第一次纹理相交
         var t1t = tVL.CutEdgePerc(tVR1, perc1);
         var indexTextureT1Left = leftTextureVertices.AddIndex(t1t);
         var indexTextureT1Right = rightTextureVertices.AddIndex(t1t);
 
         var perc2 = Common.GetIntersectionPerc(vL, vR2, t2);
 
-        // Seconda intersezione texture
+        // 第二次纹理相交
         var t2t = tVL.CutEdgePerc(tVR2, perc2);
         var indexTextureT2Left = leftTextureVertices.AddIndex(t2t);
         var indexTextureT2Right = rightTextureVertices.AddIndex(t2t);
@@ -319,32 +320,32 @@ public class MeshT : IMesh
         var indexVL1Left = leftVertices.AddIndex(vL1);
         var indexVL2Left = leftVertices.AddIndex(vL2);
 
-        // a on the right, b and c on the left
+        // a在右侧，b和c在左侧
 
-        // Prima intersezione
+        // 第一次相交
         var t1 = utils.CutEdge(vR, vL1, q);
         var indexT1Left = leftVertices.AddIndex(t1);
         var indexT1Right = rightVertices.AddIndex(t1);
 
-        // Seconda intersezione
+        // 第二次相交
         var t2 = utils.CutEdge(vR, vL2, q);
         var indexT2Left = leftVertices.AddIndex(t2);
         var indexT2Right = rightVertices.AddIndex(t2);
 
-        // Split texture
+        // 分割纹理
         var indexTextureVL1Left = leftTextureVertices.AddIndex(tVL1);
         var indexTextureVL2Left = leftTextureVertices.AddIndex(tVL2);
 
         var perc1 = Common.GetIntersectionPerc(vR, vL1, t1);
 
-        // Prima intersezione texture
+        // 第一次纹理相交
         var t1t = tVR.CutEdgePerc(tVL1, perc1);
         var indexTextureT1Left = leftTextureVertices.AddIndex(t1t);
         var indexTextureT1Right = rightTextureVertices.AddIndex(t1t);
 
         var perc2 = Common.GetIntersectionPerc(vR, vL2, t2);
 
-        // Seconda intersezione texture
+        // 第二次纹理相交
         var t2t = tVR.CutEdgePerc(tVL2, perc2);
         var indexTextureT2Left = leftTextureVertices.AddIndex(t2t);
         var indexTextureT2Right = rightTextureVertices.AddIndex(t2t);
@@ -362,9 +363,13 @@ public class MeshT : IMesh
         leftFaces.Add(lface2);
     }
 
+    /// <summary>
+    /// 修剪纹理，优化纹理布局以减少浪费
+    /// </summary>
+    /// <param name="targetFolder">目标文件夹，用于保存新的纹理文件</param>
     private void TrimTextures(string targetFolder)
     {
-        Debug.WriteLine("Trimming textures of " + Name);
+        Debug.WriteLine("修剪 " + Name + " 的纹理");
 
         var tasks = new List<Task>();
 
@@ -380,54 +385,54 @@ public class MeshT : IMesh
         {
             var material = _materials[m];
             var facesIndexes = facesByMaterial[m];
-            Debug.WriteLine($"Working on material {m} -> {material.Name}");
+            Debug.WriteLine($"处理材质 {m} -> {material.Name}");
 
             if (facesIndexes.Count == 0)
             {
-                Debug.WriteLine("No faces with this material");
+                Debug.WriteLine("此材质没有面");
                 continue;
             }
 
             sw.Restart();
 
-            Debug.WriteLine("Creating edges mapper");
+            Debug.WriteLine("创建边映射器");
             var edgesMapper = GetEdgesMapper(facesIndexes);
-            Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+            Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
             sw.Restart();
 
-            Debug.WriteLine("Creating faces mapper");
+            Debug.WriteLine("创建面映射器");
             var facesMapper = GetFacesMapper(edgesMapper);
-            Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+            Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
             sw.Restart();
 
-            Debug.WriteLine("Assembling faces clusters");
+            Debug.WriteLine("组装面簇");
             var clusters = GetFacesClusters(facesIndexes, facesMapper);
-            Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+            Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
             sw.Restart();
 
-            Debug.WriteLine("Sorting clusters");
+            Debug.WriteLine("排序簇");
 
-            // Sort clusters by count (improves packing density, could be removed if we notice a bottleneck)
+            // 按计数排序簇（提高打包密度，如果发现瓶颈可移除）
             clusters.Sort((a, b) => b.Count.CompareTo(a.Count));
-            Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+            Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
             sw.Restart();
 
-            Debug.WriteLine($"Material {material.Name} has {clusters.Count} clusters");
+            Debug.WriteLine($"材质 {material.Name} 有 {clusters.Count} 个簇");
 
-            Debug.WriteLine("Bin packing clusters");
+            Debug.WriteLine("二进制打包簇");
             BinPackTextures(targetFolder, m, clusters, newTextureVertices, tasks);
-            Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+            Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
         }
 
-        Debug.WriteLine("Sorting new texture vertices");
+        Debug.WriteLine("排序新的纹理顶点");
         sw.Restart();
         _textureVertices = newTextureVertices.OrderBy(item => item.Value).Select(item => item.Key).ToList();
-        Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+        Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
 
-        Debug.WriteLine("Waiting for save tasks to finish");
+        Debug.WriteLine("等待保存任务完成");
         sw.Restart();
         Task.WaitAll(tasks.ToArray());
-        Debug.WriteLine("Done in " + sw.ElapsedMilliseconds + "ms");
+        Debug.WriteLine("完成耗时 " + sw.ElapsedMilliseconds + "ms");
     }
 
     private void LoadTexturesCache()
@@ -455,8 +460,8 @@ public class MeshT : IMesh
         var texture = material.Texture != null ? TexturesCache.GetTexture(material.Texture) : null;
         var normalMap = material.NormalMap != null ? TexturesCache.GetTexture(material.NormalMap) : null;
 
-        int textureWidth = material.Texture != null ? texture.Width : normalMap.Width;
-        int textureHeight = material.Texture != null ? texture.Height : normalMap.Height;
+        int textureWidth = material.Texture != null ? texture!.Width : normalMap!.Width;
+        int textureHeight = material.Texture != null ? texture!.Height : normalMap!.Height;
 
         var clustersRects = clusters.Select(GetClusterRect).ToArray();
 
@@ -475,7 +480,7 @@ public class MeshT : IMesh
 
         Debug.WriteLine("Edge length: " + edgeLength);
 
-        // NOTE: We could enable rotations but it would be a bit more complex
+        // 注意：我们可以启用旋转，但这会稍微复杂一些
         var binPack = new MaxRectanglesBinPack(edgeLength, edgeLength, false);
 
         var newTexture = material.Texture != null ? new Image<Rgba32>(edgeLength, edgeLength) : null;
@@ -495,25 +500,25 @@ public class MeshT : IMesh
             double u1 = u0 + clusterBoundary.Width;
             double v1 = v0 + clusterBoundary.Height;
 
-            // ---- UDIM tile localization ----
-            // Determine which UDIM tile this cluster belongs to.
+            // ---- UDIM 图块定位 ----
+            // 确定此簇所属的UDIM图块。
             int tileU = (int)Math.Floor(u0 + 1e-4);
             int tileV = (int)Math.Floor(v0 + 1e-4);
 
-            // If a cluster spans multiple tiles, consider splitting by tile;
-            // for now we just clamp to this tile (assert/log to catch it).
+            // 如果簇跨越多个图块，请考虑按图块分割；
+            // 目前我们只是将其固定到此图块（断言/记录以捕获它）。
             if (Math.Floor(u1 - 1e-4) != tileU || Math.Floor(v1 - 1e-4) != tileV)
             {
                 Debug.WriteLine($"[UDIM] Cluster spans multiple tiles: U[{u0},{u1}] V[{v0},{v1}]");
             }
 
-            // Fractional (tile-local) UVs in [0,1]
+            // 分数（图块本地）UV在[0,1]中
             double u0f = Math.Clamp(u0 - tileU, 0.0, 1.0);
             double v0f = Math.Clamp(v0 - tileV, 0.0, 1.0);
             double u1f = Math.Clamp(u1 - tileU, 0.0, 1.0);
             double v1f = Math.Clamp(v1 - tileV, 0.0, 1.0);
 
-            // ---- Pixel-center crop in the source tile ----
+            // ---- 源图块中的像素中心裁剪 ----
             int sx = Math.Clamp((int)Math.Floor(u0f * textureWidth + 0.5), 0, textureWidth - 1);
             int ex = Math.Clamp((int)Math.Ceiling(u1f * textureWidth - 0.5), 1, textureWidth);
             int sb = Math.Clamp((int)Math.Floor(v0f * textureHeight + 0.5), 0, textureHeight - 1);
@@ -522,11 +527,11 @@ public class MeshT : IMesh
             int sw = Math.Max(1, ex - sx);
             int sh = Math.Max(1, eb - sb);
 
-            // ImageSharp uses top-left origin; OBJ UVs are bottom-left → convert Y
+            // ImageSharp使用左上角原点；OBJ UV是左下角→转换Y
             int syTL = Math.Clamp(textureHeight - eb, 0, textureHeight - sh);
             var srcRect = new Rectangle(sx, syTL, sw, sh);
 
-            // ---------- reserve atlas space WITH padding ----------
+            // ---------- 用填充保留atlas空间 ----------
             var packRect = binPack.Insert(sw + 2 * PADDING, sh + 2 * PADDING,
                                           FreeRectangleChoiceHeuristic.RectangleBestAreaFit);
 
@@ -538,15 +543,15 @@ public class MeshT : IMesh
                 normalMapFileName = material.NormalMap != null
                     ? $"{Name}-texture-normal-{material.Name}{Path.GetExtension(material.NormalMap)}" : null;
 
-                if (material.Texture != null) { 
-                    newPathTexture = Path.Combine(targetFolder, textureFileName); 
-                    newTexture.Save(newPathTexture); newTexture.Dispose(); 
+                if (material.Texture != null) {
+                    newPathTexture = Path.Combine(targetFolder, textureFileName!);
+                    newTexture!.Save(newPathTexture); newTexture!.Dispose();
                 }
 
-                if (material.NormalMap != null) { 
-                    newPathNormalMap = Path.Combine(targetFolder, normalMapFileName); 
-                    newNormalMap.Save(newPathNormalMap); 
-                    newNormalMap.Dispose(); 
+                if (material.NormalMap != null) {
+                    newPathNormalMap = Path.Combine(targetFolder, normalMapFileName!);
+                    newNormalMap!.Save(newPathNormalMap);
+                    newNormalMap!.Dispose();
                 }
 
                 // fresh atlas
@@ -579,18 +584,18 @@ public class MeshT : IMesh
 
             if (material.Texture != null)
             {
-                using var block = BuildPaddedBlock(texture, srcRect, PADDING);
-                newTexture.Mutate(c => c.DrawImage(block, new Point(destOuterX, destOuterY), 1f));
+                using var block = BuildPaddedBlock(texture!, srcRect, PADDING);
+                newTexture!.Mutate(c => c.DrawImage(block, new Point(destOuterX, destOuterY), 1f));
             }
             if (material.NormalMap != null)
             {
-                using var blockN = BuildPaddedBlock(normalMap, srcRect, PADDING);
-                newNormalMap.Mutate(c => c.DrawImage(blockN, new Point(destOuterX, destOuterY), 1f));
+                using var blockN = BuildPaddedBlock(normalMap!, srcRect, PADDING);
+                newNormalMap!.Mutate(c => c.DrawImage(blockN, new Point(destOuterX, destOuterY), 1f));
             }
 
-            // Inner rect size in pixels
-            double innerWpx = sw;                 // crop width
-            double innerHpx = sh;                 // crop height
+            // 内部矩形尺寸，以像素为单位
+            double innerWpx = sw;                 // 裁剪宽度
+            double innerHpx = sh;                 // 裁剪高度
 
             double atlasU0 = destInnerX / (double)edgeLength;
             double atlasV0 = (edgeLength - (destInnerY + sh)) / (double)edgeLength;
@@ -610,7 +615,7 @@ public class MeshT : IMesh
                 var vtB = _textureVertices[face.TextureIndexB];
                 var vtC = _textureVertices[face.TextureIndexC];
 
-                // chart-local [0..1] (avoid mixing full-texture scales)
+                // 图表本地[0..1]（避免混合完整纹理尺度）
                 double rxA = (vtA.X - u0) / Math.Max(u1 - u0, double.Epsilon);
                 double ryA = (vtA.Y - v0) / Math.Max(v1 - v0, double.Epsilon);
                 double rxB = (vtB.X - u0) / Math.Max(u1 - u0, double.Epsilon);
@@ -633,7 +638,7 @@ public class MeshT : IMesh
             }
         }
 
-        // ---------- saving (unchanged) ----------
+        // ---------- 保存（未更改）----------
         if (material.Texture != null)
         {
             textureFileName = TexturesStrategy == TexturesStrategy.Repack
@@ -655,12 +660,12 @@ public class MeshT : IMesh
             var tx = t as Image<Rgba32>;
             switch (TexturesStrategy)
             {
-                case TexturesStrategy.RepackCompressed: tx.SaveAsJpeg(newPathTexture, encoder); break;
-                case TexturesStrategy.Repack: tx.Save(newPathTexture); break;
+                case TexturesStrategy.RepackCompressed: tx!.SaveAsJpeg(newPathTexture!, encoder); break;
+                case TexturesStrategy.Repack: tx!.Save(newPathTexture!); break;
                 default: throw new InvalidOperationException("KeepOriginal/Compress are meaningless here");
             }
             Debug.WriteLine("Saved texture to " + newPathTexture);
-            tx.Dispose();
+            tx!.Dispose();
         }, newTexture, TaskCreationOptions.LongRunning);
 
         var saveTaskNormalMap = new Task(t =>
@@ -668,12 +673,12 @@ public class MeshT : IMesh
             var tx = t as Image<Rgba32>;
             switch (TexturesStrategy)
             {
-                case TexturesStrategy.RepackCompressed: tx.SaveAsJpeg(newPathNormalMap, encoder); break;
-                case TexturesStrategy.Repack: tx.Save(newPathNormalMap); break;
+                case TexturesStrategy.RepackCompressed: tx!.SaveAsJpeg(newPathNormalMap!, encoder); break;
+                case TexturesStrategy.Repack: tx!.Save(newPathNormalMap!); break;
                 default: throw new InvalidOperationException("KeepOriginal/Compress are meaningless here");
             }
             Debug.WriteLine("Saved texture to " + newPathNormalMap);
-            tx.Dispose();
+            tx!.Dispose();
         }, newNormalMap, TaskCreationOptions.LongRunning);
 
         if (material.Texture != null) { 
@@ -690,15 +695,17 @@ public class MeshT : IMesh
         }
     }
 
-    // Adds bleed padding to each chart when estimating total area and max dims.
+    /// <summary>
+    /// 在估算总面积和最大尺寸时，为每个图表添加出血填充
+    /// </summary>
     private void CalculateMaxMinAreaRect(
         RectangleF[] clustersRects,
         int textureWidth,
         int textureHeight,
-        int paddingPx,                        // <-- NEW
-        out double maxWidth,                  // pixels (already padded)
-        out double maxHeight,                 // pixels (already padded)
-        out double textureArea)               // pixels^2 (sum of padded chart areas)
+        int paddingPx,                        // <-- 新增
+        out double maxWidth,                  // 像素（已填充）
+        out double maxHeight,                 // 像素（已填充）
+        out double textureArea)               // 像素^2（填充图表面积的总和）
     {
         long areaPx = 0;
         int maxW = 0;
@@ -708,11 +715,11 @@ public class MeshT : IMesh
         {
             var rect = clustersRects[index];
 
-            // Chart size in pixels from UV fraction
+            // 从UV分数计算图表在像素中的尺寸
             int w = Math.Max(1, (int)Math.Ceiling(rect.Width * textureWidth));
             int h = Math.Max(1, (int)Math.Ceiling(rect.Height * textureHeight));
 
-            // Add padding on both sides
+            // 在两侧添加填充
             int wPad = Math.Max(1, w + 2 * paddingPx);
             int hPad = Math.Max(1, h + 2 * paddingPx);
 
@@ -721,14 +728,14 @@ public class MeshT : IMesh
             if (hPad > maxH) maxH = hPad;
         }
 
-        maxWidth = maxW;          // already in pixels (no further multiply)
-        maxHeight = maxH;         // already in pixels (no further multiply)
-        textureArea = areaPx;     // in pixels^2
+        maxWidth = maxW;          // 已为像素（不再进一步相乘）
+        maxHeight = maxH;         // 已为像素（不再进一步相乘）
+        textureArea = areaPx;     // 像素^2
     }
 
 
     /// <summary>
-    /// Calculates the bounding box of a set of points.
+    /// 计算一组点的包围盒。
     /// </summary>
     /// <param name="cluster"></param>
     /// <returns></returns>
@@ -755,6 +762,11 @@ public class MeshT : IMesh
         return new RectangleF((float)minX, (float)minY, (float)(maxX - minX), (float)(maxY - minY));
     }
 
+    /// <summary>
+    /// 获取纹理区域面积
+    /// </summary>
+    /// <param name="facesIndexes">面索引列表</param>
+    /// <returns>纹理区域面积</returns>
     private double GetTextureArea(IReadOnlyList<int> facesIndexes)
     {
         double area = 0;
@@ -908,6 +920,9 @@ public class MeshT : IMesh
 
     #region Utils
 
+    /// <summary>
+    /// 获取网格的包围盒
+    /// </summary>
     public Box3 Bounds
     {
         get
@@ -960,7 +975,7 @@ public class MeshT : IMesh
         y /= _faces.Count;
         z /= _faces.Count;
 
-        // Calculate x, y and z angles
+        // 计算x、y和z角度
         var xAngle = Math.Atan2(y, z);
         var yAngle = Math.Atan2(x, z);
         var zAngle = Math.Atan2(y, x);
@@ -1182,7 +1197,7 @@ public class MeshT : IMesh
                 into g
                                 select g;
 
-            // NOTE: If there are groups of faces without materials, they must be placed at the beginning
+            // 注意：如果有无材质的面组，它们必须放在开头
             foreach (var grp in materialFaces.OrderBy(item => item.Key))
             {
                 writer.WriteLine($"usemtl {_materials[grp.Key].Name}");

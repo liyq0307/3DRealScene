@@ -3,7 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RealScene3D.Domain\RealScene3D.Domain.csproj" />
     <ProjectReference Include="..\RealScene3D.Infrastructure\RealScene3D.Infrastructure.csproj" />
-    <ProjectReference Include="..\RealScene3D.External\MeshDecimatorCore\MeshDecimatorCore.csproj" />
+    <ProjectReference Include="..\RealScene3D.External\MeshDecimator\MeshDecimator.csproj" />
     <ProjectReference Include="..\RealScene3D.External\MeshTiling\RealScene3D.MeshTiling.csproj" />
   </ItemGroup>
 

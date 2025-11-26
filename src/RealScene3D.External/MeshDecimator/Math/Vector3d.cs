@@ -1,102 +1,76 @@
-﻿#region License
-/*
-MIT License
+﻿using System.Globalization;
 
-Copyright(c) 2017-2018 Mattias Edlund
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-#endregion
-
-using System.Globalization;
-
-namespace MeshDecimatorCore.Math
+namespace MeshDecimator.Math
 {
     /// <summary>
-    /// 单精度 3D 向量。
+    /// A double precision 3D vector.
     /// </summary>
-    public struct Vector3 : IEquatable<Vector3>
+    public struct Vector3d : IEquatable<Vector3d>
     {
-        #region 静态只读
+        #region 静态 Read-Only
         /// <summary>
         /// 零向量。
         /// </summary>
-        public static readonly Vector3 zero = new Vector3(0, 0, 0);
+        public static readonly Vector3d zero = new Vector3d(0, 0, 0);
         #endregion
 
         #region 常量
         /// <summary>
-        /// 向量 epsilon。
+        /// 向量 epsilon 值。
         /// </summary>
-        public const float Epsilon = 9.99999944E-11f;
+        public const double Epsilon = double.Epsilon;
         #endregion
 
         #region 字段
         /// <summary>
         /// x 分量。
         /// </summary>
-        public float x;
+        public double x;
         /// <summary>
         /// y 分量。
         /// </summary>
-        public float y;
+        public double y;
         /// <summary>
         /// z 分量。
         /// </summary>
-        public float z;
+        public double z;
         #endregion
 
         #region 属性
         /// <summary>
-        /// 获取此向量的大小。
+        /// 获取此向量的模。
         /// </summary>
-        public float Magnitude
+        public double Magnitude
         {
-            get { return (float)System.Math.Sqrt(x * x + y * y + z * z); }
+            get { return System.Math.Sqrt(x * x + y * y + z * z); }
         }
 
         /// <summary>
-        /// 获取此向量的平方大小。
+        /// 获取此向量的平方模。
         /// </summary>
-        public float MagnitudeSqr
+        public double MagnitudeSqr
         {
             get { return (x * x + y * y + z * z); }
         }
 
         /// <summary>
-        /// 从此向量获取归一化向量。
+        /// 获取此向量的归一化向量。
         /// </summary>
-        public Vector3 Normalized
+        public Vector3d Normalized
         {
             get
             {
-                Vector3 result;
+                Vector3d result;
                 Normalize(ref this, out result);
                 return result;
             }
         }
 
         /// <summary>
-        /// 获取或设置此向量中特定索引处的分量。
+        /// 通过索引获取或设置此向量中的特定分量。
         /// </summary>
         /// <param name="index">分量索引。</param>
-        public float this[int index]
+        public double this[int index]
         {
             get
             {
@@ -109,7 +83,7 @@ namespace MeshDecimatorCore.Math
                     case 2:
                         return z;
                     default:
-                        throw new IndexOutOfRangeException("Invalid Vector3 index!");
+                        throw new IndexOutOfRangeException("Invalid Vector3d index!");
                 }
             }
             set
@@ -126,7 +100,7 @@ namespace MeshDecimatorCore.Math
                         z = value;
                         break;
                     default:
-                        throw new IndexOutOfRangeException("Invalid Vector3 index!");
+                        throw new IndexOutOfRangeException("Invalid Vector3d index!");
                 }
             }
         }
@@ -134,10 +108,10 @@ namespace MeshDecimatorCore.Math
 
         #region 构造函数
         /// <summary>
-        /// 创建一个新的向量，所有分量都使用相同的值。
+        /// 创建一个所有分量值相同的新向量。
         /// </summary>
         /// <param name="value">值。</param>
-        public Vector3(float value)
+        public Vector3d(double value)
         {
             this.x = value;
             this.y = value;
@@ -145,12 +119,12 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// 创建一个新的向量。
+        /// 创建一个新向量。
         /// </summary>
         /// <param name="x">x 值。</param>
         /// <param name="y">y 值。</param>
         /// <param name="z">z 值。</param>
-        public Vector3(float x, float y, float z)
+        public Vector3d(double x, double y, double z)
         {
             this.x = x;
             this.y = y;
@@ -158,38 +132,38 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// 从双精度向量创建一个新的向量。
+        /// 从单精度向量创建新向量。
         /// </summary>
-        /// <param name="vector">双精度向量。</param>
-        public Vector3(Vector3d vector)
+        /// <param name="vector">单精度向量。</param>
+        public Vector3d(Vector3 vector)
         {
-            this.x = (float)vector.x;
-            this.y = (float)vector.y;
-            this.z = (float)vector.z;
+            this.x = vector.x;
+            this.y = vector.y;
+            this.z = vector.z;
         }
         #endregion
 
         #region 运算符
         /// <summary>
-        /// 将两个向量相加。
+        /// 两个向量相加。
         /// </summary>
         /// <param name="a">第一个向量。</param>
         /// <param name="b">第二个向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector3 operator +(Vector3 a, Vector3 b)
+        public static Vector3d operator +(Vector3d a, Vector3d b)
         {
-            return new Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
+            return new Vector3d(a.x + b.x, a.y + b.y, a.z + b.z);
         }
 
         /// <summary>
-        /// 将两个向量相减。
+        /// 两个向量相减。
         /// </summary>
         /// <param name="a">第一个向量。</param>
         /// <param name="b">第二个向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector3 operator -(Vector3 a, Vector3 b)
+        public static Vector3d operator -(Vector3d a, Vector3d b)
         {
-            return new Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+            return new Vector3d(a.x - b.x, a.y - b.y, a.z - b.z);
         }
 
         /// <summary>
@@ -198,9 +172,9 @@ namespace MeshDecimatorCore.Math
         /// <param name="a">向量。</param>
         /// <param name="d">缩放值。</param>
         /// <returns>结果向量。</returns>
-        public static Vector3 operator *(Vector3 a, float d)
+        public static Vector3d operator *(Vector3d a, double d)
         {
-            return new Vector3(a.x * d, a.y * d, a.z * d);
+            return new Vector3d(a.x * d, a.y * d, a.z * d);
         }
 
         /// <summary>
@@ -209,30 +183,30 @@ namespace MeshDecimatorCore.Math
         /// <param name="d">缩放值。</param>
         /// <param name="a">向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector3 operator *(float d, Vector3 a)
+        public static Vector3d operator *(double d, Vector3d a)
         {
-            return new Vector3(a.x * d, a.y * d, a.z * d);
+            return new Vector3d(a.x * d, a.y * d, a.z * d);
         }
 
         /// <summary>
-        /// 用浮点数除以向量。
+        /// 用浮点数除向量。
         /// </summary>
         /// <param name="a">向量。</param>
-        /// <param name="d">用于除法的浮点值。</param>
+        /// <param name="d">除数浮点值。</param>
         /// <returns>结果向量。</returns>
-        public static Vector3 operator /(Vector3 a, float d)
+        public static Vector3d operator /(Vector3d a, double d)
         {
-            return new Vector3(a.x / d, a.y / d, a.z / d);
+            return new Vector3d(a.x / d, a.y / d, a.z / d);
         }
 
         /// <summary>
-        /// 从零向量中减去向量。
+        /// 从零向量中减去该向量。
         /// </summary>
         /// <param name="a">向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector3 operator -(Vector3 a)
+        public static Vector3d operator -(Vector3d a)
         {
-            return new Vector3(-a.x, -a.y, -a.z);
+            return new Vector3d(-a.x, -a.y, -a.z);
         }
 
         /// <summary>
@@ -240,8 +214,8 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
-        /// <returns>如果相等则返回true。</returns>
-        public static bool operator ==(Vector3 lhs, Vector3 rhs)
+        /// <returns>If equals.</returns>
+        public static bool operator ==(Vector3d lhs, Vector3d rhs)
         {
             return (lhs - rhs).MagnitudeSqr < Epsilon;
         }
@@ -251,28 +225,28 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
-        /// <returns>如果不相等则返回true。</returns>
-        public static bool operator !=(Vector3 lhs, Vector3 rhs)
+        /// <returns>If not equals.</returns>
+        public static bool operator !=(Vector3d lhs, Vector3d rhs)
         {
             return (lhs - rhs).MagnitudeSqr >= Epsilon;
         }
 
         /// <summary>
-        /// 显式地将双精度向量转换为单精度向量。
+        /// 隐式将单精度向量转换为双精度向量。
         /// </summary>
-        /// <param name="v">双精度向量。</param>
-        public static explicit operator Vector3(Vector3d v)
+        /// <param name="v">单精度向量。</param>
+        public static implicit operator Vector3d(Vector3 v)
         {
-            return new Vector3((float)v.x, (float)v.y, (float)v.z);
+            return new Vector3d(v.x, v.y, v.z);
         }
 
         /// <summary>
-        /// 隐式地将整数向量转换为单精度向量。
+        /// 隐式将整数向量转换为双精度向量。
         /// </summary>
         /// <param name="v">整数向量。</param>
-        public static implicit operator Vector3(Vector3i v)
+        public static implicit operator Vector3d(Vector3i v)
         {
-            return new Vector3(v.x, v.y, v.z);
+            return new Vector3d(v.x, v.y, v.z);
         }
         #endregion
 
@@ -284,7 +258,7 @@ namespace MeshDecimatorCore.Math
         /// <param name="x">x 值。</param>
         /// <param name="y">y 值。</param>
         /// <param name="z">z 值。</param>
-        public void Set(float x, float y, float z)
+        public void Set(double x, double y, double z)
         {
             this.x = x;
             this.y = y;
@@ -292,10 +266,10 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// 按分量与另一个向量相乘。
+        /// 与另一个向量按分量相乘。
         /// </summary>
         /// <param name="scale">要相乘的向量。</param>
-        public void Scale(ref Vector3 scale)
+        public void Scale(ref Vector3d scale)
         {
             x *= scale.x;
             y *= scale.y;
@@ -307,7 +281,7 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         public void Normalize()
         {
-            float mag = this.Magnitude;
+            double mag = this.Magnitude;
             if (mag > Epsilon)
             {
                 x /= mag;
@@ -325,7 +299,7 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         /// <param name="min">最小分量值。</param>
         /// <param name="max">最大分量值。</param>
-        public void Clamp(float min, float max)
+        public void Clamp(double min, double max)
         {
             if (x < min) x = min;
             else if (x > max) x = max;
@@ -342,7 +316,7 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 返回此向量的哈希码。
         /// </summary>
-        /// <returns>哈希码。</returns>
+        /// <returns>The hash code.</returns>
         public override int GetHashCode()
         {
             return x.GetHashCode() ^ y.GetHashCode() << 2 ^ z.GetHashCode() >> 2;
@@ -352,14 +326,14 @@ namespace MeshDecimatorCore.Math
         /// 返回此向量是否等于另一个向量。
         /// </summary>
         /// <param name="other">要比较的另一个向量。</param>
-        /// <returns>如果相等则返回true。</returns>
-        public override bool Equals(object other)
+        /// <returns>If equals.</returns>
+        public override bool Equals(object? other)
         {
-            if (!(other is Vector3))
+            if (!(other is Vector3d))
             {
                 return false;
             }
-            Vector3 vector = (Vector3)other;
+            Vector3d vector = (Vector3d)other;
             return (x == vector.x && y == vector.y && z == vector.z);
         }
 
@@ -367,8 +341,8 @@ namespace MeshDecimatorCore.Math
         /// 返回此向量是否等于另一个向量。
         /// </summary>
         /// <param name="other">要比较的另一个向量。</param>
-        /// <returns>如果相等则返回true。</returns>
-        public bool Equals(Vector3 other)
+        /// <returns>If equals.</returns>
+        public bool Equals(Vector3d other)
         {
             return (x == other.x && y == other.y && z == other.z);
         }
@@ -376,7 +350,7 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 返回此向量的格式化字符串。
         /// </summary>
-        /// <returns>字符串。</returns>
+        /// <returns>The string.</returns>
         public override string ToString()
         {
             return string.Format("({0}, {1}, {2})",
@@ -388,8 +362,8 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 返回此向量的格式化字符串。
         /// </summary>
-        /// <param name="format">浮点数格式。</param>
-        /// <returns>字符串。</returns>
+        /// <param name="format">浮点格式。</param>
+        /// <returns>The string.</returns>
         public string ToString(string format)
         {
             return string.Format("({0}, {1}, {2})",
@@ -399,13 +373,13 @@ namespace MeshDecimatorCore.Math
         }
         #endregion
 
-        #region 静态方法
+        #region 静态
         /// <summary>
         /// 两个向量的点积。
         /// </summary>
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
-        public static float Dot(ref Vector3 lhs, ref Vector3 rhs)
+        public static double Dot(ref Vector3d lhs, ref Vector3d rhs)
         {
             return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
         }
@@ -416,76 +390,63 @@ namespace MeshDecimatorCore.Math
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
         /// <param name="result">结果向量。</param>
-        public static void Cross(ref Vector3 lhs, ref Vector3 rhs, out Vector3 result)
+        public static void Cross(ref Vector3d lhs, ref Vector3d rhs, out Vector3d result)
         {
-            result = new Vector3(lhs.y * rhs.z - lhs.z * rhs.y, lhs.z * rhs.x - lhs.x * rhs.z, lhs.x * rhs.y - lhs.y * rhs.x);
+            result = new Vector3d(lhs.y * rhs.z - lhs.z * rhs.y, lhs.z * rhs.x - lhs.x * rhs.z, lhs.x * rhs.y - lhs.y * rhs.x);
         }
 
         /// <summary>
-        /// 计算两个向量之间的角度。
+        /// 计算两个向量之间的夹角。
         /// </summary>
         /// <param name="from">起始向量。</param>
         /// <param name="to">目标向量。</param>
-        /// <returns>角度。</returns>
-        public static float Angle(ref Vector3 from, ref Vector3 to)
+        /// <returns>The angle.</returns>
+        public static double Angle(ref Vector3d from, ref Vector3d to)
         {
-            Vector3 fromNormalized = from.Normalized;
-            Vector3 toNormalized = to.Normalized;
-            return (float)System.Math.Acos(MathHelper.Clamp(Vector3.Dot(ref fromNormalized, ref toNormalized), -1f, 1f)) * MathHelper.Rad2Deg;
+            Vector3d fromNormalized = from.Normalized;
+            Vector3d toNormalized = to.Normalized;
+            return System.Math.Acos(MathHelper.Clamp(Vector3d.Dot(ref fromNormalized, ref toNormalized), -1.0, 1.0)) * MathHelper.Rad2Degd;
         }
 
         /// <summary>
         /// 在两个向量之间执行线性插值。
         /// </summary>
-        /// <param name="a">插值起始向量。</param>
-        /// <param name="b">插值目标向量。</param>
+        /// <param name="a">起始插值向量。</param>
+        /// <param name="b">目标插值向量。</param>
         /// <param name="t">时间分数。</param>
         /// <param name="result">结果向量。</param>
-        public static void Lerp(ref Vector3 a, ref Vector3 b, float t, out Vector3 result)
+        public static void Lerp(ref Vector3d a, ref Vector3d b, double t, out Vector3d result)
         {
-            result = new Vector3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+            result = new Vector3d(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
         }
 
         /// <summary>
-        /// 按分量相乘两个向量。
+        /// 两个向量按分量相乘。
         /// </summary>
         /// <param name="a">第一个向量。</param>
         /// <param name="b">第二个向量。</param>
         /// <param name="result">结果向量。</param>
-        public static void Scale(ref Vector3 a, ref Vector3 b, out Vector3 result)
+        public static void Scale(ref Vector3d a, ref Vector3d b, out Vector3d result)
         {
-            result = new Vector3(a.x * b.x, a.y * b.y, a.z * b.z);
+            result = new Vector3d(a.x * b.x, a.y * b.y, a.z * b.z);
         }
 
         /// <summary>
         /// 归一化向量。
         /// </summary>
         /// <param name="value">要归一化的向量。</param>
-        /// <param name="result">归一化后的结果向量。</param>
-        public static void Normalize(ref Vector3 value, out Vector3 result)
+        /// <param name="result">结果归一化向量。</param>
+        public static void Normalize(ref Vector3d value, out Vector3d result)
         {
-            float mag = value.Magnitude;
+            double mag = value.Magnitude;
             if (mag > Epsilon)
             {
-                result = new Vector3(value.x / mag, value.y / mag, value.z / mag);
+                result = new Vector3d(value.x / mag, value.y / mag, value.z / mag);
             }
             else
             {
-                result = Vector3.zero;
+                result = Vector3d.zero;
             }
-        }
-
-        /// <summary>
-        /// 归一化两个向量并使它们彼此正交。
-        /// </summary>
-        /// <param name="normal">法线向量。</param>
-        /// <param name="tangent">切线。</param>
-        public static void OrthoNormalize(ref Vector3 normal, ref Vector3 tangent)
-        {
-            normal.Normalize();
-            Vector3 proj = normal * Vector3.Dot(ref tangent, ref normal);
-            tangent -= proj;
-            tangent.Normalize();
         }
         #endregion
         #endregion

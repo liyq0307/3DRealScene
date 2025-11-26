@@ -1,61 +1,26 @@
-﻿#region License
-/*
-MIT License
+﻿using MeshDecimator.Math;
+using MeshDecimator.Collections;
 
-Copyright(c) 2017-2018 Mattias Edlund
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-#endregion
-
-#region Original License
-/////////////////////////////////////////////
-//
-// Mesh Simplification Tutorial
-//
-// (C) by Sven Forstmann in 2014
-//
-// License : MIT
-// http://opensource.org/licenses/MIT
-//
-//https://github.com/sp4cerat/Fast-Quadric-Mesh-Simplification
-#endregion
-
-using MeshDecimatorCore.Collections;
-using MeshDecimatorCore.Math;
-
-namespace MeshDecimatorCore.Algorithms
+namespace MeshDecimator.Algorithms
 {
     /// <summary>
     /// 快速四元网格简化算法。
+    /// 基于 Garland 和 Heckbert 的论文 "Surface Simplification Using Quadric Error Metrics"。
+    /// 参考：https://github.com/sp4cerat/Fast-Quadric-Mesh-Simplification
+    /// 该实现经过优化以提高性能和内存效率。
+    /// 注意：此算法假设输入网格为三角形网格。
     /// </summary>
     public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
     {
-        #region Consts
+        #region 常量
         private const double DoubleEpsilon = 1.0E-3;
         #endregion
 
-        #region Classes
-        #region Triangle
+        #region 类
+        #region 三角形
         private struct Triangle
         {
-            #region Fields
+            #region 字段
             public int v0;
             public int v1;
             public int v2;
@@ -75,7 +40,7 @@ namespace MeshDecimatorCore.Algorithms
             public Vector3d n;
             #endregion
 
-            #region Properties
+            #region 属性
             public int this[int index]
             {
                 get
@@ -102,7 +67,7 @@ namespace MeshDecimatorCore.Algorithms
             }
             #endregion
 
-            #region Constructor
+            #region 构造函数
             public Triangle(int v0, int v1, int v2, int subMeshIndex)
             {
                 this.v0 = v0;
@@ -120,7 +85,7 @@ namespace MeshDecimatorCore.Algorithms
             }
             #endregion
 
-            #region Public Methods
+            #region 公共方法
             public void GetAttributeIndices(int[] attributeIndices)
             {
                 attributeIndices[0] = va0;
@@ -156,7 +121,7 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Vertex
+        #region 顶点
         private struct Vertex
         {
             public Vector3d p;
@@ -180,7 +145,7 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Ref
+        #region 引用
         private struct Ref
         {
             public int tid;
@@ -194,7 +159,7 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Border Vertex
+        #region 边界顶点
         private struct BorderVertex
         {
             public int index;
@@ -208,7 +173,7 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Border Vertex Comparer
+        #region 边界顶点 Comparer
         private class BorderVertexComparer : IComparer<BorderVertex>
         {
             public static readonly BorderVertexComparer instance = new BorderVertexComparer();
@@ -221,7 +186,7 @@ namespace MeshDecimatorCore.Algorithms
         #endregion
         #endregion
 
-        #region Fields
+        #region 字段
 
         private bool preserveFoldovers = false;
         private bool enableSmartLink = true;
@@ -230,17 +195,17 @@ namespace MeshDecimatorCore.Algorithms
         private double vertexLinkDistanceSqr = double.Epsilon;
 
         private int subMeshCount = 0;
-        private ResizableArray<Triangle> triangles = null;
-        private ResizableArray<Vertex> vertices = null;
-        private ResizableArray<Ref> refs = null;
+        private ResizableArray<Triangle> triangles = null!;
+        private ResizableArray<Vertex> vertices = null!;
+        private ResizableArray<Ref> refs = null!;
 
-        private ResizableArray<Vector3> vertNormals = null;
-        private ResizableArray<Vector4> vertTangents = null;
-        private UVChannels<Vector2> vertUV2D = null;
-        private UVChannels<Vector3> vertUV3D = null;
-        private UVChannels<Vector4> vertUV4D = null;
-        private ResizableArray<Vector4> vertColors = null;
-        private ResizableArray<BoneWeight> vertBoneWeights = null;
+        private ResizableArray<Vector3>? vertNormals = null;
+        private ResizableArray<Vector4>? vertTangents = null;
+        private UVChannels<Vector2>? vertUV2D = null;
+        private UVChannels<Vector3>? vertUV3D = null;
+        private UVChannels<Vector4>? vertUV4D = null;
+        private ResizableArray<Vector4>? vertColors = null;
+        private ResizableArray<BoneWeight>? vertBoneWeights = null;
 
         private int remainingVertices = 0;
 
@@ -272,7 +237,7 @@ namespace MeshDecimatorCore.Algorithms
 
         #region 私有方法
         #region 初始化顶点属性
-        private ResizableArray<T> InitializeVertexAttribute<T>(T[] attributeValues, string attributeName)
+        private ResizableArray<T>? InitializeVertexAttribute<T>(T[]? attributeValues, string attributeName)
         {
             if (attributeValues != null && attributeValues.Length == vertices.Length)
             {
@@ -292,8 +257,8 @@ namespace MeshDecimatorCore.Algorithms
         #region 计算误差
         private double VertexError(ref SymmetricMatrix q, double x, double y, double z)
         {
-            return  q.m0*x*x + 2*q.m1*x*y + 2*q.m2*x*z + 2*q.m3*x + q.m4*y*y
-                + 2*q.m5*y*z + 2*q.m6*y +     q.m7*z*z + 2*q.m8*z + q.m9;
+            return q.m0 * x * x + 2 * q.m1 * x * y + 2 * q.m2 * x * z + 2 * q.m3 * x + q.m4 * y * y
+                + 2 * q.m5 * y * z + 2 * q.m6 * y + q.m7 * z * z + 2 * q.m8 * z + q.m9;
         }
 
         private double CalculateError(ref Vertex vert0, ref Vertex vert1, out Vector3d result, out int resultIndex)
@@ -939,7 +904,7 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Update References
+        #region 更新引用
         private void UpdateReferences()
         {
             int triangleCount = this.triangles.Length;
@@ -1000,9 +965,9 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Compact Mesh
+        #region 压缩网格
         /// <summary>
-        /// Finally compact mesh before exiting.
+        /// 在退出前最终压缩网格。
         /// </summary>
         private void CompactMesh()
         {
@@ -1140,23 +1105,23 @@ namespace MeshDecimatorCore.Algorithms
 
             vertexCount = dst;
             this.vertices.Resize(vertexCount);
-            if (vertNormals != null) this.vertNormals.Resize(vertexCount, true);
-            if (vertTangents != null) this.vertTangents.Resize(vertexCount, true);
-            if (vertUV2D != null) this.vertUV2D.Resize(vertexCount, true);
-            if (vertUV3D != null) this.vertUV3D.Resize(vertexCount, true);
-            if (vertUV4D != null) this.vertUV4D.Resize(vertexCount, true);
-            if (vertColors != null) this.vertColors.Resize(vertexCount, true);
-            if (vertBoneWeights != null) this.vertBoneWeights.Resize(vertexCount, true);
+            if (vertNormals != null) this.vertNormals!.Resize(vertexCount, true);
+            if (vertTangents != null) this.vertTangents!.Resize(vertexCount, true);
+            if (vertUV2D != null) this.vertUV2D!.Resize(vertexCount, true);
+            if (vertUV3D != null) this.vertUV3D!.Resize(vertexCount, true);
+            if (vertUV4D != null) this.vertUV4D!.Resize(vertexCount, true);
+            if (vertColors != null) this.vertColors!.Resize(vertexCount, true);
+            if (vertBoneWeights != null) this.vertBoneWeights!.Resize(vertexCount, true);
         }
         #endregion
         #endregion
 
-        #region Public Methods
-        #region Initialize
+        #region 公共方法
+        #region 初始化
         /// <summary>
-        /// Initializes the algorithm with the original mesh.
+        /// 使用原始网格初始化算法。
         /// </summary>
-        /// <param name="mesh">The mesh.</param>
+        /// <param name="mesh">网格。</param>
         public override void Initialize(Mesh mesh)
         {
             if (mesh == null)
@@ -1232,11 +1197,11 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Decimate Mesh
+        #region 简化网格
         /// <summary>
-        /// Decimates the mesh.
+        /// 简化网格。
         /// </summary>
-        /// <param name="targetTrisCount">The target triangle count.</param>
+        /// <param name="targetTrisCount">目标三角形数量。</param>
         public override void DecimateMesh(int targetTrisCount)
         {
             if (targetTrisCount < 0)
@@ -1294,9 +1259,9 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region Decimate Mesh Lossless
+        #region 简化网格 Lossless
         /// <summary>
-        /// Decimates the mesh without losing any quality.
+        /// 在不损失任何质量的情况下简化网格。
         /// </summary>
         public override void DecimateMeshLossless()
         {
@@ -1311,7 +1276,7 @@ namespace MeshDecimatorCore.Algorithms
             ReportStatus(0, startTrisCount, startTrisCount, -1);
             for (int iteration = 0; iteration < 9999; iteration++)
             {
-                // Update mesh constantly
+                // 持续更新网格
                 UpdateMesh(iteration);
                 triangles = this.triangles.Data;
                 triangleCount = this.triangles.Length;
@@ -1349,11 +1314,11 @@ namespace MeshDecimatorCore.Algorithms
         }
         #endregion
 
-        #region To Mesh
+        #region 转换为网格
         /// <summary>
-        /// Returns the resulting mesh.
+        /// 返回结果网格。
         /// </summary>
-        /// <returns>The resulting mesh.</returns>
+        /// <returns>结果网格。</returns>
         public override Mesh ToMesh()
         {
             int vertexCount = this.vertices.Length;
@@ -1443,7 +1408,7 @@ namespace MeshDecimatorCore.Algorithms
                 {
                     if (vertUV2D[i] != null)
                     {
-                        var uvSet = vertUV2D[i].Data;
+                        var uvSet = vertUV2D[i]!.Data;
                         newMesh.SetUVs(i, uvSet);
                     }
                 }
@@ -1455,7 +1420,7 @@ namespace MeshDecimatorCore.Algorithms
                 {
                     if (vertUV3D[i] != null)
                     {
-                        var uvSet = vertUV3D[i].Data;
+                        var uvSet = vertUV3D[i]!.Data;
                         newMesh.SetUVs(i, uvSet);
                     }
                 }
@@ -1467,7 +1432,7 @@ namespace MeshDecimatorCore.Algorithms
                 {
                     if (vertUV4D[i] != null)
                     {
-                        var uvSet = vertUV4D[i].Data;
+                        var uvSet = vertUV4D[i]!.Data;
                         newMesh.SetUVs(i, uvSet);
                     }
                 }

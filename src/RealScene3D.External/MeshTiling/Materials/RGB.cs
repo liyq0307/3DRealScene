@@ -1,6 +1,4 @@
-﻿using System.Globalization;
-
-namespace RealScene3D.MeshTiling.Materials;
+﻿namespace RealScene3D.MeshTiling.Materials;
 
 public class RGB
 {

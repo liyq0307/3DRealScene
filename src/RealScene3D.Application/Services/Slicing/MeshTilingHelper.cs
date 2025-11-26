@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
 using RealScene3D.MeshTiling.Geometry;
 
@@ -19,49 +18,46 @@ public static class MeshTilingHelper
     {
         var vertices = new List<Vertex3>();
         var uvs = new List<Vertex2>();
-        var normals = new List<Vertex3>();
         var faces = new List<FaceT>();
-        var meshMaterials = new Dictionary<string, RealScene3D.MeshTiling.Materials.Material>();
 
-        // 构建映射表（去重）
+        // 建立材质名称到索引的映射
+        var materialNameToIndex = new Dictionary<string, int>();
+        var meshMaterials = new List<MeshTiling.Materials.Material>();
+
+        foreach (var (name, mat) in materials)
+        {
+            materialNameToIndex[name] = meshMaterials.Count;
+            meshMaterials.Add(ConvertMaterial(mat));
+        }
+
+        // 构建顶点和UV映射表（去重）
         var vertexMap = new Dictionary<Vector3D, int>();
         var uvMap = new Dictionary<(double, double), int>();
-        var normalMap = new Dictionary<Vector3D, int>();
 
         foreach (var tri in triangles)
         {
             // 添加顶点
-            int v1 = AddVertex(tri.Vertex1, vertices, vertexMap);
-            int v2 = AddVertex(tri.Vertex2, vertices, vertexMap);
-            int v3 = AddVertex(tri.Vertex3, vertices, vertexMap);
+            int v1 = AddVertex(tri.V1, vertices, vertexMap);
+            int v2 = AddVertex(tri.V2, vertices, vertexMap);
+            int v3 = AddVertex(tri.V3, vertices, vertexMap);
 
             // 添加UV
             int uv1 = AddUV(tri.UV1, uvs, uvMap);
             int uv2 = AddUV(tri.UV2, uvs, uvMap);
             int uv3 = AddUV(tri.UV3, uvs, uvMap);
 
-            // 添加法线
-            int n1 = AddNormal(tri.Normal1, normals, normalMap);
-            int n2 = AddNormal(tri.Normal2, normals, normalMap);
-            int n3 = AddNormal(tri.Normal3, normals, normalMap);
+            // 获取材质索引
+            int matIndex = 0;
+            if (!string.IsNullOrEmpty(tri.MaterialName) && materialNameToIndex.TryGetValue(tri.MaterialName, out int idx))
+            {
+                matIndex = idx;
+            }
 
             // 创建面
-            faces.Add(new FaceT
-            {
-                V1 = v1, V2 = v2, V3 = v3,
-                Vt1 = uv1, Vt2 = uv2, Vt3 = uv3,
-                Vn1 = n1, Vn2 = n2, Vn3 = n3,
-                MaterialName = tri.MaterialName ?? ""
-            });
+            faces.Add(new FaceT(v1, v2, v3, uv1, uv2, uv3, matIndex));
         }
 
-        // 转换材质
-        foreach (var (name, mat) in materials)
-        {
-            meshMaterials[name] = ConvertMaterial(mat);
-        }
-
-        return new MeshT(vertices, uvs, normals, faces, meshMaterials);
+        return new MeshT(vertices, uvs, faces, meshMaterials);
     }
 
     /// <summary>
@@ -73,30 +69,30 @@ public static class MeshTilingHelper
 
         foreach (var face in meshT.Faces)
         {
-            var v1 = meshT.Vertices[face.V1];
-            var v2 = meshT.Vertices[face.V2];
-            var v3 = meshT.Vertices[face.V3];
+            var v1 = meshT.Vertices[face.IndexA];
+            var v2 = meshT.Vertices[face.IndexB];
+            var v3 = meshT.Vertices[face.IndexC];
 
-            var uv1 = meshT.TextureVertices[face.Vt1];
-            var uv2 = meshT.TextureVertices[face.Vt2];
-            var uv3 = meshT.TextureVertices[face.Vt3];
+            var uv1 = meshT.TextureVertices[face.TextureIndexA];
+            var uv2 = meshT.TextureVertices[face.TextureIndexB];
+            var uv3 = meshT.TextureVertices[face.TextureIndexC];
 
-            var n1 = meshT.Normals.Count > face.Vn1 ? meshT.Normals[face.Vn1] : null;
-            var n2 = meshT.Normals.Count > face.Vn2 ? meshT.Normals[face.Vn2] : null;
-            var n3 = meshT.Normals.Count > face.Vn3 ? meshT.Normals[face.Vn3] : null;
+            // 获取材质名称
+            string? materialName = null;
+            if (face.MaterialIndex >= 0 && face.MaterialIndex < meshT.Materials.Count)
+            {
+                materialName = meshT.Materials[face.MaterialIndex].Name;
+            }
 
             triangles.Add(new Triangle
             {
-                Vertex1 = new Vector3D(v1.X, v1.Y, v1.Z),
-                Vertex2 = new Vector3D(v2.X, v2.Y, v2.Z),
-                Vertex3 = new Vector3D(v3.X, v3.Y, v3.Z),
+                V1 = new Vector3D(v1.X, v1.Y, v1.Z),
+                V2 = new Vector3D(v2.X, v2.Y, v2.Z),
+                V3 = new Vector3D(v3.X, v3.Y, v3.Z),
                 UV1 = new Vector2D(uv1.X, uv1.Y),
                 UV2 = new Vector2D(uv2.X, uv2.Y),
                 UV3 = new Vector2D(uv3.X, uv3.Y),
-                Normal1 = n1 != null ? new Vector3D(n1.X, n1.Y, n1.Z) : null,
-                Normal2 = n2 != null ? new Vector3D(n2.X, n2.Y, n2.Z) : null,
-                Normal3 = n3 != null ? new Vector3D(n3.X, n3.Y, n3.Z) : null,
-                MaterialName = face.MaterialName
+                MaterialName = materialName
             });
         }
 
@@ -108,11 +104,11 @@ public static class MeshTilingHelper
     /// </summary>
     public static void UpdateMaterialTextures(
         Dictionary<string, Material> domainMaterials,
-        Dictionary<string, RealScene3D.MeshTiling.Materials.Material> meshMaterials)
+        IReadOnlyList<MeshTiling.Materials.Material> meshMaterials)
     {
-        foreach (var (name, meshMat) in meshMaterials)
+        foreach (var meshMat in meshMaterials)
         {
-            if (domainMaterials.TryGetValue(name, out var domainMat))
+            if (!string.IsNullOrEmpty(meshMat.Name) && domainMaterials.TryGetValue(meshMat.Name, out var domainMat))
             {
                 // 更新漫反射纹理路径（MeshT 打包后的新路径）
                 if (domainMat.DiffuseTexture != null && meshMat.Texture != null)
@@ -149,33 +145,20 @@ public static class MeshTilingHelper
         return index;
     }
 
-    private static int AddNormal(Vector3D? n, List<Vertex3> normals, Dictionary<Vector3D, int> map)
+    private static MeshTiling.Materials.Material ConvertMaterial(Material source)
     {
-        var normal = n ?? new Vector3D(0, 0, 1);
-
-        if (map.TryGetValue(normal, out int index))
-            return index;
-
-        index = normals.Count;
-        normals.Add(new Vertex3(normal.X, normal.Y, normal.Z));
-        map[normal] = index;
-        return index;
-    }
-
-    private static RealScene3D.MeshTiling.Materials.Material ConvertMaterial(Material source)
-    {
-        return new RealScene3D.MeshTiling.Materials.Material(
+        return new MeshTiling.Materials.Material(
             name: source.Name,
             texture: source.DiffuseTexture?.FilePath,
             normalMap: source.NormalTexture?.FilePath,
             ambientColor: source.AmbientColor != null
-                ? new RealScene3D.MeshTiling.Materials.RGB(source.AmbientColor.R, source.AmbientColor.G, source.AmbientColor.B)
+                ? new MeshTiling.Materials.RGB(source.AmbientColor.R, source.AmbientColor.G, source.AmbientColor.B)
                 : null,
             diffuseColor: source.DiffuseColor != null
-                ? new RealScene3D.MeshTiling.Materials.RGB(source.DiffuseColor.R, source.DiffuseColor.G, source.DiffuseColor.B)
+                ? new MeshTiling.Materials.RGB(source.DiffuseColor.R, source.DiffuseColor.G, source.DiffuseColor.B)
                 : null,
             specularColor: source.SpecularColor != null
-                ? new RealScene3D.MeshTiling.Materials.RGB(source.SpecularColor.R, source.SpecularColor.G, source.SpecularColor.B)
+                ? new MeshTiling.Materials.RGB(source.SpecularColor.R, source.SpecularColor.G, source.SpecularColor.B)
                 : null,
             specularExponent: source.Shininess,
             dissolve: source.Opacity);

@@ -1,42 +1,67 @@
 ﻿using System.Diagnostics;
-using System.Globalization;
 using System.Text;
 
 namespace RealScene3D.MeshTiling.Materials;
 
 public class Material : ICloneable
 {
+    /// <summary>
+    /// 材质名称
+    /// </summary>
     public readonly string Name;
+
+    /// <summary>
+    /// 纹理文件路径
+    /// </summary>
     public string? Texture;
+
+    /// <summary>
+    /// 法线贴图文件路径
+    /// </summary>
     public string? NormalMap;
 
     /// <summary>
-    /// Ka - Ambient
+    /// Ka - 环境光颜色
     /// </summary>
     public readonly RGB? AmbientColor;
 
     /// <summary>
-    /// Kd - Diffuse
+    /// Kd - 漫反射颜色
     /// </summary>
     public readonly RGB? DiffuseColor;
 
     /// <summary>
-    /// Ks - Specular
+    /// Ks - 镜面反射颜色
     /// </summary>
     public readonly RGB? SpecularColor;
 
     /// <summary>
-    /// Ns - Specular exponent
+    /// Ns - 镜面反射指数
     /// </summary>
     public readonly double? SpecularExponent;
 
     /// <summary>
-    /// d - Dissolve / Transparency (Tr = 1 - d)
+    /// d - 溶解度 / 透明度 (Tr = 1 - d)
     /// </summary>
     public readonly double? Dissolve;
 
+    /// <summary>
+    /// 光照模型
+    /// </summary>
     public readonly IlluminationModel? IlluminationModel;
 
+    /// <summary>
+    /// 初始化材质对象
+    /// </summary>
+    /// <param name="name">材质名称</param>
+    /// <param name="texture">纹理文件路径</param>
+    /// <param name="normalMap">法线贴图文件路径</param>
+    /// <param name="ambientColor">环境光颜色</param>
+    /// <param name="diffuseColor">漫反射颜色</param>
+    /// <param name="specularColor">镜面反射颜色</param>
+    /// <param name="specularExponent">镜面反射指数</param>
+    /// <param name="dissolve">溶解度/透明度</param>
+    /// <param name="illuminationModel">光照模型</param>
     public Material(string name, string? texture = null, string? normalMap = null, RGB? ambientColor = null, RGB? diffuseColor = null,
         RGB? specularColor = null, double? specularExponent = null, double? dissolve = null,
         IlluminationModel? illuminationModel = null)
@@ -52,14 +77,20 @@ public class Material : ICloneable
         IlluminationModel = illuminationModel;
     }
 
+    /// <summary>
+    /// 从 MTL 文件读取材质信息
+    /// </summary>
+    /// <param name="path">MTL 文件路径</param>
+    /// <param name="dependencies">输出参数，返回材质依赖的文件路径数组</param>
+    /// <returns>材质数组</returns>
     public static Material[] ReadMtl(string path, out string[] dependencies)
     {
         var lines = File.ReadAllLines(path);
         var materials = new List<Material>();
         var deps = new List<string>();
 
-        string texture = null;
-        string normalMap = null;
+        string? texture = null;
+        string? normalMap = null;
         var name = string.Empty;
         RGB? ambientColor = null, diffuseColor = null, specularColor = null;
         double? specularExponent = null, dissolve = null;
@@ -69,7 +100,7 @@ public class Material : ICloneable
         {
             if (line.StartsWith("#") || string.IsNullOrWhiteSpace(line))
                 continue;
-            
+
             var lineTrimmed = line.Trim();
             var parts = lineTrimmed.Split(' ');
             switch (parts[0])
@@ -87,9 +118,9 @@ public class Material : ICloneable
                     texture = Path.IsPathRooted(parts[1])
                         ? parts[1]
                         : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, parts[1]));
-                    
+
                     deps.Add(texture);
-                    
+
                     break;
                 case "norm":
                     normalMap = Path.IsPathRooted(parts[1])
@@ -139,10 +170,14 @@ public class Material : ICloneable
             illuminationModel));
 
         dependencies = deps.ToArray();
-        
+
         return materials.ToArray();
     }
 
+    /// <summary>
+    /// 将材质转换为 MTL 格式字符串
+    /// </summary>
+    /// <returns>MTL 格式的材质定义字符串</returns>
     public string ToMtl()
     {
         var builder = new StringBuilder();
@@ -200,6 +235,10 @@ public class Material : ICloneable
         return builder.ToString();
     }
 
+    /// <summary>
+    /// 克隆材质对象
+    /// </summary>
+    /// <returns>克隆的材质对象</returns>
     public object Clone()
     {
         return new Material(

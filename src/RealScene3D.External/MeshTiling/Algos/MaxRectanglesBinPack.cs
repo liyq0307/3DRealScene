@@ -1,40 +1,84 @@
-﻿/*
-    Based on the Public Domain MaxRectanglesBinPack.cpp source by Jukka Jylänki
-    https://github.com/juj/RectangleBinPack/
- 
-    Originally Ported to C# by Sven Magnus
-    Updated to .Net 4.5 by Stefan Gordon
-*/
-
-using RealScene3D.MeshTiling.Algos.Model;
-using Rectangle = RealScene3D.MeshTiling.Algos.Model.Rectangle;
+﻿using Rectangle = RealScene3D.MeshTiling.Algos.Model.Rectangle;
 
 namespace RealScene3D.MeshTiling.Algos
 {
+    /// <summary>
+    /// 空闲矩形选择启发式枚举，用于决定如何在空闲矩形列表中放置新矩形。
+    /// 参考：https://github.com/juj/RectangleBinPack 中 MaxRectanglesBinPack.cpp实现
+    /// </summary>
     public enum FreeRectangleChoiceHeuristic
     {
-        RectangleBestShortSideFit, // -BSSF: Positions the Rectangle against the short side of a free Rectangle into which it fits the best.
-        RectangleBestLongSideFit, // -BLSF: Positions the Rectangle against the long side of a free Rectangle into which it fits the best.
-        RectangleBestAreaFit, // -BAF: Positions the Rectangle into the smallest free Rectangle into which it fits.
-        RectangleBottomLeftRule, // -BL: Does the Tetris placement.
-        RectangleContactPointRule // -CP: Choosest the placement where the Rectangle touches other Rectangles as much as possible.
+        /// <summary>
+        /// BSSF：将矩形放置在最适合其短边的空闲矩形中。
+        /// </summary>
+        RectangleBestShortSideFit,
+        /// <summary>
+        /// BLSF：将矩形放置在最适合其长边的空闲矩形中。
+        /// </summary>
+        RectangleBestLongSideFit,
+        /// <summary>
+        /// BAF：将矩形放置在最小的适合空闲矩形中。
+        /// </summary>
+        RectangleBestAreaFit,
+        /// <summary>
+        /// BL：执行俄罗斯方块式的放置。
+        /// </summary>
+        RectangleBottomLeftRule,
+        /// <summary>
+        /// CP：选择矩形与其他矩形尽可能多接触的放置位置。
+        /// </summary>
+        RectangleContactPointRule
     };
 
+    /// <summary>
+    /// 最大矩形装箱算法类，用于高效地将多个矩形打包到固定大小的容器中。
+    /// 支持多种启发式算法来优化放置效果。
+    /// </summary>
     public class MaxRectanglesBinPack
     {
+        /// <summary>
+        /// 容器的宽度。
+        /// </summary>
         public int binWidth = 0;
+
+        /// <summary>
+        /// 容器的高度。
+        /// </summary>
         public int binHeight = 0;
+
+        /// <summary>
+        /// 是否允许旋转矩形（90度旋转）。
+        /// </summary>
         public bool allowRotations;
 
+        /// <summary>
+        /// 已使用的矩形列表。
+        /// </summary>
         public readonly List<Rectangle> usedRectangles = [];
+
+        /// <summary>
+        /// 空闲矩形列表，用于放置新矩形。
+        /// </summary>
         public readonly List<Rectangle> freeRectangles = [];
 
 
+        /// <summary>
+        /// 构造函数，初始化装箱器。
+        /// </summary>
+        /// <param name="width">容器宽度。</param>
+        /// <param name="height">容器高度。</param>
+        /// <param name="rotations">是否允许旋转矩形。默认为true。</param>
         public MaxRectanglesBinPack(int width, int height, bool rotations = true)
         {
             Init(width, height, rotations);
         }
 
+        /// <summary>
+        /// 初始化装箱器，设置容器尺寸和旋转选项，并重置所有矩形列表。
+        /// </summary>
+        /// <param name="width">容器宽度。</param>
+        /// <param name="height">容器高度。</param>
+        /// <param name="rotations">是否允许旋转矩形。默认为true。</param>
         public void Init(int width, int height, bool rotations = true)
         {
             binWidth = width;
@@ -55,11 +99,18 @@ namespace RealScene3D.MeshTiling.Algos
             freeRectangles.Add(n);
         }
 
+        /// <summary>
+        /// 尝试将指定尺寸的矩形插入容器中，使用指定的启发式算法。
+        /// </summary>
+        /// <param name="width">要插入的矩形宽度。</param>
+        /// <param name="height">要插入的矩形高度。</param>
+        /// <param name="method">使用的放置启发式算法。</param>
+        /// <returns>插入的矩形位置，如果无法插入则返回空的矩形（Height为0）。</returns>
         public Rectangle Insert(int width, int height, FreeRectangleChoiceHeuristic method)
         {
             var newNode = new Rectangle();
-            var score1 = 0; // Unused in this function. We don't need to know the score after finding the position.
             var score2 = 0;
+            int score1;
             newNode = method switch
             {
                 FreeRectangleChoiceHeuristic.RectangleBestShortSideFit => FindPositionForNewNodeBestShortSideFit(width,
@@ -95,6 +146,10 @@ namespace RealScene3D.MeshTiling.Algos
             return newNode;
         }
 
+        /// <summary>
+        /// 将指定的矩形放置到容器中，并更新空闲矩形列表。
+        /// </summary>
+        /// <param name="node">要放置的矩形。</param>
         private void PlaceRectangle(Rectangle node)
         {
             var numRectangleanglesToProcess = freeRectangles.Count;
@@ -113,6 +168,15 @@ namespace RealScene3D.MeshTiling.Algos
             usedRectangles.Add(node);
         }
 
+        /// <summary>
+        /// 计算将指定尺寸的矩形插入容器时的得分和位置，但不实际插入。
+        /// </summary>
+        /// <param name="width">矩形宽度。</param>
+        /// <param name="height">矩形高度。</param>
+        /// <param name="method">使用的放置启发式算法。</param>
+        /// <param name="score1">输出得分1（根据启发式算法而定）。</param>
+        /// <param name="score2">输出得分2（根据启发式算法而定）。</param>
+        /// <returns>最佳放置位置的矩形，如果无法放置则Height为0。</returns>
         public Rectangle ScoreRectangle(int width, int height, FreeRectangleChoiceHeuristic method, out int score1,
             out int score2)
         {
@@ -139,7 +203,7 @@ namespace RealScene3D.MeshTiling.Algos
                     break;
             }
 
-            // Cannot fit the current Rectangleangle.
+            // 无法放置当前矩形。
             if (newNode.Height == 0)
             {
                 score1 = int.MaxValue;
@@ -149,7 +213,10 @@ namespace RealScene3D.MeshTiling.Algos
             return newNode;
         }
 
-        /// Computes the ratio of used surface area.
+        /// <summary>
+        /// 计算已使用表面的比例。
+        /// </summary>
+        /// <returns>占用率（0.0到1.0之间的浮点数）。</returns>
         public float Occupancy()
         {
             ulong usedSurfaceArea = 0;
@@ -159,16 +226,24 @@ namespace RealScene3D.MeshTiling.Algos
             return (float)usedSurfaceArea / (binWidth * binHeight);
         }
 
+        /// <summary>
+        /// 使用底部左边规则寻找新矩形的最佳放置位置。
+        /// </summary>
+        /// <param name="width">要放置的矩形宽度。</param>
+        /// <param name="height">要放置的矩形高度。</param>
+        /// <param name="bestY">输出最佳Y坐标。</param>
+        /// <param name="bestX">输入/输出最佳X坐标。</param>
+        /// <returns>最佳放置位置的矩形。</returns>
         private Rectangle FindPositionForNewNodeBottomLeft(int width, int height, out int bestY, ref int bestX)
         {
             var bestNode = new Rectangle();
-            //memset(bestNode, 0, sizeof(Rectangle));
+            // 将bestNode初始化为0，相当于memset。
 
             bestY = int.MaxValue;
 
             for (var i = 0; i < freeRectangles.Count; ++i)
             {
-                // Try to place the Rectangleangle in upright (non-flipped) orientation.
+                // 尝试以正立（非翻转）方向放置矩形。
                 if (freeRectangles[i].Width >= width && freeRectangles[i].Height >= height)
                 {
                     var topSideY = freeRectangles[i].Y + height;
@@ -201,17 +276,25 @@ namespace RealScene3D.MeshTiling.Algos
             return bestNode;
         }
 
+        /// <summary>
+        /// 使用最佳短边适配规则寻找新矩形的最佳放置位置。
+        /// </summary>
+        /// <param name="width">要放置的矩形宽度。</param>
+        /// <param name="height">要放置的矩形高度。</param>
+        /// <param name="bestShortSideFit">输出最佳短边适配值。</param>
+        /// <param name="bestLongSideFit">输入/输出最佳长边适配值。</param>
+        /// <returns>最佳放置位置的矩形。</returns>
         private Rectangle FindPositionForNewNodeBestShortSideFit(int width, int height, out int bestShortSideFit,
             ref int bestLongSideFit)
         {
             var bestNode = new Rectangle();
-            //memset(&bestNode, 0, sizeof(Rectangle));
+            // 将bestNode初始化为0，相当于memset。
 
             bestShortSideFit = int.MaxValue;
 
             for (var i = 0; i < freeRectangles.Count; ++i)
             {
-                // Try to place the Rectangleangle in upright (non-flipped) orientation.
+                // 尝试以正立（非翻转）方向放置矩形。
                 if (freeRectangles[i].Width >= width && freeRectangles[i].Height >= height)
                 {
                     var leftoverHoriz = Math.Abs(freeRectangles[i].Width - width);
@@ -254,17 +337,25 @@ namespace RealScene3D.MeshTiling.Algos
             return bestNode;
         }
 
+        /// <summary>
+        /// 使用最佳长边适配规则寻找新矩形的最佳放置位置。
+        /// </summary>
+        /// <param name="width">要放置的矩形宽度。</param>
+        /// <param name="height">要放置的矩形高度。</param>
+        /// <param name="bestShortSideFit">输入/输出最佳短边适配值。</param>
+        /// <param name="bestLongSideFit">输出最佳长边适配值。</param>
+        /// <returns>最佳放置位置的矩形。</returns>
         private Rectangle FindPositionForNewNodeBestLongSideFit(int width, int height, ref int bestShortSideFit,
             out int bestLongSideFit)
         {
             var bestNode = new Rectangle();
-            //memset(&bestNode, 0, sizeof(Rectangle));
+            // 将bestNode初始化为0，相当于memset。
 
             bestLongSideFit = int.MaxValue;
 
             for (var i = 0; i < freeRectangles.Count; ++i)
             {
-                // Try to place the Rectangleangle in upright (non-flipped) orientation.
+                // 尝试以正立（非翻转）方向放置矩形。
                 if (freeRectangles[i].Width >= width && freeRectangles[i].Height >= height)
                 {
                     var leftoverHoriz = Math.Abs(freeRectangles[i].Width - width);
@@ -307,6 +398,14 @@ namespace RealScene3D.MeshTiling.Algos
             return bestNode;
         }
 
+        /// <summary>
+        /// 使用最佳面积适配规则寻找新矩形的最佳放置位置。
+        /// </summary>
+        /// <param name="width">要放置的矩形宽度。</param>
+        /// <param name="height">要放置的矩形高度。</param>
+        /// <param name="bestAreaFit">输出最佳面积适配值。</param>
+        /// <param name="bestShortSideFit">输入/输出最佳短边适配值。</param>
+        /// <returns>最佳放置位置的矩形。</returns>
         private Rectangle FindPositionForNewNodeBestAreaFit(int width, int height, out int bestAreaFit,
             ref int bestShortSideFit)
         {
@@ -318,7 +417,7 @@ namespace RealScene3D.MeshTiling.Algos
             {
                 var areaFit = freeRectangles[i].Width * freeRectangles[i].Height - width * height;
 
-                // Try to place the Rectangleangle in upright (non-flipped) orientation.
+                // 尝试以正立（非翻转）方向放置矩形。
                 if (freeRectangles[i].Width >= width && freeRectangles[i].Height >= height)
                 {
                     var leftoverHoriz = Math.Abs(freeRectangles[i].Width - width);
@@ -357,7 +456,14 @@ namespace RealScene3D.MeshTiling.Algos
             return bestNode;
         }
 
-        /// Returns 0 if the two intervals i1 and i2 are disjoint, or the length of their overlap otherwise.
+        /// <summary>
+        /// 返回两个区间的重叠长度，如果不重叠则为0
+        /// </summary>
+        /// <param name="i1start">区间1的起始位置。</param>
+        /// <param name="i1end">区间1的结束位置。</param>
+        /// <param name="i2start">区间2的起始位置。</param>
+        /// <param name="i2end">区间2的结束位置。</param>
+        /// <returns>两个区间的重叠长度，如果不重叠则为0。</returns>
         private static int CommonIntervalLength(int i1start, int i1end, int i2start, int i2end)
         {
             if (i1end < i2start || i2end < i1start)
@@ -365,6 +471,14 @@ namespace RealScene3D.MeshTiling.Algos
             return Math.Min(i1end, i2end) - Math.Max(i1start, i2start);
         }
 
+        /// <summary>
+        /// 计算指定位置放置矩形时的接触点得分。
+        /// </summary>
+        /// <param name="x">矩形左上角X坐标。</param>
+        /// <param name="y">矩形左上角Y坐标。</param>
+        /// <param name="width">矩形宽度。</param>
+        /// <param name="height">矩形高度。</param>
+        /// <returns>接触点得分。</returns>
         private int ContactPointScoreNode(int x, int y, int width, int height)
         {
             var score = 0;
@@ -387,6 +501,13 @@ namespace RealScene3D.MeshTiling.Algos
             return score;
         }
 
+        /// <summary>
+        /// 使用接触点规则寻找新矩形的最佳放置位置。
+        /// </summary>
+        /// <param name="width">要放置的矩形宽度。</param>
+        /// <param name="height">要放置的矩形高度。</param> 
+        /// <param name="bestContactScore">返回最佳接触点分数。</param>
+        /// <returns>最佳放置位置的矩形。</returns>
         private Rectangle FindPositionForNewNodeContactPoint(int width, int height, out int bestContactScore)
         {
             var bestNode = new Rectangle();
@@ -395,7 +516,7 @@ namespace RealScene3D.MeshTiling.Algos
 
             for (var i = 0; i < freeRectangles.Count; ++i)
             {
-                // Try to place the Rectangleangle in upright (non-flipped) orientation.
+                // 尝试以正立（非翻转）方向放置矩形。
                 if (freeRectangles[i].Width >= width && freeRectangles[i].Height >= height)
                 {
                     var score = ContactPointScoreNode(freeRectangles[i].X, freeRectangles[i].Y, width, height);
@@ -426,16 +547,22 @@ namespace RealScene3D.MeshTiling.Algos
             return bestNode;
         }
 
+        /// <summary>
+        /// 尝试将已使用的矩形从空闲矩形中分割出来，更新空闲矩形列表。
+        /// </summary>
+        /// <param name="freeNode">当前空闲矩形。</param>
+        /// <param name="usedNode">已使用的矩形。</param>
+        /// <returns>是否成功分割。</returns>
         private bool SplitFreeNode(Rectangle freeNode, ref Rectangle usedNode)
         {
-            // Test with SAT if the Rectangleangles even intersect.
+            // 如果两个矩形不相交，则无需分割
             if (usedNode.X >= freeNode.X + freeNode.Width || usedNode.X + usedNode.Width <= freeNode.X ||
                 usedNode.Y >= freeNode.Y + freeNode.Height || usedNode.Y + usedNode.Height <= freeNode.Y)
                 return false;
 
             if (usedNode.X < freeNode.X + freeNode.Width && usedNode.X + usedNode.Width > freeNode.X)
             {
-                // New node at the top side of the used node.
+                // 在已使用矩形的顶部创建新节点。
                 if (usedNode.Y > freeNode.Y && usedNode.Y < freeNode.Y + freeNode.Height)
                 {
                     var newNode = freeNode.Clone();
@@ -443,7 +570,7 @@ namespace RealScene3D.MeshTiling.Algos
                     freeRectangles.Add(newNode);
                 }
 
-                // New node at the bottom side of the used node.
+                // 在已使用矩形的底部创建新节点。
                 if (usedNode.Y + usedNode.Height < freeNode.Y + freeNode.Height)
                 {
                     var newNode = freeNode.Clone();
@@ -455,7 +582,7 @@ namespace RealScene3D.MeshTiling.Algos
 
             if (usedNode.Y < freeNode.Y + freeNode.Height && usedNode.Y + usedNode.Height > freeNode.Y)
             {
-                // New node at the left side of the used node.
+                // 在已使用矩形的左侧创建新节点。
                 if (usedNode.X > freeNode.X && usedNode.X < freeNode.X + freeNode.Width)
                 {
                     var newNode = freeNode.Clone();
@@ -463,7 +590,7 @@ namespace RealScene3D.MeshTiling.Algos
                     freeRectangles.Add(newNode);
                 }
 
-                // New node at the right side of the used node.
+                // 在已使用矩形的右侧创建新节点。
                 if (usedNode.X + usedNode.Width < freeNode.X + freeNode.Width)
                 {
                     var newNode = freeNode.Clone();
@@ -476,6 +603,9 @@ namespace RealScene3D.MeshTiling.Algos
             return true;
         }
 
+        /// <summary>
+        /// 清理空闲矩形列表，移除被其他矩形完全覆盖的矩形。
+        /// </summary>
         private void PruneFreeList()
         {
             var rectanglesToRemove = new SortedSet<int>();

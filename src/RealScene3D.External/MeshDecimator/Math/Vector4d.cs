@@ -1,106 +1,80 @@
-﻿#region License
-/*
-MIT License
+﻿using System.Globalization;
 
-Copyright(c) 2017-2018 Mattias Edlund
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-#endregion
-
-using System.Globalization;
-
-namespace MeshDecimatorCore.Math
+namespace MeshDecimator.Math
 {
     /// <summary>
-    /// 单精度 4D 向量。
+    /// A double precision 4D vector.
     /// </summary>
-    public struct Vector4 : IEquatable<Vector4>
+    public struct Vector4d : IEquatable<Vector4d>
     {
-        #region 静态只读
+        #region 静态 Read-Only
         /// <summary>
         /// 零向量。
         /// </summary>
-        public static readonly Vector4 zero = new Vector4(0, 0, 0, 0);
+        public static readonly Vector4d zero = new Vector4d(0, 0, 0, 0);
         #endregion
 
         #region 常量
         /// <summary>
-        /// 向量 epsilon。
+        /// 向量 epsilon 值。
         /// </summary>
-        public const float Epsilon = 9.99999944E-11f;
+        public const double Epsilon = double.Epsilon;
         #endregion
 
         #region 字段
         /// <summary>
         /// x 分量。
         /// </summary>
-        public float x;
+        public double x;
         /// <summary>
         /// y 分量。
         /// </summary>
-        public float y;
+        public double y;
         /// <summary>
         /// z 分量。
         /// </summary>
-        public float z;
+        public double z;
         /// <summary>
         /// w 分量。
         /// </summary>
-        public float w;
+        public double w;
         #endregion
 
         #region 属性
         /// <summary>
-        /// 获取此向量的大小。
+        /// 获取此向量的模。
         /// </summary>
-        public float Magnitude
+        public double Magnitude
         {
-            get { return (float)System.Math.Sqrt(x * x + y * y + z * z + w * w); }
+            get { return System.Math.Sqrt(x * x + y * y + z * z + w * w); }
         }
 
         /// <summary>
-        /// 获取此向量的平方大小。
+        /// 获取此向量的平方模。
         /// </summary>
-        public float MagnitudeSqr
+        public double MagnitudeSqr
         {
             get { return (x * x + y * y + z * z + w * w); }
         }
 
         /// <summary>
-        /// 从此向量获取归一化向量。
+        /// 获取此向量的归一化向量。
         /// </summary>
-        public Vector4 Normalized
+        public Vector4d Normalized
         {
             get
             {
-                Vector4 result;
+                Vector4d result;
                 Normalize(ref this, out result);
                 return result;
             }
         }
 
         /// <summary>
-        /// 获取或设置此向量中特定索引处的分量。
+        /// 通过索引获取或设置此向量中的特定分量。
         /// </summary>
         /// <param name="index">分量索引。</param>
-        public float this[int index]
+        public double this[int index]
         {
             get
             {
@@ -115,7 +89,7 @@ namespace MeshDecimatorCore.Math
                     case 3:
                         return w;
                     default:
-                        throw new IndexOutOfRangeException("Invalid Vector4 index!");
+                        throw new IndexOutOfRangeException("Invalid Vector4d index!");
                 }
             }
             set
@@ -135,7 +109,7 @@ namespace MeshDecimatorCore.Math
                         w = value;
                         break;
                     default:
-                        throw new IndexOutOfRangeException("Invalid Vector4 index!");
+                        throw new IndexOutOfRangeException("Invalid Vector4d index!");
                 }
             }
         }
@@ -143,10 +117,10 @@ namespace MeshDecimatorCore.Math
 
         #region 构造函数
         /// <summary>
-        /// 创建一个新的向量，所有分量都使用相同的值。
+        /// 创建一个所有分量值相同的新向量。
         /// </summary>
         /// <param name="value">值。</param>
-        public Vector4(float value)
+        public Vector4d(double value)
         {
             this.x = value;
             this.y = value;
@@ -155,13 +129,13 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// 创建一个新的向量。
+        /// 创建一个新向量。
         /// </summary>
         /// <param name="x">x 值。</param>
         /// <param name="y">y 值。</param>
         /// <param name="z">z 值。</param>
         /// <param name="w">w 值。</param>
-        public Vector4(float x, float y, float z, float w)
+        public Vector4d(double x, double y, double z, double w)
         {
             this.x = x;
             this.y = y;
@@ -172,25 +146,25 @@ namespace MeshDecimatorCore.Math
 
         #region 运算符
         /// <summary>
-        /// 将两个向量相加。
+        /// 两个向量相加。
         /// </summary>
         /// <param name="a">第一个向量。</param>
         /// <param name="b">第二个向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector4 operator +(Vector4 a, Vector4 b)
+        public static Vector4d operator +(Vector4d a, Vector4d b)
         {
-            return new Vector4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
+            return new Vector4d(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
         }
 
         /// <summary>
-        /// 将两个向量相减。
+        /// 两个向量相减。
         /// </summary>
         /// <param name="a">第一个向量。</param>
         /// <param name="b">第二个向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector4 operator -(Vector4 a, Vector4 b)
+        public static Vector4d operator -(Vector4d a, Vector4d b)
         {
-            return new Vector4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
+            return new Vector4d(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
         }
 
         /// <summary>
@@ -199,9 +173,9 @@ namespace MeshDecimatorCore.Math
         /// <param name="a">向量。</param>
         /// <param name="d">缩放值。</param>
         /// <returns>结果向量。</returns>
-        public static Vector4 operator *(Vector4 a, float d)
+        public static Vector4d operator *(Vector4d a, double d)
         {
-            return new Vector4(a.x * d, a.y * d, a.z * d, a.w * d);
+            return new Vector4d(a.x * d, a.y * d, a.z * d, a.w * d);
         }
 
         /// <summary>
@@ -210,30 +184,30 @@ namespace MeshDecimatorCore.Math
         /// <param name="d">缩放值。</param>
         /// <param name="a">向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector4 operator *(float d, Vector4 a)
+        public static Vector4d operator *(double d, Vector4d a)
         {
-            return new Vector4(a.x * d, a.y * d, a.z * d, a.w * d);
+            return new Vector4d(a.x * d, a.y * d, a.z * d, a.w * d);
         }
 
         /// <summary>
-        /// 用浮点数除以向量。
+        /// 用浮点数除向量。
         /// </summary>
         /// <param name="a">向量。</param>
-        /// <param name="d">用于除法的浮点值。</param>
+        /// <param name="d">除数浮点值。</param>
         /// <returns>结果向量。</returns>
-        public static Vector4 operator /(Vector4 a, float d)
+        public static Vector4d operator /(Vector4d a, double d)
         {
-            return new Vector4(a.x / d, a.y / d, a.z / d, a.w / d);
+            return new Vector4d(a.x / d, a.y / d, a.z / d, a.w / d);
         }
 
         /// <summary>
-        /// 从零向量中减去向量。
+        /// 从零向量中减去该向量。
         /// </summary>
         /// <param name="a">向量。</param>
         /// <returns>结果向量。</returns>
-        public static Vector4 operator -(Vector4 a)
+        public static Vector4d operator -(Vector4d a)
         {
-            return new Vector4(-a.x, -a.y, -a.z, -a.w);
+            return new Vector4d(-a.x, -a.y, -a.z, -a.w);
         }
 
         /// <summary>
@@ -241,8 +215,8 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
-        /// <returns>如果相等则返回true。</returns>
-        public static bool operator ==(Vector4 lhs, Vector4 rhs)
+        /// <returns>If equals.</returns>
+        public static bool operator ==(Vector4d lhs, Vector4d rhs)
         {
             return (lhs - rhs).MagnitudeSqr < Epsilon;
         }
@@ -252,41 +226,41 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
-        /// <returns>如果不相等则返回true。</returns>
-        public static bool operator !=(Vector4 lhs, Vector4 rhs)
+        /// <returns>If not equals.</returns>
+        public static bool operator !=(Vector4d lhs, Vector4d rhs)
         {
             return (lhs - rhs).MagnitudeSqr >= Epsilon;
         }
 
         /// <summary>
-        /// 显式地将双精度向量转换为单精度向量。
+        /// 隐式将单精度向量转换为双精度向量。
         /// </summary>
-        /// <param name="v">双精度向量。</param>
-        public static explicit operator Vector4(Vector4d v)
+        /// <param name="v">单精度向量。</param>
+        public static implicit operator Vector4d(Vector4 v)
         {
-            return new Vector4((float)v.x, (float)v.y, (float)v.z, (float)v.w);
+            return new Vector4d(v.x, v.y, v.z, v.w);
         }
 
         /// <summary>
-        /// 隐式地将整数向量转换为单精度向量。
+        /// 隐式将整数向量转换为双精度向量。
         /// </summary>
         /// <param name="v">整数向量。</param>
-        public static implicit operator Vector4(Vector4i v)
+        public static implicit operator Vector4d(Vector4i v)
         {
-            return new Vector4(v.x, v.y, v.z, v.w);
+            return new Vector4d(v.x, v.y, v.z, v.w);
         }
         #endregion
 
         #region 公共方法
         #region 实例方法
         /// <summary>
-        /// 设置现有向量的 x、y、z 和 w 分量。
+        /// 设置现有向量的 x、y 和 z 分量。
         /// </summary>
         /// <param name="x">x 值。</param>
         /// <param name="y">y 值。</param>
         /// <param name="z">z 值。</param>
         /// <param name="w">w 值。</param>
-        public void Set(float x, float y, float z, float w)
+        public void Set(double x, double y, double z, double w)
         {
             this.x = x;
             this.y = y;
@@ -295,10 +269,10 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// 按分量与另一个向量相乘。
+        /// 与另一个向量按分量相乘。
         /// </summary>
         /// <param name="scale">要相乘的向量。</param>
-        public void Scale(ref Vector4 scale)
+        public void Scale(ref Vector4d scale)
         {
             x *= scale.x;
             y *= scale.y;
@@ -311,7 +285,7 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         public void Normalize()
         {
-            float mag = this.Magnitude;
+            double mag = this.Magnitude;
             if (mag > Epsilon)
             {
                 x /= mag;
@@ -330,7 +304,7 @@ namespace MeshDecimatorCore.Math
         /// </summary>
         /// <param name="min">最小分量值。</param>
         /// <param name="max">最大分量值。</param>
-        public void Clamp(float min, float max)
+        public void Clamp(double min, double max)
         {
             if (x < min) x = min;
             else if (x > max) x = max;
@@ -350,7 +324,7 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 返回此向量的哈希码。
         /// </summary>
-        /// <returns>哈希码。</returns>
+        /// <returns>The hash code.</returns>
         public override int GetHashCode()
         {
             return x.GetHashCode() ^ y.GetHashCode() << 2 ^ z.GetHashCode() >> 2 ^ w.GetHashCode() >> 1;
@@ -360,14 +334,14 @@ namespace MeshDecimatorCore.Math
         /// 返回此向量是否等于另一个向量。
         /// </summary>
         /// <param name="other">要比较的另一个向量。</param>
-        /// <returns>如果相等则返回true。</returns>
-        public override bool Equals(object other)
+        /// <returns>If equals.</returns>
+        public override bool Equals(object? other)
         {
-            if (!(other is Vector4))
+            if (!(other is Vector4d))
             {
                 return false;
             }
-            Vector4 vector = (Vector4)other;
+            Vector4d vector = (Vector4d)other;
             return (x == vector.x && y == vector.y && z == vector.z && w == vector.w);
         }
 
@@ -375,8 +349,8 @@ namespace MeshDecimatorCore.Math
         /// 返回此向量是否等于另一个向量。
         /// </summary>
         /// <param name="other">要比较的另一个向量。</param>
-        /// <returns>如果相等则返回true。</returns>
-        public bool Equals(Vector4 other)
+        /// <returns>If equals.</returns>
+        public bool Equals(Vector4d other)
         {
             return (x == other.x && y == other.y && z == other.z && w == other.w);
         }
@@ -384,7 +358,7 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 返回此向量的格式化字符串。
         /// </summary>
-        /// <returns>字符串。</returns>
+        /// <returns>The string.</returns>
         public override string ToString()
         {
             return string.Format("({0}, {1}, {2}, {3})",
@@ -397,8 +371,8 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 返回此向量的格式化字符串。
         /// </summary>
-        /// <param name="format">浮点数格式。</param>
-        /// <returns>字符串。</returns>
+        /// <param name="format">浮点格式。</param>
+        /// <returns>The string.</returns>
         public string ToString(string format)
         {
             return string.Format("({0}, {1}, {2}, {3})",
@@ -409,13 +383,13 @@ namespace MeshDecimatorCore.Math
         }
         #endregion
 
-        #region 静态方法
+        #region 静态
         /// <summary>
         /// 两个向量的点积。
         /// </summary>
         /// <param name="lhs">左侧向量。</param>
         /// <param name="rhs">右侧向量。</param>
-        public static float Dot(ref Vector4 lhs, ref Vector4 rhs)
+        public static double Dot(ref Vector4d lhs, ref Vector4d rhs)
         {
             return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z + lhs.w * rhs.w;
         }
@@ -423,41 +397,41 @@ namespace MeshDecimatorCore.Math
         /// <summary>
         /// 在两个向量之间执行线性插值。
         /// </summary>
-        /// <param name="a">插值起始向量。</param>
-        /// <param name="b">插值目标向量。</param>
+        /// <param name="a">起始插值向量。</param>
+        /// <param name="b">目标插值向量。</param>
         /// <param name="t">时间分数。</param>
         /// <param name="result">结果向量。</param>
-        public static void Lerp(ref Vector4 a, ref Vector4 b, float t, out Vector4 result)
+        public static void Lerp(ref Vector4d a, ref Vector4d b, double t, out Vector4d result)
         {
-            result = new Vector4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+            result = new Vector4d(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
         }
 
         /// <summary>
-        /// 按分量相乘两个向量。
+        /// 两个向量按分量相乘。
         /// </summary>
         /// <param name="a">第一个向量。</param>
         /// <param name="b">第二个向量。</param>
         /// <param name="result">结果向量。</param>
-        public static void Scale(ref Vector4 a, ref Vector4 b, out Vector4 result)
+        public static void Scale(ref Vector4d a, ref Vector4d b, out Vector4d result)
         {
-            result = new Vector4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
+            result = new Vector4d(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
         }
 
         /// <summary>
         /// 归一化向量。
         /// </summary>
         /// <param name="value">要归一化的向量。</param>
-        /// <param name="result">归一化后的结果向量。</param>
-        public static void Normalize(ref Vector4 value, out Vector4 result)
+        /// <param name="result">结果归一化向量。</param>
+        public static void Normalize(ref Vector4d value, out Vector4d result)
         {
-            float mag = value.Magnitude;
+            double mag = value.Magnitude;
             if (mag > Epsilon)
             {
-                result = new Vector4(value.x / mag, value.y / mag, value.z / mag, value.w / mag);
+                result = new Vector4d(value.x / mag, value.y / mag, value.z / mag, value.w / mag);
             }
             else
             {
-                result = Vector4.zero;
+                result = Vector4d.zero;
             }
         }
         #endregion

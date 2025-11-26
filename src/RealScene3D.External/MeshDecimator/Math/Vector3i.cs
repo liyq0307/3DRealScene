@@ -1,63 +1,37 @@
-﻿#region License
-/*
-MIT License
+﻿using System.Globalization;
 
-Copyright(c) 2017-2018 Mattias Edlund
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-#endregion
-
-using System.Globalization;
-
-namespace MeshDecimatorCore.Math
+namespace MeshDecimator.Math
 {
     /// <summary>
     /// A 3D integer vector.
     /// </summary>
     public struct Vector3i : IEquatable<Vector3i>
     {
-        #region Static Read-Only
+        #region 静态 Read-Only
         /// <summary>
-        /// The zero vector.
+        /// 零向量。
         /// </summary>
         public static readonly Vector3i zero = new Vector3i(0, 0, 0);
         #endregion
 
-        #region Fields
+        #region 字段
         /// <summary>
-        /// The x component.
+        /// x 分量。
         /// </summary>
         public int x;
         /// <summary>
-        /// The y component.
+        /// y 分量。
         /// </summary>
         public int y;
         /// <summary>
-        /// The z component.
+        /// z 分量。
         /// </summary>
         public int z;
         #endregion
 
-        #region Properties
+        #region 属性
         /// <summary>
-        /// Gets the magnitude of this vector.
+        /// 获取此向量的模。
         /// </summary>
         public int Magnitude
         {
@@ -65,7 +39,7 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Gets the squared magnitude of this vector.
+        /// 获取此向量的平方模。
         /// </summary>
         public int MagnitudeSqr
         {
@@ -73,9 +47,9 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Gets or sets a specific component by index in this vector.
+        /// 通过索引获取或设置此向量中的特定分量。
         /// </summary>
-        /// <param name="index">The component index.</param>
+        /// <param name="index">分量索引。</param>
         public int this[int index]
         {
             get
@@ -112,11 +86,11 @@ namespace MeshDecimatorCore.Math
         }
         #endregion
 
-        #region Constructor
+        #region 构造函数
         /// <summary>
-        /// Creates a new vector with one value for all components.
+        /// 创建一个所有分量值相同的新向量。
         /// </summary>
-        /// <param name="value">The value.</param>
+        /// <param name="value">值。</param>
         public Vector3i(int value)
         {
             this.x = value;
@@ -125,11 +99,11 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Creates a new vector.
+        /// 创建一个新向量。
         /// </summary>
-        /// <param name="x">The x value.</param>
-        /// <param name="y">The y value.</param>
-        /// <param name="z">The z value.</param>
+        /// <param name="x">x 值。</param>
+        /// <param name="y">y 值。</param>
+        /// <param name="z">z 值。</param>
         public Vector3i(int x, int y, int z)
         {
             this.x = x;
@@ -138,77 +112,77 @@ namespace MeshDecimatorCore.Math
         }
         #endregion
 
-        #region Operators
+        #region 运算符
         /// <summary>
-        /// Adds two vectors.
+        /// 两个向量相加。
         /// </summary>
-        /// <param name="a">The first vector.</param>
-        /// <param name="b">The second vector.</param>
-        /// <returns>The resulting vector.</returns>
+        /// <param name="a">第一个向量。</param>
+        /// <param name="b">第二个向量。</param>
+        /// <returns>结果向量。</returns>
         public static Vector3i operator +(Vector3i a, Vector3i b)
         {
             return new Vector3i(a.x + b.x, a.y + b.y, a.z + b.z);
         }
 
         /// <summary>
-        /// Subtracts two vectors.
+        /// 两个向量相减。
         /// </summary>
-        /// <param name="a">The first vector.</param>
-        /// <param name="b">The second vector.</param>
-        /// <returns>The resulting vector.</returns>
+        /// <param name="a">第一个向量。</param>
+        /// <param name="b">第二个向量。</param>
+        /// <returns>结果向量。</returns>
         public static Vector3i operator -(Vector3i a, Vector3i b)
         {
             return new Vector3i(a.x - b.x, a.y - b.y, a.z - b.z);
         }
 
         /// <summary>
-        /// Scales the vector uniformly.
+        /// 均匀缩放向量。
         /// </summary>
-        /// <param name="a">The vector.</param>
-        /// <param name="d">The scaling value.</param>
-        /// <returns>The resulting vector.</returns>
+        /// <param name="a">向量。</param>
+        /// <param name="d">缩放值。</param>
+        /// <returns>结果向量。</returns>
         public static Vector3i operator *(Vector3i a, int d)
         {
             return new Vector3i(a.x * d, a.y * d, a.z * d);
         }
 
         /// <summary>
-        /// Scales the vector uniformly.
+        /// 均匀缩放向量。
         /// </summary>
-        /// <param name="d">The scaling value.</param>
-        /// <param name="a">The vector.</param>
-        /// <returns>The resulting vector.</returns>
+        /// <param name="d">缩放值。</param>
+        /// <param name="a">向量。</param>
+        /// <returns>结果向量。</returns>
         public static Vector3i operator *(int d, Vector3i a)
         {
             return new Vector3i(a.x * d, a.y * d, a.z * d);
         }
 
         /// <summary>
-        /// Divides the vector with a float.
+        /// 用浮点数除向量。
         /// </summary>
-        /// <param name="a">The vector.</param>
-        /// <param name="d">The dividing float value.</param>
-        /// <returns>The resulting vector.</returns>
+        /// <param name="a">向量。</param>
+        /// <param name="d">除数浮点值。</param>
+        /// <returns>结果向量。</returns>
         public static Vector3i operator /(Vector3i a, int d)
         {
             return new Vector3i(a.x / d, a.y / d, a.z / d);
         }
 
         /// <summary>
-        /// Subtracts the vector from a zero vector.
+        /// 从零向量中减去该向量。
         /// </summary>
-        /// <param name="a">The vector.</param>
-        /// <returns>The resulting vector.</returns>
+        /// <param name="a">向量。</param>
+        /// <returns>结果向量。</returns>
         public static Vector3i operator -(Vector3i a)
         {
             return new Vector3i(-a.x, -a.y, -a.z);
         }
 
         /// <summary>
-        /// Returns if two vectors equals eachother.
+        /// 返回两个向量是否相等。
         /// </summary>
-        /// <param name="lhs">The left hand side vector.</param>
-        /// <param name="rhs">The right hand side vector.</param>
+        /// <param name="lhs">左侧向量。</param>
+        /// <param name="rhs">右侧向量。</param>
         /// <returns>If equals.</returns>
         public static bool operator ==(Vector3i lhs, Vector3i rhs)
         {
@@ -216,10 +190,10 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Returns if two vectors don't equal eachother.
+        /// 返回两个向量是否不相等。
         /// </summary>
-        /// <param name="lhs">The left hand side vector.</param>
-        /// <param name="rhs">The right hand side vector.</param>
+        /// <param name="lhs">左侧向量。</param>
+        /// <param name="rhs">右侧向量。</param>
         /// <returns>If not equals.</returns>
         public static bool operator !=(Vector3i lhs, Vector3i rhs)
         {
@@ -227,32 +201,32 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Explicitly converts from a single-precision vector into an integer vector.
+        /// 显式将单精度向量转换为整数向量。
         /// </summary>
-        /// <param name="v">The single-precision vector.</param>
+        /// <param name="v">单精度向量。</param>
         public static implicit operator Vector3i(Vector3 v)
         {
             return new Vector3i((int)v.x, (int)v.y, (int)v.z);
         }
 
         /// <summary>
-        /// Explicitly converts from a double-precision vector into an integer vector.
+        /// 显式将双精度向量转换为整数向量。
         /// </summary>
-        /// <param name="v">The double-precision vector.</param>
+        /// <param name="v">双精度向量。</param>
         public static explicit operator Vector3i(Vector3d v)
         {
             return new Vector3i((int)v.x, (int)v.y, (int)v.z);
         }
         #endregion
 
-        #region Public Methods
-        #region Instance
+        #region 公共方法
+        #region 实例方法
         /// <summary>
-        /// Set x, y and z components of an existing vector.
+        /// 设置现有向量的 x、y 和 z 分量。
         /// </summary>
-        /// <param name="x">The x value.</param>
-        /// <param name="y">The y value.</param>
-        /// <param name="z">The z value.</param>
+        /// <param name="x">x 值。</param>
+        /// <param name="y">y 值。</param>
+        /// <param name="z">z 值。</param>
         public void Set(int x, int y, int z)
         {
             this.x = x;
@@ -261,9 +235,9 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Multiplies with another vector component-wise.
+        /// 与另一个向量按分量相乘。
         /// </summary>
-        /// <param name="scale">The vector to multiply with.</param>
+        /// <param name="scale">要相乘的向量。</param>
         public void Scale(ref Vector3i scale)
         {
             x *= scale.x;
@@ -272,10 +246,10 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Clamps this vector between a specific range.
+        /// 将此向量限制在特定范围内。
         /// </summary>
-        /// <param name="min">The minimum component value.</param>
-        /// <param name="max">The maximum component value.</param>
+        /// <param name="min">最小分量值。</param>
+        /// <param name="max">最大分量值。</param>
         public void Clamp(int min, int max)
         {
             if (x < min) x = min;
@@ -289,9 +263,9 @@ namespace MeshDecimatorCore.Math
         }
         #endregion
 
-        #region Object
+        #region 对象方法
         /// <summary>
-        /// Returns a hash code for this vector.
+        /// 返回此向量的哈希码。
         /// </summary>
         /// <returns>The hash code.</returns>
         public override int GetHashCode()
@@ -300,11 +274,11 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Returns if this vector is equal to another one.
+        /// 返回此向量是否等于另一个向量。
         /// </summary>
-        /// <param name="other">The other vector to compare to.</param>
+        /// <param name="other">要比较的另一个向量。</param>
         /// <returns>If equals.</returns>
-        public override bool Equals(object other)
+        public override bool Equals(object? other)
         {
             if (!(other is Vector3i))
             {
@@ -315,9 +289,9 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Returns if this vector is equal to another one.
+        /// 返回此向量是否等于另一个向量。
         /// </summary>
-        /// <param name="other">The other vector to compare to.</param>
+        /// <param name="other">要比较的另一个向量。</param>
         /// <returns>If equals.</returns>
         public bool Equals(Vector3i other)
         {
@@ -325,7 +299,7 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Returns a nicely formatted string for this vector.
+        /// 返回此向量的格式化字符串。
         /// </summary>
         /// <returns>The string.</returns>
         public override string ToString()
@@ -337,9 +311,9 @@ namespace MeshDecimatorCore.Math
         }
 
         /// <summary>
-        /// Returns a nicely formatted string for this vector.
+        /// 返回此向量的格式化字符串。
         /// </summary>
-        /// <param name="format">The integer format.</param>
+        /// <param name="format">整数格式。</param>
         /// <returns>The string.</returns>
         public string ToString(string format)
         {
@@ -350,13 +324,13 @@ namespace MeshDecimatorCore.Math
         }
         #endregion
 
-        #region Static
+        #region 静态
         /// <summary>
-        /// Multiplies two vectors component-wise.
+        /// 两个向量按分量相乘。
         /// </summary>
-        /// <param name="a">The first vector.</param>
-        /// <param name="b">The second vector.</param>
-        /// <param name="result">The resulting vector.</param>
+        /// <param name="a">第一个向量。</param>
+        /// <param name="b">第二个向量。</param>
+        /// <param name="result">结果向量。</param>
         public static void Scale(ref Vector3i a, ref Vector3i b, out Vector3i result)
         {
             result = new Vector3i(a.x * b.x, a.y * b.y, a.z * b.z);

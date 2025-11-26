@@ -1,32 +1,6 @@
-﻿#region License
-/*
-MIT License
+﻿using MeshDecimator.Math;
 
-Copyright(c) 2017-2018 Mattias Edlund
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-#endregion
-
-using MeshDecimatorCore.Math;
-
-namespace MeshDecimatorCore
+namespace MeshDecimator
 {
     /// <summary>
     /// 一个网格。
@@ -41,15 +15,15 @@ namespace MeshDecimatorCore
         #endregion
 
         #region 字段
-        private Vector3d[] vertices = null;
-        private int[][] indices = null;
-        private Vector3[] normals = null;
-        private Vector4[] tangents = null;
-        private Vector2[][] uvs2D = null;
-        private Vector3[][] uvs3D = null;
-        private Vector4[][] uvs4D = null;
-        private Vector4[] colors = null;
-        private BoneWeight[] boneWeights = null;
+        private Vector3d[] vertices = null!;
+        private int[]?[] indices = null!;
+        private Vector3[]? normals = null;
+        private Vector4[]? tangents = null;
+        private Vector2[]?[]? uvs2D = null;
+        private Vector3[]?[]? uvs3D = null;
+        private Vector4[]?[]? uvs4D = null;
+        private Vector4[]? colors = null;
+        private BoneWeight[]? boneWeights = null;
 
         private static readonly int[] emptyIndices = [];
         #endregion
@@ -92,7 +66,7 @@ namespace MeshDecimatorCore
                 {
                     if (indices[i] != null)
                     {
-                        triangleCount += indices[i].Length / 3;
+                        triangleCount += indices[i]!.Length / 3;
                     }
                 }
                 return triangleCount;
@@ -133,7 +107,7 @@ namespace MeshDecimatorCore
                     {
                         if (indices[i] != null)
                         {
-                            indexList.AddRange(indices[i]);
+                            indexList.AddRange(indices[i]!);
                         }
                     }
                     return indexList.ToArray();
@@ -154,7 +128,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的法线。
         /// </summary>
-        public Vector3[] Normals
+        public Vector3[]? Normals
         {
             get { return normals; }
             set
@@ -169,7 +143,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的切线。
         /// </summary>
-        public Vector4[] Tangents
+        public Vector4[]? Tangents
         {
             get { return tangents; }
             set
@@ -184,7 +158,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的第一个 UV 集合。
         /// </summary>
-        public Vector2[] UV1
+        public Vector2[]? UV1
         {
             get { return GetUVs2D(0); }
             set { SetUVs(0, value); }
@@ -193,7 +167,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的第二个 UV 集合。
         /// </summary>
-        public Vector2[] UV2
+        public Vector2[]? UV2
         {
             get { return GetUVs2D(1); }
             set { SetUVs(1, value); }
@@ -202,7 +176,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的第三个 UV 集合。
         /// </summary>
-        public Vector2[] UV3
+        public Vector2[]? UV3
         {
             get { return GetUVs2D(2); }
             set { SetUVs(2, value); }
@@ -211,7 +185,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的第四个 UV 集合。
         /// </summary>
-        public Vector2[] UV4
+        public Vector2[]? UV4
         {
             get { return GetUVs2D(3); }
             set { SetUVs(3, value); }
@@ -220,7 +194,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的顶点颜色。
         /// </summary>
-        public Vector4[] Colors
+        public Vector4[]? Colors
         {
             get { return colors; }
             set
@@ -235,7 +209,7 @@ namespace MeshDecimatorCore
         /// <summary>
         /// 获取或设置此网格的顶点骨骼权重。
         /// </summary>
-        public BoneWeight[] BoneWeights
+        public BoneWeight[]? BoneWeights
         {
             get { return boneWeights; }
             set
@@ -317,7 +291,7 @@ namespace MeshDecimatorCore
             int subMeshCount = this.indices.Length;
             for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
             {
-                int[] indices = this.indices[subMeshIndex];
+                int[]? indices = this.indices[subMeshIndex];
                 if (indices == null)
                     continue;
 
@@ -376,14 +350,14 @@ namespace MeshDecimatorCore
             var tan1 = new Vector3[vertexCount];
             var tan2 = new Vector3[vertexCount];
 
-            Vector2[] uv2D = (uvIs2D ? uvs2D[0] : null);
-            Vector3[] uv3D = (uvIs3D ? uvs3D[0] : null);
-            Vector4[] uv4D = (uvIs4D ? uvs4D[0] : null);
+            Vector2[]? uv2D = (uvIs2D ? uvs2D![0] : null);
+            Vector3[]? uv3D = (uvIs3D ? uvs3D![0] : null);
+            Vector4[]? uv4D = (uvIs4D ? uvs4D![0] : null);
 
             int subMeshCount = this.indices.Length;
             for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
             {
-                int[] indices = this.indices[subMeshIndex];
+                int[]? indices = this.indices[subMeshIndex];
                 if (indices == null)
                     continue;
 
@@ -401,9 +375,9 @@ namespace MeshDecimatorCore
                     float s1, s2, t1, t2;
                     if (uvIs2D)
                     {
-                        var w0 = uv2D[i0];
-                        var w1 = uv2D[i1];
-                        var w2 = uv2D[i2];
+                        var w0 = uv2D![i0];
+                        var w1 = uv2D![i1];
+                        var w2 = uv2D![i2];
                         s1 = w1.x - w0.x;
                         s2 = w2.x - w0.x;
                         t1 = w1.y - w0.y;
@@ -411,9 +385,9 @@ namespace MeshDecimatorCore
                     }
                     else if (uvIs3D)
                     {
-                        var w0 = uv3D[i0];
-                        var w1 = uv3D[i1];
-                        var w2 = uv3D[i2];
+                        var w0 = uv3D![i0];
+                        var w1 = uv3D![i1];
+                        var w2 = uv3D![i2];
                         s1 = w1.x - w0.x;
                         s2 = w2.x - w0.x;
                         t1 = w1.y - w0.y;
@@ -421,9 +395,9 @@ namespace MeshDecimatorCore
                     }
                     else
                     {
-                        var w0 = uv4D[i0];
-                        var w1 = uv4D[i1];
-                        var w2 = uv4D[i2];
+                        var w0 = uv4D![i0];
+                        var w1 = uv4D![i1];
+                        var w2 = uv4D![i2];
                         s1 = w1.x - w0.x;
                         s2 = w2.x - w0.x;
                         t1 = w1.y - w0.y;
@@ -481,7 +455,7 @@ namespace MeshDecimatorCore
             if (subMeshIndex < 0 || subMeshIndex >= indices.Length)
                 throw new IndexOutOfRangeException();
 
-            return indices[subMeshIndex].Length / 3;
+            return indices[subMeshIndex]?.Length / 3 ?? 0;
         }
 
         /// <summary>
@@ -564,14 +538,14 @@ namespace MeshDecimatorCore
         /// </summary>
         /// <param name="channel">通道索引。</param>
         /// <returns>UV 坐标。</returns>
-        public Vector2[] GetUVs2D(int channel)
+        public Vector2[]? GetUVs2D(int channel)
         {
             if (channel < 0 || channel >= UVChannelCount)
                 throw new ArgumentOutOfRangeException("channel");
 
             if (uvs2D != null && uvs2D[channel] != null)
             {
-                return uvs2D[channel];
+                return uvs2D[channel]!;
             }
             else
             {
@@ -584,14 +558,14 @@ namespace MeshDecimatorCore
         /// </summary>
         /// <param name="channel">通道索引。</param>
         /// <returns>UV 坐标。</returns>
-        public Vector3[] GetUVs3D(int channel)
+        public Vector3[]? GetUVs3D(int channel)
         {
             if (channel < 0 || channel >= UVChannelCount)
                 throw new ArgumentOutOfRangeException("channel");
 
             if (uvs3D != null && uvs3D[channel] != null)
             {
-                return uvs3D[channel];
+                return uvs3D[channel]!;
             }
             else
             {
@@ -604,14 +578,14 @@ namespace MeshDecimatorCore
         /// </summary>
         /// <param name="channel">通道索引。</param>
         /// <returns>UV 坐标。</returns>
-        public Vector4[] GetUVs4D(int channel)
+        public Vector4[]? GetUVs4D(int channel)
         {
             if (channel < 0 || channel >= UVChannelCount)
                 throw new ArgumentOutOfRangeException("channel");
 
             if (uvs4D != null && uvs4D[channel] != null)
             {
-                return uvs4D[channel];
+                return uvs4D[channel]!;
             }
             else
             {
@@ -695,7 +669,7 @@ namespace MeshDecimatorCore
         /// </summary>
         /// <param name="channel">通道索引。</param>
         /// <param name="uvs">UV 坐标。</param>
-        public void SetUVs(int channel, Vector2[] uvs)
+        public void SetUVs(int channel, Vector2[]? uvs)
         {
             if (channel < 0 || channel >= UVChannelCount)
                 throw new ArgumentOutOfRangeException("channel");
@@ -736,7 +710,7 @@ namespace MeshDecimatorCore
         /// </summary>
         /// <param name="channel">通道索引。</param>
         /// <param name="uvs">UV 坐标。</param>
-        public void SetUVs(int channel, Vector3[] uvs)
+        public void SetUVs(int channel, Vector3[]? uvs)
         {
             if (channel < 0 || channel >= UVChannelCount)
                 throw new ArgumentOutOfRangeException("channel");
@@ -777,7 +751,7 @@ namespace MeshDecimatorCore
         /// </summary>
         /// <param name="channel">通道索引。</param>
         /// <param name="uvs">UV 坐标。</param>
-        public void SetUVs(int channel, Vector4[] uvs)
+        public void SetUVs(int channel, Vector4[]? uvs)
         {
             if (channel < 0 || channel >= UVChannelCount)
                 throw new ArgumentOutOfRangeException("channel");

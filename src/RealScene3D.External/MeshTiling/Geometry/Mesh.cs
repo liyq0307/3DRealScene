@@ -1,29 +1,53 @@
-﻿using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Globalization;
-using RealScene3D.MeshTiling.Materials;
-using SixLabors.ImageSharp;
+﻿using SixLabors.ImageSharp;
 
 namespace RealScene3D.MeshTiling.Geometry;
 
+/// <summary>
+/// 网格类，实现网格的基本操作，包括分割、包围盒计算和OBJ文件导出等功能
+/// </summary>
 public class Mesh : IMesh
 {
+    /// <summary>
+    /// 顶点列表
+    /// </summary>
     private List<Vertex3> _vertices;
+
+    /// <summary>
+    /// 面列表（只读）
+    /// </summary>
     private readonly List<Face> _faces;
 
+    /// <summary>
+    /// 获取只读顶点列表
+    /// </summary>
     public IReadOnlyList<Vertex3> Vertices => _vertices;
+
+    /// <summary>
+    /// 获取只读面列表
+    /// </summary>
     public IReadOnlyList<Face> Faces => _faces;
 
+    /// <summary>
+    /// 默认网格名称
+    /// </summary>
     public const string DefaultName = "Mesh";
 
+    /// <summary>
+    /// 网格名称
+    /// </summary>
     public string Name { get; set; } = DefaultName;
 
+    /// <summary>
+    /// 使用指定的顶点和面列表构造网格
+    /// </summary>
+    /// <param name="vertices">顶点序列</param>
+    /// <param name="faces">面序列</param>
     public Mesh(IEnumerable<Vertex3> vertices, IEnumerable<Face> faces)
     {
         _vertices = new List<Vertex3>(vertices);
         _faces = new List<Face>(faces);
     }
-    
+
     public int Split(IVertexUtils utils, double q, out IMesh left,
         out IMesh right)
     {
@@ -42,7 +66,7 @@ public class Mesh : IMesh
             var vA = _vertices[face.IndexA];
             var vB = _vertices[face.IndexB];
             var vC = _vertices[face.IndexC];
-            
+
             var aSide = utils.GetDimension(vA) < q;
             var bSide = utils.GetDimension(vB) < q;
             var cSide = utils.GetDimension(vC) < q;
@@ -138,6 +162,9 @@ public class Mesh : IMesh
         return count;
     }
 
+    /// <summary>
+    /// 处理左2D交叉分割（一个顶点在左侧，两个在右侧）
+    /// </summary>
     private void IntersectLeft2D(IVertexUtils utils, double q, int indexVL, int indexVR1, int indexVR2,
         IDictionary<Vertex3, int> leftVertices,
         IDictionary<Vertex3, int> rightVertices, ICollection<Face> leftFaces,
@@ -152,7 +179,7 @@ public class Mesh : IMesh
         if (Math.Abs(utils.GetDimension(vR1) - q) < Common.Epsilon &&
             Math.Abs(utils.GetDimension(vR2) - q) < Common.Epsilon)
         {
-            // Right Vertices are on the line
+            // 右侧顶点在分割线上
 
             var indexVR1Left = leftVertices.AddIndex(vR1);
             var indexVR2Left = leftVertices.AddIndex(vR2);
@@ -164,14 +191,14 @@ public class Mesh : IMesh
         var indexVR1Right = rightVertices.AddIndex(vR1);
         var indexVR2Right = rightVertices.AddIndex(vR2);
 
-        // a on the left, b and c on the right
+        // 一个顶点在左侧，两个在右侧
 
-        // Prima intersezione
+        // 第一次交叉
         var t1 = utils.CutEdge(vL, vR1, q);
         var indexT1Left = leftVertices.AddIndex(t1);
         var indexT1Right = rightVertices.AddIndex(t1);
 
-        // Seconda intersezione
+        // 第二次交叉
         var t2 = utils.CutEdge(vL, vR2, q);
         var indexT2Left = leftVertices.AddIndex(t2);
         var indexT2Right = rightVertices.AddIndex(t2);
@@ -235,6 +262,9 @@ public class Mesh : IMesh
 
     #region Utils
 
+    /// <summary>
+    /// 获取网格的包围盒
+    /// </summary>
     public Box3 Bounds
     {
         get
@@ -284,13 +314,18 @@ public class Mesh : IMesh
         return new Vertex3(x, y, z);
     }
 
+    /// <summary>
+    /// 将网格写入OBJ文件
+    /// </summary>
+    /// <param name="path">文件路径</param>
+    /// <param name="removeUnused">是否移除未使用的顶点（默认为true）</param>
     public void WriteObj(string path, bool removeUnused = true)
     {
 
         if (removeUnused) RemoveUnusedVertices();
-        
+
         using var writer = new FormattingStreamWriter(path, CultureInfo.InvariantCulture);
-        
+
         writer.Write("o ");
         writer.WriteLine(string.IsNullOrWhiteSpace(Name) ? DefaultName : Name);
 
@@ -327,19 +362,19 @@ public class Mesh : IMesh
 
             if (!newVertexes.TryGetValue(vA, out var newVA))
                 newVA = newVertexes.AddIndex(vA);
-            
+
             face.IndexA = newVA;
-            
+
             if (!newVertexes.TryGetValue(vB, out var newVB))
                 newVB = newVertexes.AddIndex(vB);
-            
+
             face.IndexB = newVB;
-            
+
             if (!newVertexes.TryGetValue(vC, out var newVC))
                 newVC = newVertexes.AddIndex(vC);
-            
+
             face.IndexC = newVC;
-            
+
         }
 
         _vertices = newVertexes.Keys.ToList();
@@ -350,6 +385,4 @@ public class Mesh : IMesh
     public int VertexCount => _vertices.Count;
 
     #endregion
-
-
 }

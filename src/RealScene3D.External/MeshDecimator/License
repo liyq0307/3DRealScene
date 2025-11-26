@@ -1,5 +1,5 @@
-﻿#region License
-/*
+本代码参考了[text](https://github.com/Whinarn/MeshDecimator.git)
+
 MIT License
 
 Copyright(c) 2017-2018 Mattias Edlund
@@ -21,41 +21,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-*/
-#endregion
-
-namespace MeshDecimatorCore.Loggers
-{
-    /// <summary>
-    /// The default console logger.
-    /// </summary>
-    public sealed class ConsoleLogger : ILogger
-    {
-        /// <summary>
-        /// Logs a line of verbose text.
-        /// </summary>
-        /// <param name="text">The text.</param>
-        public void LogVerbose(string text)
-        {
-            Console.WriteLine(text);
-        }
-
-        /// <summary>
-        /// Logs a line of warning text.
-        /// </summary>
-        /// <param name="text">The text.</param>
-        public void LogWarning(string text)
-        {
-            Console.WriteLine(text);
-        }
-
-        /// <summary>
-        /// Logs a line of error text.
-        /// </summary>
-        /// <param name="text">The text.</param>
-        public void LogError(string text)
-        {
-            Console.Error.WriteLine(text);
-        }
-    }
-}

@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
 using System.Collections.Concurrent;
-using MeshDecimatorCore;
-using MeshDecimatorCore.Math;
+using MeshDecimator;
+using MeshDecimator.Math;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace RealScene3D.Application.Services;
@@ -66,7 +66,7 @@ public class MeshDecimationService
     }
 
     /// <summary>
-    /// 简化网格 - 主入口方法 (使用 MeshDecimatorCore 高性能库)
+    /// 简化网格 - 主入口方法 (使用 MeshDecimator 高性能库)
     /// </summary>
     /// <param name="triangles">输入的三角形列表</param>
     /// <param name="options">简化选项</param>
@@ -97,18 +97,18 @@ public class MeshDecimationService
 
         var startTime = DateTime.UtcNow;
 
-        _logger.LogInformation("开始网格简化（MeshDecimatorCore）：原始三角形数量={Count}，目标质量={Quality:F2}",
+        _logger.LogInformation("开始网格简化（MeshDecimator）：原始三角形数量={Count}，目标质量={Quality:F2}",
             originalCount, options.Quality);
 
         try
         {
-            // 1. 转换为 MeshDecimatorCore.Mesh 格式
+            // 1. 转换为 MeshDecimator.Mesh 格式
             var mesh = ConvertToMeshDecimatorMesh(triangles);
-            _logger.LogDebug("转换为 MeshDecimatorCore.Mesh：顶点数={VertexCount}，三角形数={TriangleCount}",
+            _logger.LogDebug("转换为 MeshDecimator.Mesh：顶点数={VertexCount}，三角形数={TriangleCount}",
                 mesh.VertexCount, mesh.TriangleCount);
 
             // 2. 配置简化算法
-            var algorithm = new MeshDecimatorCore.Algorithms.FastQuadricMeshSimplification
+            var algorithm = new MeshDecimator.Algorithms.FastQuadricMeshSimplification
             {
                 PreserveBorders = options.PreserveBoundary,
                 PreserveSeams = true, // 保留接缝，避免UV撕裂
@@ -281,10 +281,10 @@ public class MeshDecimationService
     }
 
     /// <summary>
-    /// 转换为 MeshDecimatorCore.Mesh 格式
+    /// 转换为 MeshDecimator.Mesh 格式
     /// 保留材质、UV 坐标和法线信息
     /// </summary>
-    private MeshDecimatorCore.Mesh ConvertToMeshDecimatorMesh(List<Triangle> triangles)
+    private MeshDecimator.Mesh ConvertToMeshDecimatorMesh(List<Triangle> triangles)
     {
         // 构建顶点和索引（考虑UV坐标，同一位置不同UV视为不同顶点）
         var vertices = new List<Vector3d>();
@@ -344,7 +344,7 @@ public class MeshDecimationService
             }
         }
 
-        var mesh = new MeshDecimatorCore.Mesh(vertices.ToArray(), indices.ToArray());
+        var mesh = new MeshDecimator.Mesh(vertices.ToArray(), indices.ToArray());
 
         // 设置顶点属性
         if (normals.Count == vertices.Count)
@@ -361,10 +361,10 @@ public class MeshDecimationService
     }
 
     /// <summary>
-    /// 从 MeshDecimatorCore.Mesh 转换回 Triangle 列表
+    /// 从 MeshDecimator.Mesh 转换回 Triangle 列表
     /// 恢复材质信息
     /// </summary>
-    private List<Triangle> ConvertFromMeshDecimatorMesh(MeshDecimatorCore.Mesh mesh, List<Triangle> originalTriangles)
+    private List<Triangle> ConvertFromMeshDecimatorMesh(MeshDecimator.Mesh mesh, List<Triangle> originalTriangles)
     {
         var result = new List<Triangle>();
 

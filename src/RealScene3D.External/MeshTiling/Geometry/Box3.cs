@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace RealScene3D.MeshTiling.Geometry
 {
@@ -34,7 +33,7 @@ namespace RealScene3D.MeshTiling.Geometry
         }
         
         // Override equals operator
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
             if (obj is Box3 box)
             {
