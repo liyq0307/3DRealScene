@@ -475,19 +475,35 @@ public class SlicingProcessor : ISlicingProcessor
         _logger.LogDebug("四叉树分割：LOD={Lod}, 深度={Depth}, 路径={Path}, 三角形={Count}, X中点={XMid:F3}, Y中点={YMid:F3}",
             lodLevel, depth, string.IsNullOrEmpty(quadrantPath) ? "根节点" : quadrantPath, triangles.Count, xMid, yMid);
 
-        // 四个象限：XL-YL, XL-YR, XR-YL, XR-YR
+        // ⭐ 使用 MeshSplitter 进行网格切分，而不是简单的包围盒过滤
+        // 第一步：沿 X 轴分割成左右两部分
+        var (leftTriangles, leftMaterials, rightTriangles, rightMaterials) =
+            _meshSplitter.Split(triangles, materials, MeshSplitter.SplitAxis.X, xMid);
+
+        // 第二步：分别对左右两部分沿 Y 轴分割
+        // ⭐ 重要：Split返回(left, right)，对Y轴来说 left=Y小(bottom), right=Y大(top)
+        var (bottomLeftTriangles, bottomLeftMaterials, topLeftTriangles, topLeftMaterials) =
+            _meshSplitter.Split(leftTriangles, leftMaterials, MeshSplitter.SplitAxis.Y, yMid);
+
+        var (bottomRightTriangles, bottomRightMaterials, topRightTriangles, topRightMaterials) =
+            _meshSplitter.Split(rightTriangles, rightMaterials, MeshSplitter.SplitAxis.Y, yMid);
+
+        // 四个象限及其包围盒
         var quadrants = new[]
         {
-            ("XL-YL", bounds.MinX, xMid, bounds.MinY, yMid),  // 左下
-            ("XL-YR", bounds.MinX, xMid, yMid, bounds.MaxY),  // 左上
-            ("XR-YL", xMid, bounds.MaxX, bounds.MinY, yMid),  // 右下
-            ("XR-YR", xMid, bounds.MaxX, yMid, bounds.MaxY)   // 右上
+            ("XL-YL", bottomLeftTriangles, bottomLeftMaterials, bounds.MinX, xMid, bounds.MinY, yMid),  // 左下
+            ("XL-YR", topLeftTriangles, topLeftMaterials, bounds.MinX, xMid, yMid, bounds.MaxY),        // 左上
+            ("XR-YL", bottomRightTriangles, bottomRightMaterials, xMid, bounds.MaxX, bounds.MinY, yMid), // 右下
+            ("XR-YR", topRightTriangles, topRightMaterials, xMid, bounds.MaxX, yMid, bounds.MaxY)        // 右上
         };
 
         var tasks = new List<Task>();
 
-        foreach (var (name, minX, maxX, minY, maxY) in quadrants)
+        foreach (var (name, quadTriangles, quadMaterials, minX, maxX, minY, maxY) in quadrants)
         {
+            if (quadTriangles.Count == 0)
+                continue;
+
             // 创建该象限的包围盒
             var quadBounds = new BoundingBox3D
             {
@@ -499,28 +515,22 @@ public class SlicingProcessor : ISlicingProcessor
                 MaxZ = bounds.MaxZ
             };
 
-            // 筛选属于该象限的三角形
-            var quadTriangles = FilterTrianglesInBounds(triangles, quadBounds);
-
             _logger.LogDebug("  象限 {Name}: {Count} 个三角形", name, quadTriangles.Count);
 
-            if (quadTriangles.Count > 0)
-            {
-                string newPath = string.IsNullOrEmpty(quadrantPath) ? name : $"{quadrantPath}-{name}";
+            string newPath = string.IsNullOrEmpty(quadrantPath) ? name : $"{quadrantPath}-{name}";
 
-                var task = RecursiveQuadtreeSplitAsync(
-                    quadTriangles,
-                    materials,
-                    quadBounds,
-                    lodLevel,
-                    newPath,
-                    depth + 1,
-                    maxDepth,
-                    cells,
-                    cancellationToken);
+            var task = RecursiveQuadtreeSplitAsync(
+                quadTriangles,
+                quadMaterials,
+                quadBounds,
+                lodLevel,
+                newPath,
+                depth + 1,
+                maxDepth,
+                cells,
+                cancellationToken);
 
-                tasks.Add(task);
-            }
+            tasks.Add(task);
         }
 
         await Task.WhenAll(tasks);

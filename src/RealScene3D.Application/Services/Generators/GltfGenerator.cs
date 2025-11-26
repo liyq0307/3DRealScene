@@ -324,20 +324,43 @@ public class GltfGenerator : TileGenerator
         ref int currentOffset)
     {
         var textures = material.GetAllTextures().ToList();
+        _logger.LogInformation("EmbedMaterialTextures: 材质 '{Name}' 有 {Count} 个纹理", material.Name, textures.Count);
+
         foreach (var texture in textures)
         {
-            if (string.IsNullOrEmpty(texture.FilePath) || !File.Exists(texture.FilePath))
+            _logger.LogDebug("  检查纹理: Type={Type}, Path={Path}", texture.Type, texture.FilePath ?? "(null)");
+
+            if (string.IsNullOrEmpty(texture.FilePath))
+            {
+                _logger.LogWarning("  ✗ 跳过: 纹理路径为空");
                 continue;
+            }
+
+            if (!File.Exists(texture.FilePath))
+            {
+                _logger.LogWarning("  ✗ 跳过: 文件不存在 - {Path}", texture.FilePath);
+                continue;
+            }
+
+            var fileInfo = new FileInfo(texture.FilePath);
+            _logger.LogInformation("  ✓ 发现纹理文件: {Path}, 大小={Size:F2} MB",
+                Path.GetFileName(texture.FilePath), fileInfo.Length / 1024.0 / 1024.0);
 
             // 检查是否已经嵌入过这个纹理
             if (embeddedImages.Any(i => i.OriginalPath == texture.FilePath))
+            {
+                _logger.LogDebug("  - 已嵌入过，跳过");
                 continue;
+            }
 
             try
             {
                 // 加载并压缩纹理
                 byte[] imageData;
                 string mimeType;
+
+                _logger.LogDebug("  压缩设置: EnableCompression={Enable}, MaxSize={MaxSize}, Quality={Quality}",
+                    TextureOptions.EnableCompression, TextureOptions.MaxTextureSize, TextureOptions.JpegQuality);
 
                 if (TextureOptions.EnableCompression)
                 {
@@ -346,6 +369,10 @@ public class GltfGenerator : TileGenerator
                         texture.FilePath,
                         TextureOptions.MaxTextureSize,
                         TextureOptions.JpegQuality);
+                    _logger.LogInformation("  ✓ 压缩完成: {OriginalSize:F2}MB → {CompressedSize:F2}MB ({Ratio:F1}%)",
+                        fileInfo.Length / 1024.0 / 1024.0,
+                        imageData.Length / 1024.0 / 1024.0,
+                        (1.0 - (double)imageData.Length / fileInfo.Length) * 100);
                 }
                 else
                 {
@@ -358,6 +385,7 @@ public class GltfGenerator : TileGenerator
                         ".jpg" or ".jpeg" => "image/jpeg",
                         _ => "image/png"
                     };
+                    _logger.LogInformation("  ✓ 直接读取（未压缩）: {Size:F2}MB", imageData.Length / 1024.0 / 1024.0);
                 }
 
                 // 4 字节对齐

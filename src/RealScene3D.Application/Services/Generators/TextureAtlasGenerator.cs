@@ -401,7 +401,7 @@ public class TextureAtlasGenerator
     /// <summary>
     /// 矩形 - 用于装箱算法
     /// </summary>
-    private class Rectangle
+    public class Rectangle
     {
         public int X { get; set; }
         public int Y { get; set; }
@@ -413,7 +413,7 @@ public class TextureAtlasGenerator
     /// MaxRects矩形装箱算法
     /// 基于 "A Thousand Ways to Pack the Bin" by Jukka Jylänki
     /// </summary>
-    private class MaxRectsPacker
+    public class MaxRectsPacker
     {
         private readonly int _binWidth;
         private readonly int _binHeight;

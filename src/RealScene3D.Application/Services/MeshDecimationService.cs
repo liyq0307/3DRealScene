@@ -1,12 +1,14 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
 using System.Collections.Concurrent;
+using MeshDecimatorCore;
+using MeshDecimatorCore.Math;
+using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace RealScene3D.Application.Services;
 
 /// <summary>
-/// 网格简化服务 - 基于二次误差度量(Quadric Error Metric)的网格简化算法
-/// 参考Fast Quadric Mesh Simplification实现
+/// 网格简化服务 - Fast Quadric Mesh Simplification网格简化算法
 /// 用于生成多层次细节(LOD)的3D模型
 /// </summary>
 public class MeshDecimationService
@@ -64,75 +66,7 @@ public class MeshDecimationService
     }
 
     /// <summary>
-    /// 顶点数据结构 - 用于简化算法
-    /// </summary>
-    private class Vertex
-    {
-        public Vector3D Position { get; set; } = new();
-        public SymmetricMatrix Q { get; set; } = new(); // 二次误差矩阵
-        public List<int> Triangles { get; set; } = new(); // 关联的三角形索引
-        public int CollapseTo { get; set; } = -1; // 折叠目标顶点
-        public bool IsBorder { get; set; } = false; // 是否边界顶点
-    }
-
-    /// <summary>
-    /// 三角形数据结构 - 用于简化算法
-    /// </summary>
-    private class TriangleMesh
-    {
-        public int V0 { get; set; }
-        public int V1 { get; set; }
-        public int V2 { get; set; }
-        public double Error { get; set; } // 折叠误差
-        public bool Deleted { get; set; } = false;
-        public bool Dirty { get; set; } = true;
-        public Vector3D Normal { get; set; } = new();
-    }
-
-    /// <summary>
-    /// 对称矩阵 - 用于二次误差度量
-    /// 4x4对称矩阵，用10个值存储
-    /// </summary>
-    private class SymmetricMatrix
-    {
-        private readonly double[] m = new double[10];
-
-        public SymmetricMatrix() { }
-
-        public SymmetricMatrix(double a, double b, double c, double d)
-        {
-            m[0] = a * a; m[1] = a * b; m[2] = a * c; m[3] = a * d;
-            m[4] = b * b; m[5] = b * c; m[6] = b * d;
-            m[7] = c * c; m[8] = c * d;
-            m[9] = d * d;
-        }
-
-        public double this[int index]
-        {
-            get => m[index];
-            set => m[index] = value;
-        }
-
-        // 计算顶点的二次误差
-        public double Error(Vector3D v)
-        {
-            return m[0] * v.X * v.X + 2 * m[1] * v.X * v.Y + 2 * m[2] * v.X * v.Z + 2 * m[3] * v.X
-                 + m[4] * v.Y * v.Y + 2 * m[5] * v.Y * v.Z + 2 * m[6] * v.Y
-                 + m[7] * v.Z * v.Z + 2 * m[8] * v.Z
-                 + m[9];
-        }
-
-        public static SymmetricMatrix operator +(SymmetricMatrix a, SymmetricMatrix b)
-        {
-            var result = new SymmetricMatrix();
-            for (int i = 0; i < 10; i++)
-                result[i] = a[i] + b[i];
-            return result;
-        }
-    }
-
-    /// <summary>
-    /// 简化网格 - 主入口方法
+    /// 简化网格 - 主入口方法 (使用 MeshDecimatorCore 高性能库)
     /// </summary>
     /// <param name="triangles">输入的三角形列表</param>
     /// <param name="options">简化选项</param>
@@ -145,34 +79,48 @@ public class MeshDecimationService
             return new DecimatedMesh { Triangles = new List<Triangle>() };
         }
 
-        var startTime = DateTime.UtcNow;
         var originalCount = triangles.Count;
 
-        _logger.LogInformation("开始网格简化：原始三角形数量={Count}，目标质量={Quality:F2}",
+        // 质量因子为 1.0 时直接返回原始网格（LOD-0 情况）
+        if (options.Quality >= 1.0)
+        {
+            _logger.LogInformation("质量因子=1.0，保持原始网格不简化：{Count}个三角形", originalCount);
+            return new DecimatedMesh
+            {
+                Triangles = triangles,
+                OriginalTriangleCount = originalCount,
+                SimplifiedTriangleCount = originalCount,
+                ReductionRatio = 0.0,
+                QualityFactor = 1.0
+            };
+        }
+
+        var startTime = DateTime.UtcNow;
+
+        _logger.LogInformation("开始网格简化（MeshDecimatorCore）：原始三角形数量={Count}，目标质量={Quality:F2}",
             originalCount, options.Quality);
 
         try
         {
-            // 1. 构建顶点和三角形数据结构
-            var (vertices, meshTriangles) = BuildMeshStructure(triangles);
-            _logger.LogDebug("构建网格结构：顶点数={VertexCount}，三角形数={TriangleCount}",
-                vertices.Count, meshTriangles.Count);
+            // 1. 转换为 MeshDecimatorCore.Mesh 格式
+            var mesh = ConvertToMeshDecimatorMesh(triangles);
+            _logger.LogDebug("转换为 MeshDecimatorCore.Mesh：顶点数={VertexCount}，三角形数={TriangleCount}",
+                mesh.VertexCount, mesh.TriangleCount);
 
-            // 2. 计算每个顶点的二次误差矩阵
-            ComputeVertexQuadrics(vertices, meshTriangles);
-
-            // 3. 标记边界顶点
-            if (options.PreserveBoundary)
+            // 2. 配置简化算法
+            var algorithm = new MeshDecimatorCore.Algorithms.FastQuadricMeshSimplification
             {
-                MarkBorderVertices(vertices, meshTriangles);
-            }
+                PreserveBorders = options.PreserveBoundary,
+                PreserveSeams = true, // 保留接缝，避免UV撕裂
+                Verbose = false
+            };
 
-            // 4. 执行迭代简化
+            // 3. 执行简化
             int targetTriangleCount = (int)(originalCount * options.Quality);
-            SimplifyMeshIterative(vertices, meshTriangles, targetTriangleCount, options);
+            var decimatedMesh = MeshDecimation.DecimateMesh(algorithm, mesh, targetTriangleCount);
 
-            // 5. 重建三角形列表
-            var simplifiedTriangles = RebuildTriangleList(vertices, meshTriangles);
+            // 4. 转换回 Triangle 列表
+            var simplifiedTriangles = ConvertFromMeshDecimatorMesh(decimatedMesh, triangles);
 
             var elapsed = DateTime.UtcNow - startTime;
             var reductionRatio = 1.0 - ((double)simplifiedTriangles.Count / originalCount);
@@ -301,17 +249,18 @@ public class MeshDecimationService
 
     /// <summary>
     /// 计算LOD质量因子
-    /// 质量因子范围：LOD-0 约 0.33-0.67（轻度简化），LOD-N 约 0.0-0.33（重度简化）
+    /// 质量因子范围：LOD-0 = 1.0（无简化），LOD-N 约 0.0-0.67（逐级简化）
     /// </summary>
     private double CalculateLODQuality(int level, int maxLevels)
     {
-        // 质量计算公式：quality = 1 - ((level + 1) / maxLevels)
-        // 例如 maxLevels=3:
-        //   LOD-0: 1 - 1/3 = 0.667 (保留 67% 的三角形)
-        //   LOD-1: 1 - 2/3 = 0.333 (保留 33% 的三角形)
-        //   LOD-2: 1 - 3/3 = 0.0   (最大简化，但不会完全为0)
+        if (level == 0)
+        {
+            // LOD-0 保持原始模型，不进行简化
+            return 1.0;
+        }
 
-        double quality = 1.0 - ((double)(level + 1) / maxLevels);
+        // 其他LOD级别：quality = 1 - (level / maxLevels)
+        double quality = 1.0 - ((double)level / maxLevels);
 
         // 确保质量因子不会太低（至少保留 5% 的三角形）
         return Math.Max(quality, 0.05);
@@ -332,365 +281,138 @@ public class MeshDecimationService
     }
 
     /// <summary>
-    /// 构建网格数据结构
+    /// 转换为 MeshDecimatorCore.Mesh 格式
+    /// 保留材质、UV 坐标和法线信息
     /// </summary>
-    private (List<Vertex> vertices, List<TriangleMesh> triangles) BuildMeshStructure(List<Triangle> inputTriangles)
+    private MeshDecimatorCore.Mesh ConvertToMeshDecimatorMesh(List<Triangle> triangles)
     {
-        var vertices = new List<Vertex>();
-        var triangles = new List<TriangleMesh>();
-        var vertexMap = new Dictionary<string, int>(); // 用于顶点去重
+        // 构建顶点和索引（考虑UV坐标，同一位置不同UV视为不同顶点）
+        var vertices = new List<Vector3d>();
+        var normals = new List<Vector3>();
+        var uvs = new List<Vector2>();
+        var indices = new List<int>();
+        var vertexMap = new Dictionary<string, int>();
 
-        foreach (var triangle in inputTriangles)
+        foreach (var triangle in triangles)
         {
-            var indices = new int[3];
-
             for (int i = 0; i < 3; i++)
             {
-                var v = triangle.Vertices[i];
-                var key = $"{v.X:F6}_{v.Y:F6}_{v.Z:F6}";
+                var pos = triangle.Vertices[i];
+                var uv = i == 0 ? triangle.UV1 : (i == 1 ? triangle.UV2 : triangle.UV3);
+                var normal = i == 0 ? triangle.Normal1 : (i == 1 ? triangle.Normal2 : triangle.Normal3);
+
+                // 构建顶点键：位置 + UV（如果存在）
+                string key;
+                if (uv != null)
+                {
+                    key = $"{pos.X:F6}_{pos.Y:F6}_{pos.Z:F6}_{uv.U:F6}_{uv.V:F6}";
+                }
+                else
+                {
+                    key = $"{pos.X:F6}_{pos.Y:F6}_{pos.Z:F6}";
+                }
 
                 if (!vertexMap.TryGetValue(key, out int index))
                 {
                     index = vertices.Count;
-                    vertices.Add(new Vertex { Position = v });
+                    vertices.Add(new Vector3d(pos.X, pos.Y, pos.Z));
+
+                    // 添加法线（如果存在）
+                    if (normal != null)
+                    {
+                        normals.Add(new Vector3((float)normal.X, (float)normal.Y, (float)normal.Z));
+                    }
+                    else
+                    {
+                        normals.Add(new Vector3(0, 1, 0)); // 默认向上法线
+                    }
+
+                    // 添加UV（如果存在）
+                    if (uv != null)
+                    {
+                        uvs.Add(new Vector2((float)uv.U, (float)uv.V));
+                    }
+                    else
+                    {
+                        uvs.Add(new Vector2(0, 0)); // 默认UV
+                    }
+
                     vertexMap[key] = index;
                 }
 
-                indices[i] = index;
+                indices.Add(index);
             }
-
-            var meshTri = new TriangleMesh
-            {
-                V0 = indices[0],
-                V1 = indices[1],
-                V2 = indices[2]
-            };
-
-            // 计算法线
-            meshTri.Normal = ComputeTriangleNormal(
-                vertices[indices[0]].Position,
-                vertices[indices[1]].Position,
-                vertices[indices[2]].Position);
-
-            triangles.Add(meshTri);
-
-            // 添加顶点-三角形关联
-            int triIndex = triangles.Count - 1;
-            vertices[indices[0]].Triangles.Add(triIndex);
-            vertices[indices[1]].Triangles.Add(triIndex);
-            vertices[indices[2]].Triangles.Add(triIndex);
         }
 
-        return (vertices, triangles);
+        var mesh = new MeshDecimatorCore.Mesh(vertices.ToArray(), indices.ToArray());
+
+        // 设置顶点属性
+        if (normals.Count == vertices.Count)
+        {
+            mesh.Normals = normals.ToArray();
+        }
+
+        if (uvs.Count == vertices.Count)
+        {
+            mesh.UV1 = uvs.ToArray();
+        }
+
+        return mesh;
     }
 
     /// <summary>
-    /// 计算顶点的二次误差矩阵
+    /// 从 MeshDecimatorCore.Mesh 转换回 Triangle 列表
+    /// 恢复材质信息
     /// </summary>
-    private void ComputeVertexQuadrics(List<Vertex> vertices, List<TriangleMesh> triangles)
-    {
-        // 初始化所有顶点的Q矩阵
-        foreach (var vertex in vertices)
-        {
-            vertex.Q = new SymmetricMatrix();
-        }
-
-        // 累加每个三角形的误差到其顶点
-        foreach (var tri in triangles)
-        {
-            var n = tri.Normal;
-            var p = vertices[tri.V0].Position;
-
-            // 平面方程: ax + by + cz + d = 0
-            double d = -(n.X * p.X + n.Y * p.Y + n.Z * p.Z);
-
-            // 构建二次误差矩阵
-            var q = new SymmetricMatrix(n.X, n.Y, n.Z, d);
-
-            vertices[tri.V0].Q += q;
-            vertices[tri.V1].Q += q;
-            vertices[tri.V2].Q += q;
-        }
-    }
-
-    /// <summary>
-    /// 标记边界顶点
-    /// </summary>
-    private void MarkBorderVertices(List<Vertex> vertices, List<TriangleMesh> triangles)
-    {
-        var edgeCount = new Dictionary<(int, int), int>();
-
-        foreach (var tri in triangles)
-        {
-            if (tri.Deleted) continue;
-
-            // 记录每条边
-            AddEdge(edgeCount, tri.V0, tri.V1);
-            AddEdge(edgeCount, tri.V1, tri.V2);
-            AddEdge(edgeCount, tri.V2, tri.V0);
-        }
-
-        // 只被一个三角形共享的边是边界边
-        foreach (var edge in edgeCount.Where(e => e.Value == 1))
-        {
-            vertices[edge.Key.Item1].IsBorder = true;
-            vertices[edge.Key.Item2].IsBorder = true;
-        }
-    }
-
-    private void AddEdge(Dictionary<(int, int), int> edgeCount, int v0, int v1)
-    {
-        var edge = v0 < v1 ? (v0, v1) : (v1, v0);
-        edgeCount.TryGetValue(edge, out int count);
-        edgeCount[edge] = count + 1;
-    }
-
-    /// <summary>
-    /// 迭代简化网格
-    /// 每次迭代删除所有误差低于阈值的边
-    /// </summary>
-    private void SimplifyMeshIterative(List<Vertex> vertices, List<TriangleMesh> triangles,
-        int targetTriangleCount, DecimationOptions options)
-    {
-        int deletedTriangles = 0;
-        int iteration = 0;
-        int remainingTriangles = triangles.Count;
-
-        while (remainingTriangles > targetTriangleCount && iteration < options.MaxIterations)
-        {
-            // 计算动态阈值
-            // threshold = 0.000000001 * Math.Pow(iteration + 3, aggressiveness)
-            double threshold = 0.000000001 * Math.Pow(iteration + 3, options.Aggressiveness);
-
-            // 更新所有三角形的折叠误差（每5次迭代更新一次）
-            if (iteration % 5 == 0)
-            {
-                UpdateTriangleErrors(vertices, triangles);
-            }
-
-            // 清除 dirty 标记
-            foreach (var tri in triangles)
-            {
-                tri.Dirty = false;
-            }
-
-            // 批量折叠误差低于阈值的边
-            int deletedInThisPass = 0;
-            for (int i = 0; i < triangles.Count; i++)
-            {
-                var tri = triangles[i];
-                if (tri.Deleted || tri.Error > threshold)
-                    continue;
-
-                // 尝试折叠这条边
-                if (CollapseEdge(vertices, triangles, i, options))
-                {
-                    deletedInThisPass++;
-                    deletedTriangles++;
-                    remainingTriangles--;
-
-                    // 如果已经达到目标，提前退出
-                    if (remainingTriangles <= targetTriangleCount)
-                        break;
-                }
-            }
-
-            iteration++;
-
-            if (iteration % 5 == 0)
-            {
-                var progress = (double)deletedTriangles / (triangles.Count - targetTriangleCount) * 100;
-                _logger.LogInformation("简化迭代进度：第{Iteration}次，本轮删除={PassDeleted}，总删除={Deleted}，剩余={Remaining}，进度={Progress:F1}%",
-                    iteration, deletedInThisPass, deletedTriangles, remainingTriangles, progress);
-            }
-
-            // 如果本轮没有删除任何三角形，说明无法继续简化
-            if (deletedInThisPass == 0 && iteration > 10)
-            {
-                _logger.LogWarning("第{Iteration}次迭代未删除任何三角形，提前终止简化", iteration);
-                break;
-            }
-        }
-
-        _logger.LogInformation("简化迭代完成：总迭代={Iterations}次，删除三角形={Deleted}个，最终剩余={Remaining}个",
-            iteration, deletedTriangles, remainingTriangles);
-    }
-
-    /// <summary>
-    /// 更新三角形的折叠误差
-    /// </summary>
-    private void UpdateTriangleErrors(List<Vertex> vertices, List<TriangleMesh> triangles)
-    {
-        for (int i = 0; i < triangles.Count; i++)
-        {
-            var tri = triangles[i];
-            if (tri.Deleted || !tri.Dirty) continue;
-
-            tri.Error = CalculateEdgeCollapseError(vertices, tri.V0, tri.V1);
-            tri.Dirty = false;
-        }
-    }
-
-    /// <summary>
-    /// 计算边折叠误差
-    /// </summary>
-    private double CalculateEdgeCollapseError(List<Vertex> vertices, int v0Index, int v1Index)
-    {
-        var v0 = vertices[v0Index];
-        var v1 = vertices[v1Index];
-
-        // 合并后的Q矩阵
-        var q = v0.Q + v1.Q;
-
-        // 计算最优折叠位置（简化版：使用中点）
-        var midpoint = new Vector3D
-        {
-            X = (v0.Position.X + v1.Position.X) * 0.5,
-            Y = (v0.Position.Y + v1.Position.Y) * 0.5,
-            Z = (v0.Position.Z + v1.Position.Z) * 0.5
-        };
-
-        return q.Error(midpoint);
-    }
-
-    /// <summary>
-    /// 找到最适合折叠的三角形
-    /// </summary>
-    private int FindBestTriangleToCollapse(List<TriangleMesh> triangles)
-    {
-        int bestIndex = -1;
-        double bestError = double.MaxValue;
-
-        for (int i = 0; i < triangles.Count; i++)
-        {
-            var tri = triangles[i];
-            if (tri.Deleted) continue;
-
-            if (tri.Error < bestError)
-            {
-                bestError = tri.Error;
-                bestIndex = i;
-            }
-        }
-
-        return bestIndex;
-    }
-
-    /// <summary>
-    /// 折叠边
-    /// </summary>
-    private bool CollapseEdge(List<Vertex> vertices, List<TriangleMesh> triangles,
-        int triIndex, DecimationOptions options)
-    {
-        var tri = triangles[triIndex];
-        var v0 = vertices[tri.V0];
-        var v1 = vertices[tri.V1];
-
-        // 不折叠边界顶点
-        if (options.PreserveBoundary && (v0.IsBorder || v1.IsBorder))
-            return false;
-
-        // 标记三角形为删除
-        tri.Deleted = true;
-
-        // 合并顶点（将v1的位置更新为中点，v0标记为折叠到v1）
-        v1.Position = new Vector3D
-        {
-            X = (v0.Position.X + v1.Position.X) * 0.5,
-            Y = (v0.Position.Y + v1.Position.Y) * 0.5,
-            Z = (v0.Position.Z + v1.Position.Z) * 0.5
-        };
-
-        v1.Q = v0.Q + v1.Q;
-        v0.CollapseTo = tri.V1;
-
-        // 更新相关三角形
-        foreach (var relatedTriIndex in v0.Triangles)
-        {
-            if (relatedTriIndex == triIndex) continue;
-            var relatedTri = triangles[relatedTriIndex];
-            if (relatedTri.Deleted) continue;
-
-            // 替换v0为v1
-            if (relatedTri.V0 == tri.V0) relatedTri.V0 = tri.V1;
-            if (relatedTri.V1 == tri.V0) relatedTri.V1 = tri.V1;
-            if (relatedTri.V2 == tri.V0) relatedTri.V2 = tri.V1;
-
-            // 检查是否退化
-            if (relatedTri.V0 == relatedTri.V1 || relatedTri.V1 == relatedTri.V2 || relatedTri.V2 == relatedTri.V0)
-            {
-                relatedTri.Deleted = true;
-            }
-            else
-            {
-                relatedTri.Dirty = true;
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// 重建三角形列表
-    /// </summary>
-    private List<Triangle> RebuildTriangleList(List<Vertex> vertices, List<TriangleMesh> meshTriangles)
+    private List<Triangle> ConvertFromMeshDecimatorMesh(MeshDecimatorCore.Mesh mesh, List<Triangle> originalTriangles)
     {
         var result = new List<Triangle>();
 
-        foreach (var meshTri in meshTriangles)
+        var vertices = mesh.Vertices;
+        var indices = mesh.Indices;
+        var normals = mesh.Normals;
+        var uvs = mesh.UV1;
+
+        // 提取第一个材质作为默认材质（简化后的网格共享材质）
+        var defaultMaterial = originalTriangles.FirstOrDefault()?.MaterialName;
+
+        // 重建三角形
+        for (int i = 0; i < indices.Length; i += 3)
         {
-            if (meshTri.Deleted) continue;
+            int i0 = indices[i];
+            int i1 = indices[i + 1];
+            int i2 = indices[i + 2];
 
             var triangle = new Triangle
             {
                 Vertices = new[]
                 {
-                    vertices[meshTri.V0].Position,
-                    vertices[meshTri.V1].Position,
-                    vertices[meshTri.V2].Position
-                }
+                    new Vector3D { X = vertices[i0].x, Y = vertices[i0].y, Z = vertices[i0].z },
+                    new Vector3D { X = vertices[i1].x, Y = vertices[i1].y, Z = vertices[i1].z },
+                    new Vector3D { X = vertices[i2].x, Y = vertices[i2].y, Z = vertices[i2].z }
+                },
+                MaterialName = defaultMaterial
             };
+
+            // 恢复法线
+            if (normals != null && normals.Length > i2)
+            {
+                triangle.Normal1 = new Vector3D { X = normals[i0].x, Y = normals[i0].y, Z = normals[i0].z };
+                triangle.Normal2 = new Vector3D { X = normals[i1].x, Y = normals[i1].y, Z = normals[i1].z };
+                triangle.Normal3 = new Vector3D { X = normals[i2].x, Y = normals[i2].y, Z = normals[i2].z };
+            }
+
+            // 恢复UV
+            if (uvs != null && uvs.Length > i2)
+            {
+                triangle.UV1 = new Vector2D { U = uvs[i0].x, V = uvs[i0].y };
+                triangle.UV2 = new Vector2D { U = uvs[i1].x, V = uvs[i1].y };
+                triangle.UV3 = new Vector2D { U = uvs[i2].x, V = uvs[i2].y };
+            }
 
             result.Add(triangle);
         }
 
         return result;
-    }
-
-    /// <summary>
-    /// 计算三角形法线
-    /// </summary>
-    private Vector3D ComputeTriangleNormal(Vector3D v0, Vector3D v1, Vector3D v2)
-    {
-        var edge1 = new Vector3D
-        {
-            X = v1.X - v0.X,
-            Y = v1.Y - v0.Y,
-            Z = v1.Z - v0.Z
-        };
-
-        var edge2 = new Vector3D
-        {
-            X = v2.X - v0.X,
-            Y = v2.Y - v0.Y,
-            Z = v2.Z - v0.Z
-        };
-
-        var normal = new Vector3D
-        {
-            X = edge1.Y * edge2.Z - edge1.Z * edge2.Y,
-            Y = edge1.Z * edge2.X - edge1.X * edge2.Z,
-            Z = edge1.X * edge2.Y - edge1.Y * edge2.X
-        };
-
-        var length = Math.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
-        if (length > 1e-10)
-        {
-            normal.X /= length;
-            normal.Y /= length;
-            normal.Z /= length;
-        }
-
-        return normal;
     }
 }

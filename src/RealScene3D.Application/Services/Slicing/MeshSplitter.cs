@@ -152,12 +152,14 @@ public class MeshSplitter
 
     /// <summary>
     /// 分割跨越边界的三角形
+    /// 严格按照Obj2Tiles逻辑：避免边界重复，处理所有边界情况
     /// </summary>
     private (List<Triangle> left, List<Triangle> right) SplitSpanningTriangle(
         Triangle triangle,
         SplitAxis axis,
         double threshold)
     {
+        const double epsilon = 1e-6;
         var left = new List<Triangle>();
         var right = new List<Triangle>();
 
@@ -168,31 +170,128 @@ public class MeshSplitter
             coords[i] = GetCoordinate(triangle.Vertices[i], axis);
         }
 
-        // 统计在左侧和右侧的顶点数量
-        int leftSideCount = coords.Count(c => c < threshold);
-        int rightSideCount = coords.Count(c => c > threshold);
+        // 判断每个顶点的位置
+        bool[] isLeft = new bool[3];
+        bool[] isRight = new bool[3];
+        bool[] isOnPlane = new bool[3];
 
-        if (leftSideCount == 1 && rightSideCount == 2)
+        for (int i = 0; i < 3; i++)
         {
-            // 一个顶点在左侧，两个在右侧
+            if (Math.Abs(coords[i] - threshold) <= epsilon)
+                isOnPlane[i] = true;
+            else if (coords[i] < threshold)
+                isLeft[i] = true;
+            else
+                isRight[i] = true;
+        }
+
+        int leftCount = isLeft.Count(x => x);
+        int rightCount = isRight.Count(x => x);
+        int onPlaneCount = isOnPlane.Count(x => x);
+
+        // ⭐ 关键：边界情况处理（按Obj2Tiles逻辑）
+        if (onPlaneCount == 2)
+        {
+            // 两个顶点在平面上：只添加到左侧（避免重复）
+            left.Add(triangle);
+            return (left, right);
+        }
+
+        if (onPlaneCount == 3)
+        {
+            // 三个顶点都在平面上：只添加到左侧
+            left.Add(triangle);
+            return (left, right);
+        }
+
+        // 标准分割情况
+        if (leftCount == 1 && rightCount == 2)
+        {
             SplitOneLeft(triangle, axis, threshold, left, right);
         }
-        else if (leftSideCount == 2 && rightSideCount == 1)
+        else if (leftCount == 2 && rightCount == 1)
         {
-            // 两个顶点在左侧，一个在右侧
             SplitOneRight(triangle, axis, threshold, left, right);
+        }
+        else if (onPlaneCount == 1)
+        {
+            // 一个顶点在平面上
+            if (leftCount == 2)
+            {
+                // 左侧2个，平面1个 → 只添加到左侧
+                left.Add(triangle);
+            }
+            else if (rightCount == 2)
+            {
+                // 右侧2个，平面1个 → 只添加到右侧
+                right.Add(triangle);
+            }
+            else if (leftCount == 1 && rightCount == 1)
+            {
+                // 左1个，右1个，平面1个 → 需要分割
+                SplitWithOnePlaneVertex(triangle, axis, threshold, left, right, isLeft, isRight, isOnPlane);
+            }
         }
         else
         {
-            // 边界情况：可能有顶点在分割平面上
-            // 简单处理：将三角形分配到包含更多顶点的一侧
-            if (leftSideCount >= rightSideCount)
+            // 其他边界情况：简单分配
+            if (leftCount > rightCount)
                 left.Add(triangle);
-            else
+            else if (rightCount > leftCount)
                 right.Add(triangle);
+            else
+                left.Add(triangle); // 相等时默认左侧
         }
 
         return (left, right);
+    }
+
+    /// <summary>
+    /// 处理有一个顶点在平面上的分割情况
+    /// </summary>
+    private void SplitWithOnePlaneVertex(
+        Triangle triangle,
+        SplitAxis axis,
+        double threshold,
+        List<Triangle> left,
+        List<Triangle> right,
+        bool[] isLeft,
+        bool[] isRight,
+        bool[] isOnPlane)
+    {
+        // 找到平面上的顶点、左侧顶点、右侧顶点
+        int planeIdx = Array.IndexOf(isOnPlane, true);
+        int leftIdx = Array.IndexOf(isLeft, true);
+        int rightIdx = Array.IndexOf(isRight, true);
+
+        var vPlane = triangle.Vertices[planeIdx];
+        var vLeft = triangle.Vertices[leftIdx];
+        var vRight = triangle.Vertices[rightIdx];
+
+        var uvPlane = GetUV(triangle, planeIdx);
+        var uvLeft = GetUV(triangle, leftIdx);
+        var uvRight = GetUV(triangle, rightIdx);
+
+        var nPlane = GetNormal(triangle, planeIdx);
+        var nLeft = GetNormal(triangle, leftIdx);
+        var nRight = GetNormal(triangle, rightIdx);
+
+        // 计算另一个交点（左-右边的交点）
+        var intersection = ComputeIntersectionFull(vLeft, vRight, uvLeft, uvRight, nLeft, nRight, axis, threshold);
+
+        // 左侧三角形：(vLeft, vPlane, intersection)
+        left.Add(CreateTriangle(
+            vLeft, vPlane, intersection.Position,
+            uvLeft, uvPlane, intersection.UV,
+            nLeft, nPlane, intersection.Normal,
+            triangle.MaterialName));
+
+        // 右侧三角形：(vPlane, vRight, intersection)
+        right.Add(CreateTriangle(
+            vPlane, vRight, intersection.Position,
+            uvPlane, uvRight, intersection.UV,
+            nPlane, nRight, intersection.Normal,
+            triangle.MaterialName));
     }
 
     /// <summary>
@@ -207,6 +306,8 @@ public class MeshSplitter
         List<Triangle> left,
         List<Triangle> right)
     {
+        const double epsilon = 1e-6;
+
         // 找到在左侧的顶点索引
         int leftIdx = -1;
         for (int i = 0; i < 3; i++)
@@ -236,29 +337,40 @@ public class MeshSplitter
         var n1 = GetNormal(triangle, idx1);
         var n2 = GetNormal(triangle, idx2);
 
+        // ⭐ 边界检查：如果两个"右侧"顶点实际上都在平面上，不分割
+        double coord1 = GetCoordinate(v1, axis);
+        double coord2 = GetCoordinate(v2, axis);
+        if (Math.Abs(coord1 - threshold) <= epsilon && Math.Abs(coord2 - threshold) <= epsilon)
+        {
+            // 两个顶点在平面上，只添加到左侧
+            left.Add(triangle);
+            return;
+        }
+
         // 计算两个交点（带完整顶点数据）
         var int1 = ComputeIntersectionFull(v0, v1, uv0, uv1, n0, n1, axis, threshold);
         var int2 = ComputeIntersectionFull(v0, v2, uv0, uv2, n0, n2, axis, threshold);
 
-        // 创建左侧三角形：v0 -> int1 -> int2（保持原始绕序）
+        // 创建左侧三角形：v0 -> int1 -> int2
         left.Add(CreateTriangle(
             v0, int1.Position, int2.Position,
             uv0, int1.UV, int2.UV,
             n0, int1.Normal, int2.Normal,
             triangle.MaterialName));
 
-        // 创建右侧三角形1：int1 -> v1 -> int2（保持原始绕序）
+        // ⭐ 关键修复：右侧需要形成四边形 (int1, v1, v2, int2)，分成两个三角形
+        // 右侧三角形1：int1 -> v1 -> v2（大三角形）
         right.Add(CreateTriangle(
-            int1.Position, v1, int2.Position,
-            int1.UV, uv1, int2.UV,
-            int1.Normal, n1, int2.Normal,
+            int1.Position, v1, v2,
+            int1.UV, uv1, uv2,
+            int1.Normal, n1, n2,
             triangle.MaterialName));
 
-        // 创建右侧三角形2：int2 -> v1 -> v2（保持原始绕序）
+        // 右侧三角形2：int1 -> v2 -> int2（填充剩余部分）
         right.Add(CreateTriangle(
-            int2.Position, v1, v2,
-            int2.UV, uv1, uv2,
-            int2.Normal, n1, n2,
+            int1.Position, v2, int2.Position,
+            int1.UV, uv2, int2.UV,
+            int1.Normal, n2, int2.Normal,
             triangle.MaterialName));
     }
 
@@ -274,6 +386,8 @@ public class MeshSplitter
         List<Triangle> left,
         List<Triangle> right)
     {
+        const double epsilon = 1e-6;
+
         // 找到在右侧的顶点索引
         int rightIdx = -1;
         for (int i = 0; i < 3; i++)
@@ -303,29 +417,40 @@ public class MeshSplitter
         var n1 = GetNormal(triangle, idx1);
         var n2 = GetNormal(triangle, idx2);
 
+        // ⭐ 边界检查：如果两个"左侧"顶点实际上都在平面上，不分割
+        double coord1 = GetCoordinate(v1, axis);
+        double coord2 = GetCoordinate(v2, axis);
+        if (Math.Abs(coord1 - threshold) <= epsilon && Math.Abs(coord2 - threshold) <= epsilon)
+        {
+            // 两个顶点在平面上，只添加到右侧
+            right.Add(triangle);
+            return;
+        }
+
         // 计算两个交点（带完整顶点数据）
         var int1 = ComputeIntersectionFull(v0, v1, uv0, uv1, n0, n1, axis, threshold);
         var int2 = ComputeIntersectionFull(v0, v2, uv0, uv2, n0, n2, axis, threshold);
 
-        // 创建右侧三角形：v0 -> int1 -> int2（保持原始绕序）
+        // 创建右侧三角形：v0 -> int1 -> int2
         right.Add(CreateTriangle(
             v0, int1.Position, int2.Position,
             uv0, int1.UV, int2.UV,
             n0, int1.Normal, int2.Normal,
             triangle.MaterialName));
 
-        // 创建左侧三角形1：int1 -> v1 -> int2（保持原始绕序）
+        // ⭐ 关键修复：左侧需要形成四边形 (int1, v1, v2, int2)，分成两个三角形
+        // 左侧三角形1：int1 -> v1 -> v2（大三角形）
         left.Add(CreateTriangle(
-            int1.Position, v1, int2.Position,
-            int1.UV, uv1, int2.UV,
-            int1.Normal, n1, int2.Normal,
+            int1.Position, v1, v2,
+            int1.UV, uv1, uv2,
+            int1.Normal, n1, n2,
             triangle.MaterialName));
 
-        // 创建左侧三角形2：int2 -> v1 -> v2（保持原始绕序）
+        // 左侧三角形2：int1 -> v2 -> int2（填充剩余部分）
         left.Add(CreateTriangle(
-            int2.Position, v1, v2,
-            int2.UV, uv1, uv2,
-            int2.Normal, n1, n2,
+            int1.Position, v2, int2.Position,
+            int1.UV, uv2, int2.UV,
+            int1.Normal, n2, int2.Normal,
             triangle.MaterialName));
     }
 
