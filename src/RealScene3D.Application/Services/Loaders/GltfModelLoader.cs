@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Materials;
 using SharpGLTF.Schema2;
-using System.Numerics;
 using Material = RealScene3D.Domain.Materials.Material;
 
 namespace RealScene3D.Application.Services.Loaders;

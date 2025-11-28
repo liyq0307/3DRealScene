@@ -191,9 +191,9 @@ public class SlicingService : ISlicingService
 
             // 2. 视野角度剔除测试
             var toCenterVector = new Vector3d(
-                sliceCenter.X - viewport.CameraPosition.X,
-                sliceCenter.Y - viewport.CameraPosition.Y,
-                sliceCenter.Z - viewport.CameraPosition.Z);
+                sliceCenter.x - viewport.CameraPosition.x,
+                sliceCenter.y - viewport.CameraPosition.y,
+                sliceCenter.z - viewport.CameraPosition.z);
 
             var angle = CalculateAngle(viewport.CameraDirection, toCenterVector);
 
@@ -205,9 +205,9 @@ public class SlicingService : ISlicingService
                 return false;
 
             // 3. 相机前方检测 - 确保切片在相机前方
-            var dotProduct = toCenterVector.X * viewport.CameraDirection.X +
-                           toCenterVector.Y * viewport.CameraDirection.Y +
-                           toCenterVector.Z * viewport.CameraDirection.Z;
+            var dotProduct = toCenterVector.x * viewport.CameraDirection.x +
+                           toCenterVector.y * viewport.CameraDirection.y +
+                           toCenterVector.z * viewport.CameraDirection.z;
 
             if (dotProduct <= 0)
                 return false;
@@ -230,9 +230,9 @@ public class SlicingService : ISlicingService
     /// </summary>
     private double CalculateDistance(Vector3d point1, Vector3d point2)
     {
-        var dx = point2.X - point1.X;
-        var dy = point2.Y - point1.Y;
-        var dz = point2.Z - point1.Z;
+        var dx = point2.x - point1.x;
+        var dy = point2.y - point1.y;
+        var dz = point2.z - point1.z;
 
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
@@ -244,11 +244,11 @@ public class SlicingService : ISlicingService
     private double CalculateAngle(Vector3d vector1, Vector3d vector2)
     {
         // 计算点积
-        var dotProduct = vector1.X * vector2.X + vector1.Y * vector2.Y + vector1.Z * vector2.Z;
+        var dotProduct = vector1.x * vector2.x + vector1.y * vector2.y + vector1.z * vector2.z;
 
         // 计算向量长度
-        var magnitude1 = Math.Sqrt(vector1.X * vector1.X + vector1.Y * vector1.Y + vector1.Z * vector1.Z);
-        var magnitude2 = Math.Sqrt(vector2.X * vector2.X + vector2.Y * vector2.Y + vector2.Z * vector2.Z);
+        var magnitude1 = Math.Sqrt(vector1.x * vector1.x + vector1.y * vector1.y + vector1.z * vector1.z);
+        var magnitude2 = Math.Sqrt(vector2.x * vector2.x + vector2.y * vector2.y + vector2.z * vector2.z);
 
         // 处理零向量情况
         if (magnitude1 < 1e-10 || magnitude2 < 1e-10) return 0;

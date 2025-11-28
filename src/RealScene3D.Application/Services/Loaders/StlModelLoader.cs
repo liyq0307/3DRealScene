@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
+using RealScene3D.Domain.Materials;
 using System.Text;
 
 namespace RealScene3D.Application.Services.Loaders;
@@ -12,7 +13,7 @@ namespace RealScene3D.Application.Services.Loaders;
 public class StlModelLoader : ModelLoader
 {
     private readonly ILogger<StlModelLoader> _logger;
-    private static readonly string[] SupportedFormats = { ".stl" };
+    private static readonly string[] SupportedFormats = [".stl"];
 
     public StlModelLoader(ILogger<StlModelLoader> logger)
     {
@@ -20,9 +21,9 @@ public class StlModelLoader : ModelLoader
     }
 
     /// <summary>
-    /// 加载STL模型文件并提取三角形网格数据
+    /// 加载STL模型文件并构建索引网格（MeshT）
     /// </summary>
-    public override async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> LoadModelAsync(
+    public override async Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -31,46 +32,32 @@ public class StlModelLoader : ModelLoader
 
         try
         {
-            if (!File.Exists(modelPath))
-            {
-                throw new FileNotFoundException($"模型文件不存在: {modelPath}");
-            }
+            ValidateFileExists(modelPath);
+            ValidateFileExtension(modelPath);
 
             // 检测是ASCII还是二进制格式
-            var isAscii = await IsAsciiStlAsync(modelPath);
+            var isAscii = await IsAsciiStlAsync(modelPath, cancellationToken);
 
-            List<Triangle> triangles;
+            MeshT mesh;
             if (isAscii)
             {
                 _logger.LogDebug("检测到ASCII STL格式");
-                triangles = await LoadAsciiStlAsync(modelPath, cancellationToken);
+                mesh = await LoadAsciiStlAsync(modelPath, cancellationToken);
             }
             else
             {
                 _logger.LogDebug("检测到二进制STL格式");
-                triangles = await LoadBinaryStlAsync(modelPath, cancellationToken);
+                mesh = await LoadBinaryStlAsync(modelPath, cancellationToken);
             }
 
             // 计算包围盒
-            var boundingBox = CalculateBoundingBox(triangles);
-
-            // STL格式没有材质信息，创建默认材质
-            var materials = new Dictionary<string, Material>
-            {
-                ["default"] = new Material
-                {
-                    Name = "default",
-                    DiffuseColor = new Color3D { R = 0.8, G = 0.8, B = 0.8 },
-                    SpecularColor = new Color3D { R = 0.2, G = 0.2, B = 0.2 },
-                    Shininess = 32.0
-                }
-            };
+            var boundingBox = CalculateBoundingBox(mesh);
 
             var elapsed = DateTime.UtcNow - startTime;
             _logger.LogInformation("STL模型加载完成: {Path}, 三角形数量: {Count}, 耗时: {Elapsed}ms",
-                modelPath, triangles.Count, elapsed.TotalMilliseconds);
+                modelPath, mesh.Faces.Count, elapsed.TotalMilliseconds);
 
-            return (triangles, boundingBox, materials);
+            return (mesh, boundingBox);
         }
         catch (Exception ex)
         {
@@ -82,10 +69,10 @@ public class StlModelLoader : ModelLoader
     /// <summary>
     /// 检测STL文件是ASCII还是二进制格式
     /// </summary>
-    private async Task<bool> IsAsciiStlAsync(string filePath)
+    private static async Task<bool> IsAsciiStlAsync(string filePath, CancellationToken cancellationToken)
     {
         using var reader = new StreamReader(filePath, Encoding.ASCII);
-        var firstLine = await reader.ReadLineAsync();
+        var firstLine = await reader.ReadLineAsync(cancellationToken);
         return firstLine?.Trim().StartsWith("solid", StringComparison.OrdinalIgnoreCase) ?? false;
     }
 
@@ -102,66 +89,69 @@ public class StlModelLoader : ModelLoader
     ///   endfacet
     /// endsolid name
     /// </summary>
-    private async Task<List<Triangle>> LoadAsciiStlAsync(string filePath, CancellationToken cancellationToken)
+    private async Task<MeshT> LoadAsciiStlAsync(string filePath, CancellationToken cancellationToken)
     {
-        var triangles = new List<Triangle>();
+        var vertices = new List<Vertex3>();
+        var faces = new List<FaceT>();
+        var textureVertices = new List<Vertex2>();
+        var materials = new List<Material> { CreateDefaultMaterial() };
 
         using var reader = new StreamReader(filePath, Encoding.ASCII);
         string? line;
-        Vector3D? normal = null;
-        var vertices = new List<Vector3D>();
+        Vector3d? normal = null;
+        var tempVertices = new List<Vector3d>();
 
-        while ((line = await reader.ReadLineAsync()) != null)
+        while ((line = await reader.ReadLineAsync(cancellationToken)) != null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             line = line.Trim();
 
-            if (line.StartsWith("facet normal"))
+            if (line.StartsWith("facet normal", StringComparison.OrdinalIgnoreCase))
             {
                 // 解析法线
-                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                var parts = line.Split([' '], StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 5)
                 {
-                    normal = new Vector3D
-                    {
-                        X = double.Parse(parts[2]),
-                        Y = double.Parse(parts[3]),
-                        Z = double.Parse(parts[4])
-                    };
+                    normal = new Vector3d(
+                        double.Parse(parts[2]),
+                        double.Parse(parts[3]),
+                        double.Parse(parts[4])
+                    );
                 }
             }
-            else if (line.StartsWith("vertex"))
+            else if (line.StartsWith("vertex", StringComparison.OrdinalIgnoreCase))
             {
                 // 解析顶点
-                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                var parts = line.Split([' '], StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 4)
                 {
-                    vertices.Add(new Vector3D
-                    {
-                        X = double.Parse(parts[1]),
-                        Y = double.Parse(parts[2]),
-                        Z = double.Parse(parts[3])
-                    });
+                    tempVertices.Add(new Vector3d(
+                        double.Parse(parts[1]),
+                        double.Parse(parts[2]),
+                        double.Parse(parts[3])
+                    ));
                 }
             }
-            else if (line.StartsWith("endfacet"))
+            else if (line.StartsWith("endfacet", StringComparison.OrdinalIgnoreCase))
             {
-                // 创建三角形
-                if (vertices.Count == 3 && normal != null)
+                // 创建三角形面
+                if (tempVertices.Count == 3)
                 {
-                    triangles.Add(new Triangle
-                    {
-                        Vertices = vertices.ToArray(),
-                        Normal = normal,
-                        MaterialName = "default"
-                    });
+                    // 添加顶点并创建面
+                    var v1Idx = vertices.Count;
+                    vertices.Add(new Vertex3(tempVertices[0].x, tempVertices[0].y, tempVertices[0].z));
+                    vertices.Add(new Vertex3(tempVertices[1].x, tempVertices[1].y, tempVertices[1].z));
+                    vertices.Add(new Vertex3(tempVertices[2].x, tempVertices[2].y, tempVertices[2].z));
+
+                    // 创建面（使用默认材质索引0）
+                    faces.Add(new FaceT(v1Idx, v1Idx + 1, v1Idx + 2, 0, 0, 0, 0));
                 }
-                vertices.Clear();
+                tempVertices.Clear();
                 normal = null;
             }
         }
 
-        return triangles;
+        return new MeshT(vertices, textureVertices, faces, materials);
     }
 
     /// <summary>
@@ -175,10 +165,13 @@ public class StlModelLoader : ModelLoader
     ///   - 2字节属性(uint16)
     /// </summary>
 #pragma warning disable CS1998 // 异步方法缺少 await 运算符
-    private async Task<List<Triangle>> LoadBinaryStlAsync(string filePath, CancellationToken cancellationToken)
+    private Task<MeshT> LoadBinaryStlAsync(string filePath, CancellationToken cancellationToken)
 #pragma warning restore CS1998
     {
-        var triangles = new List<Triangle>();
+        var vertices = new List<Vertex3>();
+        var faces = new List<FaceT>();
+        var textureVertices = new List<Vertex2>();
+        var materials = new List<Material> { CreateDefaultMaterial() };
 
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
         using var reader = new BinaryReader(stream);
@@ -194,75 +187,55 @@ public class StlModelLoader : ModelLoader
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // 读取法线
-            var normal = new Vector3D
-            {
-                X = reader.ReadSingle(),
-                Y = reader.ReadSingle(),
-                Z = reader.ReadSingle()
-            };
+            // 读取法线（暂不使用）
+            var normalX = reader.ReadSingle();
+            var normalY = reader.ReadSingle();
+            var normalZ = reader.ReadSingle();
 
-            // 读取3个顶点
-            var vertices = new Vector3D[3];
+            // 读取3个顶点并添加到网格
+            var v1Idx = vertices.Count;
             for (int j = 0; j < 3; j++)
             {
-                vertices[j] = new Vector3D
-                {
-                    X = reader.ReadSingle(),
-                    Y = reader.ReadSingle(),
-                    Z = reader.ReadSingle()
-                };
+                var x = reader.ReadSingle();
+                var y = reader.ReadSingle();
+                var z = reader.ReadSingle();
+                vertices.Add(new Vertex3(x, y, z));
             }
 
             // 跳过属性字节
             reader.ReadUInt16();
 
-            triangles.Add(new Triangle
-            {
-                Vertices = vertices,
-                Normal = normal,
-                MaterialName = "default"
-            });
+            // 创建面（使用默认材质索引0）
+            faces.Add(new FaceT(v1Idx, v1Idx + 1, v1Idx + 2, 0, 0, 0, 0));
         }
 
-        return triangles;
+        return Task.FromResult(new MeshT(vertices, textureVertices, faces, materials));
     }
 
     /// <summary>
-    /// 计算三角形集合的包围盒
+    /// 计算网格的包围盒
     /// </summary>
-    private new BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
+    private static Box3 CalculateBoundingBox(MeshT mesh)
     {
-        if (triangles.Count == 0)
+        if (mesh.Vertices.Count == 0)
         {
-            return new BoundingBox3D
-            {
-                MinX = 0, MinY = 0, MinZ = 0,
-                MaxX = 0, MaxY = 0, MaxZ = 0
-            };
+            return new Box3(new Vertex3(0, 0, 0), new Vertex3(0, 0, 0));
         }
 
         double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
         double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
 
-        foreach (var triangle in triangles)
+        foreach (var vertex in mesh.Vertices)
         {
-            foreach (var vertex in triangle.Vertices)
-            {
-                minX = Math.Min(minX, vertex.X);
-                minY = Math.Min(minY, vertex.Y);
-                minZ = Math.Min(minZ, vertex.Z);
-                maxX = Math.Max(maxX, vertex.X);
-                maxY = Math.Max(maxY, vertex.Y);
-                maxZ = Math.Max(maxZ, vertex.Z);
-            }
+            minX = Math.Min(minX, vertex.X);
+            minY = Math.Min(minY, vertex.Y);
+            minZ = Math.Min(minZ, vertex.Z);
+            maxX = Math.Max(maxX, vertex.X);
+            maxY = Math.Max(maxY, vertex.Y);
+            maxZ = Math.Max(maxZ, vertex.Z);
         }
 
-        return new BoundingBox3D
-        {
-            MinX = minX, MinY = minY, MinZ = minZ,
-            MaxX = maxX, MaxY = maxY, MaxZ = maxZ
-        };
+        return new Box3(new Vertex3(minX, minY, minZ), new Vertex3(maxX, maxY, maxZ));
     }
 
     /// <summary>

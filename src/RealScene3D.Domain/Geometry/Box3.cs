@@ -3,6 +3,9 @@ using RealScene3D.Domain.Utils;
 
 namespace RealScene3D.Domain.Geometry;
 
+/// <summary>
+/// 三维包围盒 - 定义最小点和最大点
+/// </summary>
 public class Box3
 {
     [JsonInclude]
@@ -43,6 +46,14 @@ public class Box3
         return false;
     }
 
+    /// <summary>
+    /// 验证包围盒是否有效
+    /// </summary>
+    /// <returns></returns>
+    public bool IsValid() =>
+        Min.X <= Max.X && Min.Y <= Max.Y && Min.Z <= Max.Z &&
+        (Width > 0 || Height > 0 || Depth > 0);
+
     public override int GetHashCode()
     {
         return Min.GetHashCode() ^ Max.GetHashCode();
@@ -58,7 +69,13 @@ public class Box3
         return !(left == right);
     }
 
-    // Split box into two along the given axis
+    /// <summary>
+    /// 按指定轴和位置分割包围盒
+    /// </summary>
+    /// <param name="axis">分割轴</param>
+    /// <param name="position">分割位置</param>
+    /// <returns>分割后的两个包围盒</returns>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
     public Box3[] Split(Axis axis, double position)
     {
         return axis switch
@@ -82,6 +99,12 @@ public class Box3
         };
     }
 
+    /// <summary>
+    /// 按指定轴中点分割包围盒
+    /// </summary>
+    /// <param name="axis">分割轴</param>
+    /// <returns>分割后的两个包围盒</returns>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
     public Box3[] Split(Axis axis)
     {
         return axis switch

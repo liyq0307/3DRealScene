@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Geometry;
 
 namespace RealScene3D.Application.Services.Loaders;

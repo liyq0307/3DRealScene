@@ -1,4 +1,3 @@
-using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Materials;
 

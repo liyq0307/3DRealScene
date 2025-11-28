@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
+using RealScene3D.Domain.Materials;
 using System.Text;
 using System.Text.Json;
 using SixLabors.ImageSharp;
@@ -67,13 +69,11 @@ public class GltfGenerator : TileGenerator
     /// 生成瓦片文件数据 - 实现抽象方法
     /// 默认生成GLB格式
     /// </summary>
-    /// <param name="triangles">三角形网格数据</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据（包含顶点、面、材质等）</param>
     /// <returns>GLB文件的二进制数据</returns>
-    public override byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public override byte[] GenerateTile(MeshT mesh)
     {
-        return GenerateGLB(triangles, bounds, materials);
+        return GenerateGLB(mesh);
     }
 
     /// <summary>
@@ -81,30 +81,32 @@ public class GltfGenerator : TileGenerator
     /// GLB格式: Header + JSON Chunk + Binary Chunk
     /// 支持POSITION, NORMAL, TEXCOORD_0属性
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">包围盒</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据</param>
     /// <returns>GLB文件的二进制数据</returns>
-    public byte[] GenerateGLB(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public byte[] GenerateGLB(MeshT mesh)
     {
-        ValidateInput(triangles, bounds);
+        ValidateInput(mesh);
 
-        _logger.LogDebug("开始生成GLB: 三角形数={Count}", triangles.Count);
+        _logger.LogDebug("开始生成GLB: 三角形数={Count}", mesh.Faces.Count);
 
         try
         {
-            // 按材质分组三角形
-            var trianglesByMaterial = GroupTrianglesByMaterial(triangles, materials);
-            _logger.LogDebug("按材质分组: {GroupCount}个组", trianglesByMaterial.Count);
+            // 按材质分组面
+            var facesByMaterial = GroupFacesByMaterial(mesh);
+            _logger.LogDebug("按材质分组: {GroupCount}个组", facesByMaterial.Count);
 
             // 为每个材质组提取顶点数据和构建 primitive
             var allPrimitives = new List<PrimitiveData>();
             var allBufferData = new List<byte>();
             int currentBufferOffset = 0;
 
-            foreach (var (materialName, groupTriangles) in trianglesByMaterial)
+            foreach (var (materialIndex, groupFaces) in facesByMaterial)
             {
-                var primitiveData = ExtractPrimitiveData(groupTriangles, materialName, currentBufferOffset);
+                var materialName = materialIndex >= 0 && materialIndex < mesh.Materials.Count
+                    ? mesh.Materials[materialIndex].Name ?? $"Material_{materialIndex}"
+                    : "__no_material__";
+
+                var primitiveData = ExtractPrimitiveData(mesh, groupFaces, materialIndex, currentBufferOffset);
                 allPrimitives.Add(primitiveData);
 
                 // 添加到总缓冲区
@@ -112,25 +114,22 @@ public class GltfGenerator : TileGenerator
                 currentBufferOffset += primitiveData.BufferData.Length;
 
                 var displayName = materialName == "__no_material__" ? "(无材质)" : materialName;
-                _logger.LogDebug("材质组 '{Material}': {TriCount}个三角形, {VertCount}个顶点",
-                    displayName, groupTriangles.Count, primitiveData.VertexCount);
+                _logger.LogDebug("材质组 '{Material}': {FaceCount}个面, {VertCount}个顶点",
+                    displayName, groupFaces.Count, primitiveData.VertexCount);
             }
 
             // 收集并嵌入纹理到缓冲区
             var embeddedImages = new List<EmbeddedImageInfo>();
-            if (materials != null)
+            foreach (var material in mesh.Materials)
             {
-                foreach (var material in materials.Values)
-                {
-                    EmbedMaterialTextures(material, allBufferData, embeddedImages, ref currentBufferOffset);
-                }
+                EmbedMaterialTextures(material, allBufferData, embeddedImages, ref currentBufferOffset);
             }
 
             // 转换为字节数组
             var binaryData = allBufferData.ToArray();
 
             // 创建 glTF JSON（包含多个 primitive 和嵌入纹理）
-            var gltfJson = CreateGltfJsonWithPrimitives(allPrimitives, binaryData.Length, materials, embeddedImages);
+            var gltfJson = CreateGltfJsonWithPrimitives(allPrimitives, binaryData.Length, mesh.Materials, embeddedImages);
             var gltfJsonBytes = Encoding.UTF8.GetBytes(gltfJson);
             var gltfJsonPadded = PadTo4ByteBoundary(gltfJsonBytes);
 
@@ -175,36 +174,29 @@ public class GltfGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 按材质分组三角形
+    /// 按材质分组面
     /// </summary>
-    private Dictionary<string, List<Triangle>> GroupTrianglesByMaterial(
-        List<Triangle> triangles,
-        Dictionary<string, Material>? materials)
+    private Dictionary<int, List<FaceT>> GroupFacesByMaterial(MeshT mesh)
     {
-        var groups = new Dictionary<string, List<Triangle>>();
-        const string NoMaterialKey = "__no_material__";
+        var groups = new Dictionary<int, List<FaceT>>();
+        const int NoMaterialIndex = -1;
 
-        foreach (var triangle in triangles)
+        foreach (var face in mesh.Faces)
         {
-            var materialName = triangle.MaterialName;
+            var materialIndex = face.MaterialIndex;
 
-            // 如果材质名为空或材质不存在于材质字典中，归为无材质组
-            if (string.IsNullOrEmpty(materialName))
+            // 检查材质索引是否有效
+            if (materialIndex < 0 || materialIndex >= mesh.Materials.Count)
             {
-                materialName = NoMaterialKey;
-            }
-            else if (materials != null && !materials.ContainsKey(materialName))
-            {
-                materialName = NoMaterialKey;
+                materialIndex = NoMaterialIndex;
             }
 
-            if (!groups.TryGetValue(materialName, out var group))
+            if (!groups.ContainsKey(materialIndex))
             {
-                group = new List<Triangle>();
-                groups[materialName] = group;
+                groups[materialIndex] = new List<FaceT>();
             }
 
-            group.Add(triangle);
+            groups[materialIndex].Add(face);
         }
 
         return groups;
@@ -213,44 +205,57 @@ public class GltfGenerator : TileGenerator
     /// <summary>
     /// 为单个材质组提取 Primitive 数据
     /// </summary>
-    private PrimitiveData ExtractPrimitiveData(List<Triangle> triangles, string materialName, int bufferOffset)
+    private PrimitiveData ExtractPrimitiveData(MeshT mesh, List<FaceT> faces, int materialIndex, int bufferOffset)
     {
         var positions = new List<float>();
         var normals = new List<float>();
         var texCoords = new List<float>();
         var indices = new List<ushort>();
 
-        bool hasNormals = triangles.Any(t => t.HasVertexNormals());
-        bool hasTexCoords = triangles.Any(t => t.HasUVCoordinates());
+        // 检查是否有纹理坐标数据
+        bool hasTexCoords = mesh.TextureVertices.Count > 0;
+        bool hasNormals = true; // 我们总是添加法线数据
+
+        // 获取材质名称
+        var materialName = materialIndex >= 0 && materialIndex < mesh.Materials.Count
+            ? mesh.Materials[materialIndex].Name ?? $"Material_{materialIndex}"
+            : "__no_material__";
 
         ushort vertexIndex = 0;
-        foreach (var triangle in triangles)
+        foreach (var face in faces)
         {
-            var vertices = new[] {
-                (triangle.V1, triangle.Normal1, triangle.UV1),
-                (triangle.V2, triangle.Normal2, triangle.UV2),
-                (triangle.V3, triangle.Normal3, triangle.UV3)
-            };
+            // 每个面的三个顶点索引
+            var vertexIndices = new[] { face.IndexA, face.IndexB, face.IndexC };
+            var texIndices = new[] { face.TextureIndexA, face.TextureIndexB, face.TextureIndexC };
 
-            foreach (var (vertex, normal, uv) in vertices)
+            for (int i = 0; i < 3; i++)
             {
+                var vIndex = vertexIndices[i];
+                if (vIndex < 0 || vIndex >= mesh.Vertices.Count)
+                {
+                    _logger.LogWarning("无效的顶点索引: {Index}", vIndex);
+                    continue;
+                }
+
+                var vertex = mesh.Vertices[vIndex];
                 positions.Add((float)vertex.X);
                 positions.Add((float)vertex.Y);
                 positions.Add((float)vertex.Z);
 
-                if (hasNormals && normal != null)
-                {
-                    normals.Add((float)normal.X);
-                    normals.Add((float)normal.Y);
-                    normals.Add((float)normal.Z);
-                }
+                // 法线（暂时用计算的面法线，后续可扩展为支持顶点法线）
+                normals.Add(0f);
+                normals.Add(0f);
+                normals.Add(1f);
 
+                // 纹理坐标
                 if (hasTexCoords)
                 {
-                    if (uv != null)
+                    var texIndex = texIndices[i];
+                    if (texIndex >= 0 && texIndex < mesh.TextureVertices.Count)
                     {
-                        texCoords.Add((float)uv.U);
-                        texCoords.Add((float)uv.V);
+                        var texVertex = mesh.TextureVertices[texIndex];
+                        texCoords.Add((float)texVertex.U);
+                        texCoords.Add((float)texVertex.V);
                     }
                     else
                     {
@@ -527,7 +532,7 @@ public class GltfGenerator : TileGenerator
     private string CreateGltfJsonWithPrimitives(
         List<PrimitiveData> primitives,
         int totalBufferLength,
-        Dictionary<string, Material>? materials,
+        IReadOnlyList<Material> materials,
         List<EmbeddedImageInfo> embeddedImages)
     {
         var accessorsList = new List<object>();
@@ -536,13 +541,10 @@ public class GltfGenerator : TileGenerator
 
         // 创建材质名到索引的映射
         var materialIndexMap = new Dictionary<string, int>();
-        if (materials != null)
+        for (int idx = 0; idx < materials.Count; idx++)
         {
-            int idx = 0;
-            foreach (var name in materials.Keys)
-            {
-                materialIndexMap[name] = idx++;
-            }
+            var materialName = materials[idx].Name ?? $"Material_{idx}";
+            materialIndexMap[materialName] = idx;
         }
 
         // 为每个 Primitive 创建 accessor 和 bufferView
@@ -680,7 +682,7 @@ public class GltfGenerator : TileGenerator
         var imagesList = new List<object>();
         var samplersList = new List<object>();
 
-        if (materials != null && materials.Count > 0)
+        if (materials.Count > 0)
         {
             // 添加默认采样器
             samplersList.Add(new
@@ -694,8 +696,10 @@ public class GltfGenerator : TileGenerator
             var textureIndexMap = new Dictionary<string, int>();
             int textureIndex = 0;
 
-            foreach (var (materialName, material) in materials)
+            for (int i = 0; i < materials.Count; i++)
             {
+                var material = materials[i];
+                var materialName = material.Name ?? $"Material_{i}";
                 var pbrDict = new Dictionary<string, object>();
 
                 // 基础颜色
@@ -827,8 +831,10 @@ public class GltfGenerator : TileGenerator
         public string MimeType { get; set; } = "image/png";
     }
 
+#if false // 旧的基于 Triangle 的方法，已被新架构替代，等待删除
     /// <summary>
     /// 生成GLTF格式数据（JSON + 外部BIN文件）
+    /// 已废弃：请使用基于 MeshT 的新方法
     /// </summary>
     /// <param name="triangles">三角形列表</param>
     /// <param name="bounds">包围盒</param>
@@ -867,11 +873,14 @@ public class GltfGenerator : TileGenerator
             throw;
         }
     }
+#endif
 
+#if false // 旧的基于 Triangle 的方法，已被新架构替代，等待删除
     /// <summary>
     /// 提取顶点数据（位置、法线、纹理坐标）及索引
     /// 不进行去重，保留完整的顶点属性
     /// 支持纹理图集 UV 坐标变换
+    /// 已废弃：请使用基于 MeshT 的新方法
     /// </summary>
     /// <param name="triangles">三角形列表</param>
     /// <param name="materials">材质字典（用于纹理图集UV变换）</param>
@@ -981,6 +990,7 @@ public class GltfGenerator : TileGenerator
 
         return vertexData;
     }
+#endif
 
     /// <summary>
     /// 计算顶点属性的min/max值
@@ -1061,8 +1071,8 @@ public class GltfGenerator : TileGenerator
     /// <param name="vertexData">顶点数据</param>
     /// <param name="binaryBufferLength">二进制缓冲区长度</param>
     /// <param name="binFileName">外部BIN文件名（null表示嵌入GLB）</param>
-    /// <param name="materials">材质字典</param>
-    private string CreateGltfJson(VertexData vertexData, int binaryBufferLength, string? binFileName, Dictionary<string, Material>? materials = null)
+    /// <param name="materials">材质列表</param>
+    private string CreateGltfJson(VertexData vertexData, int binaryBufferLength, string? binFileName, IReadOnlyList<Material> materials)
     {
         int vertexCount = vertexData.VertexCount;
         int indexCount = vertexData.Indices.Length;
@@ -1204,7 +1214,7 @@ public class GltfGenerator : TileGenerator
         List<object>? samplersList = null;
         int? primitiveMaterialIndex = null;
 
-        if (materials != null && materials.Count > 0)
+        if (materials.Count > 0)
         {
             var (mats, texs, imgs, samps) = CreateMaterialsTexturesImages(materials);
             materialsList = mats;
@@ -1270,14 +1280,14 @@ public class GltfGenerator : TileGenerator
     /// <summary>
     /// 生成纹理图集并更新材质的UV映射
     /// </summary>
-    /// <param name="materials">材质字典</param>
+    /// <param name="materials">材质列表</param>
     /// <param name="atlasOutputPath">图集输出路径（可选，如果提供则保存图集文件）</param>
     /// <param name="downsampleFactor">降采样因子（默认1.0，无缩放）。用于LOD纹理优化</param>
     /// <param name="useJpegCompression">是否使用JPEG压缩（默认true）</param>
-    /// <returns>(更新后的材质字典, 图集结果)</returns>
-    public async Task<(Dictionary<string, Material> UpdatedMaterials, TextureAtlasGenerator.AtlasResult? AtlasResult)>
+    /// <returns>(更新后的材质列表, 图集结果)</returns>
+    public async Task<(List<Material> UpdatedMaterials, TextureAtlasGenerator.AtlasResult? AtlasResult)>
         GenerateTextureAtlasAsync(
-            Dictionary<string, Material> materials,
+            IReadOnlyList<Material> materials,
             string? atlasOutputPath = null,
             double downsampleFactor = 1.0,
             bool useJpegCompression = true)
@@ -1285,17 +1295,17 @@ public class GltfGenerator : TileGenerator
         if (_textureAtlasGenerator == null)
         {
             _logger.LogWarning("TextureAtlasGenerator未注入，跳过纹理图集生成");
-            return (materials, null);
+            return (new List<Material>(materials), null);
         }
 
         if (materials == null || materials.Count == 0)
         {
-            return (materials ?? new Dictionary<string, Material>(), null);
+            return (new List<Material>(), null);
         }
 
         // 1. 收集所有纹理路径
         var texturePaths = new HashSet<string>();
-        foreach (var material in materials.Values)
+        foreach (var material in materials)
         {
             foreach (var texture in material.GetAllTextures())
             {
@@ -1309,7 +1319,7 @@ public class GltfGenerator : TileGenerator
         if (texturePaths.Count == 0)
         {
             _logger.LogInformation("没有找到有效的纹理文件，跳过图集生成");
-            return (materials, null);
+            return (new List<Material>(materials), null);
         }
 
         _logger.LogInformation("开始生成纹理图集: {Count}张纹理, 降采样因子={Factor:F2}, 压缩={Compression}",
@@ -1338,8 +1348,8 @@ public class GltfGenerator : TileGenerator
         }
 
         // 4. 更新材质的纹理引用，设置图集UV偏移和缩放
-        var updatedMaterials = new Dictionary<string, Material>();
-        foreach (var (name, material) in materials)
+        var updatedMaterials = new List<Material>();
+        foreach (var material in materials)
         {
             var updatedMaterial = CloneMaterial(material);
 
@@ -1352,7 +1362,7 @@ public class GltfGenerator : TileGenerator
             UpdateTextureAtlasInfo(updatedMaterial.MetallicTexture, atlasResult);
             UpdateTextureAtlasInfo(updatedMaterial.RoughnessTexture, atlasResult);
 
-            updatedMaterials[name] = updatedMaterial;
+            updatedMaterials.Add(updatedMaterial);
         }
 
         _logger.LogInformation("材质纹理图集映射更新完成");
@@ -1606,9 +1616,9 @@ public class GltfGenerator : TileGenerator
     /// 创建材质、纹理、图像数组（符合glTF 2.0 PBR规范）
     /// 完整支持metallicRoughness纹理合并处理和采样器配置
     /// </summary>
-    /// <param name="materials">材质字典</param>
+    /// <param name="materials">材质列表</param>
     /// <returns>(materials数组, textures数组, images数组, samplers数组)</returns>
-    private (List<object> materials, List<object> textures, List<object> images, List<object> samplers) CreateMaterialsTexturesImages(Dictionary<string, Material> materials)
+    private (List<object> materials, List<object> textures, List<object> images, List<object> samplers) CreateMaterialsTexturesImages(IReadOnlyList<Material> materials)
     {
         var materialsList = new List<object>();
         var texturesList = new List<object>();
@@ -1621,11 +1631,13 @@ public class GltfGenerator : TileGenerator
         int imageIndex = 0;
         int samplerIndex = 0;
 
-        foreach (var (materialName, mat) in materials)
+        for (int i = 0; i < materials.Count; i++)
         {
+            var mat = materials[i];
+            var materialName = mat.Name ?? $"Material_{i}";
             var materialObj = new Dictionary<string, object>
             {
-                { "name", mat.Name ?? materialName }
+                { "name", materialName }
             };
 
             // PBR Metallic-Roughness工作流
@@ -1998,26 +2010,25 @@ public class GltfGenerator : TileGenerator
     /// 保存瓦片文件到磁盘 - 实现抽象方法
     /// 默认保存为GLB格式
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">空间包围盒</param>
+    /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    /// <param name="materials">材质字典（可选）</param>
-    public override async Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
+    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
     {
-        await SaveGLBFileAsync(triangles, bounds, outputPath, materials);
+        await SaveGLBFileAsync(mesh, outputPath);
     }
 
     /// <summary>
     /// 保存GLB文件到磁盘
     /// </summary>
-    /// <param name="materials">材质字典</param>
-    public async Task SaveGLBFileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
+    public async Task SaveGLBFileAsync(MeshT mesh, string outputPath)
     {
         _logger.LogInformation("保存GLB文件: {Path}", outputPath);
 
         try
         {
-            var glbData = GenerateGLB(triangles, bounds, materials);
+            var glbData = GenerateGLB(mesh);
 
             var directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
@@ -2036,8 +2047,10 @@ public class GltfGenerator : TileGenerator
         }
     }
 
+#if false // 旧的基于 Triangle 的方法，已被新架构替代，等待删除
     /// <summary>
     /// 保存GLTF文件到磁盘（JSON + BIN）
+    /// 已废弃：请使用基于 MeshT 的新方法
     /// </summary>
     public async Task SaveGLTFFilesAsync(
         List<Triangle> triangles,
@@ -2077,6 +2090,7 @@ public class GltfGenerator : TileGenerator
             throw;
         }
     }
+#endif
 
     /// <summary>
     /// 顶点数据结构 - 包含所有顶点属性

@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
+using RealScene3D.Domain.Materials;
 
 namespace RealScene3D.Application.Services.Generators;
 
@@ -29,49 +31,80 @@ public abstract class TileGenerator
     /// 生成瓦片文件数据 - 核心抽象方法
     /// 子类必须实现此方法以生成特定格式的瓦片文件
     /// </summary>
-    /// <param name="triangles">三角形网格数据</param>
-    /// <param name="bounds">空间包围盒，定义瓦片的空间范围</param>
-    /// <param name="materials">材质字典（材质名称->材质对象），可为空</param>
+    /// <param name="mesh">网格数据（包含顶点、面、材质等完整信息）</param>
     /// <returns>瓦片文件的二进制数据</returns>
     /// <exception cref="ArgumentException">当输入参数无效时抛出</exception>
     /// <exception cref="InvalidOperationException">当生成过程失败时抛出</exception>
-    public abstract byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null);
+    public abstract byte[] GenerateTile(MeshT mesh);
 
     /// <summary>
     /// 保存瓦片文件到磁盘 - 抽象方法
     /// 子类必须实现此方法以将生成的瓦片数据保存到指定路径
     /// 此方法应包含目录创建、文件写入、错误处理等通用逻辑
     /// </summary>
-    /// <param name="triangles">三角形网格数据</param>
-    /// <param name="bounds">空间包围盒</param>
+    /// <param name="mesh">网格数据（包含顶点、面、材质等完整信息）</param>
     /// <param name="outputPath">输出文件的完整路径</param>
-    /// <param name="materials">材质字典（可选）</param>
     /// <returns>异步任务</returns>
     /// <exception cref="ArgumentException">当输入参数无效时抛出</exception>
     /// <exception cref="IOException">当文件写入失败时抛出</exception>
-    public abstract Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null);
+    public abstract Task SaveTileAsync(MeshT mesh, string outputPath);
 
     /// <summary>
     /// 验证输入参数的有效性 - 通用验证逻辑
     /// 子类可以在 GenerateTile 开始时调用此方法
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">包围盒</param>
+    /// <param name="mesh">网格数据</param>
     /// <exception cref="ArgumentNullException">当参数为null时抛出</exception>
-    /// <exception cref="ArgumentException">当参数无效时抛出</exception>
-    protected virtual void ValidateInput(List<Triangle> triangles, BoundingBox3D bounds)
+    /// <exception cref="ArgumentException">当网格数据无效时抛出</exception>
+    protected virtual void ValidateInput(MeshT mesh)
     {
-        if (triangles == null)
-            throw new ArgumentNullException(nameof(triangles), "三角形列表不能为空");
+        if (mesh == null)
+        {
+            throw new ArgumentNullException(nameof(mesh));
+        }
 
-        if (triangles.Count == 0)
-            throw new ArgumentException("三角形列表不能为空集合", nameof(triangles));
+        if (mesh.Faces.Count == 0)
+        {
+            throw new ArgumentException("网格不能为空（没有面）", nameof(mesh));
+        }
 
-        if (bounds == null)
-            throw new ArgumentNullException(nameof(bounds), "包围盒不能为空");
+        if (mesh.Vertices.Count == 0)
+        {
+            throw new ArgumentException("网格不能为空（没有顶点）", nameof(mesh));
+        }
+    }
 
-        if (!bounds.IsValid())
-            throw new ArgumentException("包围盒坐标无效", nameof(bounds));
+    /// <summary>
+    /// 计算网格的包围盒
+    /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <returns>计算得到的包围盒</returns>
+    protected Box3 ComputeBoundingBox(MeshT mesh)
+    {
+        if (mesh.Vertices.Count == 0)
+        {
+            return new Box3(0, 0, 0, 0, 0, 0);
+        }
+
+        if (!mesh.Bounds.IsValid())
+        {
+            return mesh.Bounds;
+        }
+
+        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+
+        foreach (var vertex in mesh.Vertices)
+        {
+            minX = Math.Min(minX, vertex.X);
+            minY = Math.Min(minY, vertex.Y);
+            minZ = Math.Min(minZ, vertex.Z);
+            maxX = Math.Max(maxX, vertex.X);
+            maxY = Math.Max(maxY, vertex.Y);
+            maxZ = Math.Max(maxZ, vertex.Z);
+        }
+
+        return new Box3(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     /// <summary>
@@ -137,66 +170,18 @@ public abstract class TileGenerator
     }
 
     /// <summary>
-    /// 计算三角形列表的包围盒 - 通用几何算法
-    /// 算法：遍历所有顶点，找出最小和最大坐标
-    /// 复杂度：O(n)，n为顶点总数
-    /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <returns>计算得到的包围盒</returns>
-    protected BoundingBox3D CalculateBoundingBox(List<Triangle> triangles)
-    {
-        if (triangles == null || triangles.Count == 0)
-            throw new ArgumentException("无法从空三角形列表计算包围盒", nameof(triangles));
-
-        // 初始化为极值
-        double minX = double.MaxValue;
-        double minY = double.MaxValue;
-        double minZ = double.MaxValue;
-        double maxX = double.MinValue;
-        double maxY = double.MinValue;
-        double maxZ = double.MinValue;
-
-        // 遍历所有三角形的所有顶点
-        foreach (var triangle in triangles)
-        {
-            if (triangle.Vertices == null || triangle.Vertices.Length < 3)
-                continue;
-
-            foreach (var vertex in triangle.Vertices)
-            {
-                minX = Math.Min(minX, vertex.X);
-                minY = Math.Min(minY, vertex.Y);
-                minZ = Math.Min(minZ, vertex.Z);
-                maxX = Math.Max(maxX, vertex.X);
-                maxY = Math.Max(maxY, vertex.Y);
-                maxZ = Math.Max(maxZ, vertex.Z);
-            }
-        }
-
-        return new BoundingBox3D
-        {
-            MinX = minX,
-            MinY = minY,
-            MinZ = minZ,
-            MaxX = maxX,
-            MaxY = maxY,
-            MaxZ = maxZ
-        };
-    }
-
-    /// <summary>
     /// 计算几何中心点 - 包围盒中心
     /// 应用：用于LOD距离计算、视锥剔除等
     /// </summary>
     /// <param name="bounds">包围盒</param>
     /// <returns>中心点坐标</returns>
-    protected Vector3D CalculateCenter(BoundingBox3D bounds)
+    protected Vector3d CalculateCenter(Box3 bounds)
     {
-        return new Vector3D
+        return new Vector3d
         {
-            X = (bounds.MinX + bounds.MaxX) / 2.0,
-            Y = (bounds.MinY + bounds.MaxY) / 2.0,
-            Z = (bounds.MinZ + bounds.MaxZ) / 2.0
+            x = (bounds.Min.X + bounds.Max.X) / 2.0,
+            y = (bounds.Min.Y + bounds.Max.Y) / 2.0,
+            z = (bounds.Min.Z + bounds.Max.Z) / 2.0
         };
     }
 
@@ -207,11 +192,11 @@ public abstract class TileGenerator
     /// </summary>
     /// <param name="bounds">包围盒</param>
     /// <returns>对角线长度</returns>
-    protected double CalculateDiagonalLength(BoundingBox3D bounds)
+    protected double CalculateDiagonalLength(Box3 bounds)
     {
-        var dx = bounds.MaxX - bounds.MinX;
-        var dy = bounds.MaxY - bounds.MinY;
-        var dz = bounds.MaxZ - bounds.MinZ;
+        var dx = bounds.Max.X - bounds.Min.X;
+        var dy = bounds.Max.Y - bounds.Min.Y;
+        var dz = bounds.Max.Z - bounds.Min.Z;
 
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
@@ -245,73 +230,20 @@ public abstract class TileGenerator
     }
 
     /// <summary>
-    /// 验证三角形数据的完整性 - 数据质量检查
-    /// 检查退化三角形、无效顶点等问题
-    /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <returns>有效的三角形列表</returns>
-    protected List<Triangle> ValidateTriangles(List<Triangle> triangles)
-    {
-        var validTriangles = new List<Triangle>();
-        int invalidCount = 0;
-
-        foreach (var triangle in triangles)
-        {
-            // 检查顶点数组
-            if (triangle.Vertices == null || triangle.Vertices.Length != 3)
-            {
-                invalidCount++;
-                continue;
-            }
-
-            // 检查退化三角形（面积为0）
-            var v1 = triangle.Vertices[0];
-            var v2 = triangle.Vertices[1];
-            var v3 = triangle.Vertices[2];
-
-            // 检查是否有重复顶点
-            if (AreVerticesEqual(v1, v2) || AreVerticesEqual(v2, v3) || AreVerticesEqual(v1, v3))
-            {
-                invalidCount++;
-                continue;
-            }
-
-            // 检查顶点坐标是否有效（非NaN、非Infinity）
-            if (!IsValidVertex(v1) || !IsValidVertex(v2) || !IsValidVertex(v3))
-            {
-                invalidCount++;
-                continue;
-            }
-
-            validTriangles.Add(triangle);
-        }
-
-        if (invalidCount > 0)
-        {
-            _logger.LogWarning("发现{Count}个无效三角形，已过滤", invalidCount);
-        }
-
-        return validTriangles;
-    }
-
-    /// <summary>
     /// 判断两个顶点是否相等 - 使用容差比较
     /// </summary>
-    private bool AreVerticesEqual(Vector3D v1, Vector3D v2)
+    private bool AreVerticesEqual(Vector3d v1, Vector3d v2)
     {
-        const double epsilon = 1e-10;
-        return Math.Abs(v1.X - v2.X) < epsilon &&
-               Math.Abs(v1.Y - v2.Y) < epsilon &&
-               Math.Abs(v1.Z - v2.Z) < epsilon;
+        return v1 == v2;
     }
 
     /// <summary>
     /// 检查顶点坐标是否有效
     /// </summary>
-    private bool IsValidVertex(Vector3D vertex)
+    private bool IsValidVertex(Vector3d vertex)
     {
-        return double.IsFinite(vertex.X) &&
-               double.IsFinite(vertex.Y) &&
-               double.IsFinite(vertex.Z);
+        return double.IsFinite(vertex.x) &&
+               double.IsFinite(vertex.y) &&
+               double.IsFinite(vertex.z);
     }
 }

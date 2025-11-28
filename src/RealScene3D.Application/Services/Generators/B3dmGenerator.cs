@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
+using RealScene3D.Domain.Materials;
 using System.Text;
 using System.Text.Json;
 
@@ -30,13 +32,11 @@ public class B3dmGenerator : TileGenerator
     /// 生成瓦片文件数据 - 实现抽象方法
     /// 调用B3DM格式的具体实现
     /// </summary>
-    /// <param name="triangles">三角形网格数据</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据（包含顶点、面、材质等）</param>
     /// <returns>B3DM瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public override byte[] GenerateTile(MeshT mesh)
     {
-        return GenerateB3DM(triangles, bounds, materials);
+        return GenerateB3DM(mesh);
     }
 
     /// <summary>
@@ -50,28 +50,23 @@ public class B3dmGenerator : TileGenerator
 
     /// <summary>
     /// 生成B3DM文件数据
-    /// 算法流程: 三角形 → GLB → B3DM
+    /// 算法流程: MeshT → GLB → B3DM
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">包围盒</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据</param>
     /// <returns>B3DM文件的二进制数据</returns>
-    public byte[] GenerateB3DM(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public byte[] GenerateB3DM(MeshT mesh)
     {
-        if (triangles == null || triangles.Count == 0)
-        {
-            throw new ArgumentException("三角形列表不能为空", nameof(triangles));
-        }
+        ValidateInput(mesh);
 
-        _logger.LogDebug("开始生成B3DM: 三角形数={Count}", triangles.Count);
+        _logger.LogDebug("开始生成B3DM: 三角形数={Count}", mesh.Faces.Count);
 
         try
         {
             // 1. 生成GLB二进制数据
-            var glbData = GenerateGLB(triangles, materials);
+            var glbData = GenerateGLB(mesh);
 
             // 2. 构建Feature Table (必需)
-            var batchCount = materials?.Count ?? 0;
+            var batchCount = mesh.Materials.Count;
             var featureTableJson = GenerateFeatureTableJson(batchCount);
             var featureTableJsonBytes = Encoding.UTF8.GetBytes(featureTableJson);
 
@@ -82,7 +77,7 @@ public class B3dmGenerator : TileGenerator
             var featureTableBinary = Array.Empty<byte>();
 
             // 3. 构建Batch Table (包含材质信息)
-            var batchTableJson = GenerateBatchTableJson(triangles, materials);
+            var batchTableJson = GenerateBatchTableJson(mesh);
             var batchTableJsonBytes = Encoding.UTF8.GetBytes(batchTableJson);
             var batchTableJsonPadded = PadTo4ByteBoundary(batchTableJsonBytes);
             var batchTableBinary = Array.Empty<byte>();
@@ -143,15 +138,12 @@ public class B3dmGenerator : TileGenerator
     /// 支持POSITION, NORMAL, TEXCOORD_0属性
     /// 委托给 GltfGenerator 实现，确保材质支持的一致性
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据</param>
     /// <returns>GLB文件的二进制数据</returns>
-    private byte[] GenerateGLB(List<Triangle> triangles, Dictionary<string, Material>? materials = null)
+    private byte[] GenerateGLB(MeshT mesh)
     {
         // 使用 GltfGenerator 生成 GLB，确保材质支持
-        // 计算包围盒（使用基类方法）
-        var bounds = CalculateBoundingBox(triangles);
-        return _gltfGenerator.GenerateGLB(triangles, bounds, materials);
+        return _gltfGenerator.GenerateGLB(mesh);
     }
 
     /// <summary>
@@ -172,32 +164,23 @@ public class B3dmGenerator : TileGenerator
     /// 生成Batch Table JSON
     /// 存储每个batch的材质ID和名称
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据</param>
     /// <returns>Batch Table JSON字符串</returns>
-    private string GenerateBatchTableJson(List<Triangle> triangles, Dictionary<string, Material>? materials)
+    private string GenerateBatchTableJson(MeshT mesh)
     {
-        if (materials == null || materials.Count == 0)
+        if (mesh.Materials.Count == 0)
         {
             return "{}";
         }
 
         // 创建材质名称到ID的映射
-        var materialNameToId = new Dictionary<string, int>();
-        var materialId = 0;
-        foreach (var materialName in materials.Keys)
-        {
-            materialNameToId[materialName] = materialId++;
-        }
-
-        // 为每个batch（材质）记录信息
         var materialIds = new List<int>();
         var materialNames = new List<string>();
 
-        foreach (var (materialName, id) in materialNameToId.OrderBy(kv => kv.Value))
+        for (int i = 0; i < mesh.Materials.Count; i++)
         {
-            materialIds.Add(id);
-            materialNames.Add(materialName);
+            materialIds.Add(i);
+            materialNames.Add(mesh.Materials[i].Name ?? $"Material_{i}");
         }
 
         var batchTable = new
@@ -218,29 +201,25 @@ public class B3dmGenerator : TileGenerator
     /// <summary>
     /// 保存瓦片文件到磁盘 - 实现抽象方法
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">空间包围盒</param>
+    /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    /// <param name="materials">材质字典（可选）</param>
-    public override async Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
+    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
     {
-        await SaveB3DMFileAsync(triangles, bounds, outputPath, materials);
+        await SaveB3DMFileAsync(mesh, outputPath);
     }
 
     /// <summary>
     /// 保存B3DM文件到磁盘
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">空间包围盒</param>
+    /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    /// <param name="materials">材质字典（可选）</param>
-    public async Task SaveB3DMFileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
+    public async Task SaveB3DMFileAsync(MeshT mesh, string outputPath)
     {
         _logger.LogInformation("保存B3DM文件: {Path}", outputPath);
 
         try
         {
-            var b3dmData = GenerateB3DM(triangles, bounds, materials);
+            var b3dmData = GenerateB3DM(mesh);
 
             // 确保目录存在
             var directory = Path.GetDirectoryName(outputPath);

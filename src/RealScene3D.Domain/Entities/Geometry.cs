@@ -93,181 +93,29 @@ public class ViewportInfo
 }
 
 // /// <summary>
-// /// 2D向量 - 用于UV纹理坐标等二维数据（向后兼容包装）
-// /// 内部使用 RealScene3D.Domain.Mathematics.Vector2d
+// /// 2D向量 - 用于UV纹理坐标等二维数据（已废弃，请使用 Vertex2）
 // /// </summary>
 // public class Vector2D
 // {
-//     /// <summary>
-//     /// U坐标（X轴）
-//     /// </summary>
 //     public double U { get; set; }
-
-//     /// <summary>
-//     /// V坐标（Y轴）
-//     /// </summary>
 //     public double V { get; set; }
-
-//     /// <summary>
-//     /// 默认构造函数
-//     /// </summary>
-//     public Vector2D()
-//     {
-//         U = 0;
-//         V = 0;
-//     }
-
-//     /// <summary>
-//     /// 带参数构造函数
-//     /// </summary>
-//     public Vector2D(double u, double v)
-//     {
-//         U = u;
-//         V = v;
-//     }
-
-//     /// <summary>
-//     /// 向量长度
-//     /// </summary>
+//     public Vector2D() { U = 0; V = 0; }
+//     public Vector2D(double u, double v) { U = u; V = v; }
 //     public double Length() => Math.Sqrt(U * U + V * V);
-
-//     /// <summary>
-//     /// 克隆2D向量
-//     /// </summary>
 //     public Vector2D Clone() => new Vector2D(U, V);
-
-//     /// <summary>
-//     /// 字符串表示
-//     /// </summary>
 //     public override string ToString() => $"({U:F6}, {V:F6})";
 // }
 
-/// <summary>
-/// 三维向量 - 空间几何计算基础结构（向后兼容包装）
-/// 提供三维空间中的点坐标和向量运算功能
-/// 内部使用 RealScene3D.Domain.Mathematics.Vector3d
-/// </summary>
+// /// <summary>
+// /// 三维向量 - 已废弃，请使用 Vertex3 或 Vector3d
+// /// </summary>
 // public class Vector3D
 // {
-//     /// <summary>
-//     /// X坐标分量
-//     /// </summary>
 //     public double X { get; set; }
-
-//     /// <summary>
-//     /// Y坐标分量
-//     /// </summary>
 //     public double Y { get; set; }
-
-//     /// <summary>
-//     /// Z坐标分量
-//     /// </summary>
 //     public double Z { get; set; }
-
-//     /// <summary>
-//     /// 默认构造函数
-//     /// </summary>
 //     public Vector3D() { }
-
-//     /// <summary>
-//     /// 带参数构造函数
-//     /// </summary>
-//     public Vector3D(double x, double y, double z)
-//     {
-//         X = x;
-//         Y = y;
-//         Z = z;
-//     }
-
-//     /// <summary>
-//     /// 从 Vector3d 转换
-//     /// </summary>
-//     public static implicit operator Vector3D(Vector3d v) => new Vector3D(v.x, v.y, v.z);
-
-//     /// <summary>
-//     /// 转换为 Vector3d
-//     /// </summary>
-//     public static implicit operator Vector3d(Vector3D v) => new Vector3d(v.X, v.Y, v.Z);
-
-//     /// <summary>
-//     /// 向量减法
-//     /// </summary>
-//     public static Vector3D operator -(Vector3D left, Vector3D right)
-//     {
-//         return new Vector3D(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
-//     }
-
-//     /// <summary>
-//     /// 向量加法
-//     /// </summary>
-//     public static Vector3D operator +(Vector3D left, Vector3D right)
-//     {
-//         return new Vector3D(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
-//     }
-
-//     /// <summary>
-//     /// 向量标量乘法
-//     /// </summary>
-//     public static Vector3D operator *(Vector3D vector, double scalar)
-//     {
-//         return new Vector3D(vector.X * scalar, vector.Y * scalar, vector.Z * scalar);
-//     }
-
-//     /// <summary>
-//     /// 点积
-//     /// </summary>
-//     public double Dot(Vector3D other) => X * other.X + Y * other.Y + Z * other.Z;
-
-//     /// <summary>
-//     /// 叉积
-//     /// </summary>
-//     public Vector3D Cross(Vector3D other)
-//     {
-//         return new Vector3D(
-//             Y * other.Z - Z * other.Y,
-//             Z * other.X - X * other.Z,
-//             X * other.Y - Y * other.X
-//         );
-//     }
-
-//     /// <summary>
-//     /// 向量长度
-//     /// </summary>
-//     public double Length() => Math.Sqrt(X * X + Y * Y + Z * Z);
-
-//     /// <summary>
-//     /// 单位化
-//     /// </summary>
-//     public Vector3D Normalize()
-//     {
-//         var length = Length();
-//         if (length < 1e-10) return new Vector3D(0, 0, 1);
-//         return new Vector3D(X / length, Y / length, Z / length);
-//     }
-
-//     /// <summary>
-//     /// 距离计算
-//     /// </summary>
-//     public double DistanceTo(Vector3D point)
-//     {
-//         var dx = point.X - X;
-//         var dy = point.Y - Y;
-//         var dz = point.Z - Z;
-//         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
-//     }
-
-//     /// <summary>
-//     /// 夹角计算
-//     /// </summary>
-//     public double AngleTo(Vector3D other)
-//     {
-//         var dotProduct = Dot(other);
-//         var magnitude1 = Length();
-//         var magnitude2 = other.Length();
-//         if (magnitude1 == 0 || magnitude2 == 0) return 0;
-//         var cosAngle = dotProduct / (magnitude1 * magnitude2);
-//         return Math.Acos(Math.Max(-1.0, Math.Min(1.0, cosAngle)));
-//     }
+//     public Vector3D(double x, double y, double z) { X = x; Y = y; Z = z; }
 // }
 
 // /// <summary>

@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Interfaces;
