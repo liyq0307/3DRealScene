@@ -1,5 +1,6 @@
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Enums;
+using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Domain.Services;
@@ -128,7 +129,7 @@ public class SlicingService : ISlicingService
     /// <param name="movementVector">移动向量</param>
     /// <param name="allSlices">所有切片</param>
     /// <returns>预测加载的切片集合</returns>
-    public async Task<IEnumerable<Slice>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3D movementVector, IEnumerable<Slice> allSlices)
+    public async Task<IEnumerable<Slice>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3d movementVector, IEnumerable<Slice> allSlices)
     {
         // 预测下一个视口位置
         var predictedPosition = currentViewport.CameraPosition + movementVector * 2.0; // 预测2秒后的位置
@@ -165,12 +166,10 @@ public class SlicingService : ISlicingService
             var maxY = boundingBoxDict.GetValueOrDefault("maxY", 0);
             var maxZ = boundingBoxDict.GetValueOrDefault("maxZ", 0);
 
-            var sliceCenter = new Vector3D
-            {
-                X = (minX + maxX) / 2,
-                Y = (minY + maxY) / 2,
-                Z = (minZ + maxZ) / 2
-            };
+            var sliceCenter = new Vector3d(
+                (minX + maxX) / 2,
+                (minY + maxY) / 2,
+                (minZ + maxZ) / 2);
 
             // 计算包围盒半径
             var boundingBoxRadius = Math.Sqrt(
@@ -191,12 +190,10 @@ public class SlicingService : ISlicingService
                 return false;
 
             // 2. 视野角度剔除测试
-            var toCenterVector = new Vector3D
-            {
-                X = sliceCenter.X - viewport.CameraPosition.X,
-                Y = sliceCenter.Y - viewport.CameraPosition.Y,
-                Z = sliceCenter.Z - viewport.CameraPosition.Z
-            };
+            var toCenterVector = new Vector3d(
+                sliceCenter.X - viewport.CameraPosition.X,
+                sliceCenter.Y - viewport.CameraPosition.Y,
+                sliceCenter.Z - viewport.CameraPosition.Z);
 
             var angle = CalculateAngle(viewport.CameraDirection, toCenterVector);
 
@@ -231,7 +228,7 @@ public class SlicingService : ISlicingService
     /// <summary>
     /// 计算两点间距离
     /// </summary>
-    private double CalculateDistance(Vector3D point1, Vector3D point2)
+    private double CalculateDistance(Vector3d point1, Vector3d point2)
     {
         var dx = point2.X - point1.X;
         var dy = point2.Y - point1.Y;
@@ -244,7 +241,7 @@ public class SlicingService : ISlicingService
     /// 计算向量间角度 - 完整的向量夹角计算算法
     /// 算法：点积法计算向量夹角，处理边界情况和数值稳定性
     /// </summary>
-    private double CalculateAngle(Vector3D vector1, Vector3D vector2)
+    private double CalculateAngle(Vector3d vector1, Vector3d vector2)
     {
         // 计算点积
         var dotProduct = vector1.X * vector2.X + vector1.Y * vector2.Y + vector1.Z * vector2.Z;

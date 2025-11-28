@@ -3,6 +3,7 @@ using RealScene3D.Application.Interfaces;
 using RealScene3D.Application.Services.Generators;
 using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Enums;
+using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
 using System.IO.Compression;
@@ -15,7 +16,7 @@ namespace RealScene3D.Application.Services.Slicing;
 /// 切片数据服务 - 负责模型加载、切片文件生成等数据处理工作
 ///
 /// 职责范围：
-/// 1. 模型数据加载：从各种来源（本地、MinIO）加载模型，提取三角形数据
+/// 1. 模型数据加载：从各种来源（本地、MinIO）加载模型，直接构建 MeshT
 /// 2. 切片文件生成：生成各种格式的切片文件（B3DM、GLTF、JSON等）
 /// 3. 文件存储：将生成的切片文件保存到本地或MinIO
 /// 4. 数据转换：提供各种数据格式之间的转换功能
@@ -43,16 +44,16 @@ public class SlicingDataService
     #region 模型加载
 
     /// <summary>
-    /// 从源模型文件加载三角形数据
+    /// 从源模型文件加载模型数据（MeshT）
     /// 支持本地文件和MinIO对象存储
     /// </summary>
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>三角形列表、模型包围盒和材质字典</returns>
-    public async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> 
-    LoadTrianglesFromModelAsync(string modelPath, CancellationToken cancellationToken)
+    /// <returns>MeshT 网格和包围盒</returns>
+    public async Task<(MeshT Mesh, Box3 BoundingBox)>
+    LoadMeshFromModelAsync(string modelPath, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("开始加载模型三角形：{ModelPath}", modelPath);
+        _logger.LogInformation("开始加载模型：{ModelPath}", modelPath);
 
         try
         {
@@ -60,7 +61,7 @@ public class SlicingDataService
             if (IsLocalFilePath(modelPath) && File.Exists(modelPath))
             {
                 _logger.LogDebug("从本地文件系统直接加载：{LocalPath}", modelPath);
-                return await LoadTrianglesFromLocalFileAsync(modelPath, cancellationToken);
+                return await LoadMeshFromLocalFileAsync(modelPath, cancellationToken);
             }
             else
             {
@@ -74,7 +75,7 @@ public class SlicingDataService
                         var objectName = string.Join("/", segments.Skip(1));
                         _logger.LogDebug("从MinIO加载：bucket={Bucket}, object={ObjectName}", bucket, objectName);
 
-                        return await LoadTrianglesFromMinIOAsync(bucket, objectName, modelPath, cancellationToken);
+                        return await LoadMeshFromMinIOAsync(bucket, objectName, modelPath, cancellationToken);
                     }
                 }
                 catch (Exception ex)
@@ -85,27 +86,27 @@ public class SlicingDataService
                     if (File.Exists(modelPath))
                     {
                         _logger.LogDebug("MinIO加载失败，尝试本地文件系统：{LocalPath}", modelPath);
-                        return await LoadTrianglesFromLocalFileAsync(modelPath, cancellationToken);
+                        return await LoadMeshFromLocalFileAsync(modelPath, cancellationToken);
                     }
                 }
 
-                // 如果两种方式都失败，记录错误
+                // 如果两种方式都失败，返回空 Mesh
                 _logger.LogWarning("无法从任何数据源加载模型文件：{ModelPath}", modelPath);
-                return (new List<Triangle>(), new BoundingBox3D(), new Dictionary<string, Material>());
+                return (new MeshT([], [], [], []), new Box3(0, 0, 0, 0, 0, 0));
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "加载模型失败：{ModelPath}", modelPath);
-            return (new List<Triangle>(), new BoundingBox3D(), new Dictionary<string, Material>());
+            return (new MeshT([], [], [], []), new Box3(0, 0, 0, 0, 0, 0));
         }
     }
 
     /// <summary>
-    /// 从本地文件直接加载三角形数据（无需临时文件）
+    /// 从本地文件直接加载网格数据（无需临时文件）
     /// </summary>
-    private async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> 
-    LoadTrianglesFromLocalFileAsync(string filePath, CancellationToken cancellationToken)
+    private async Task<(MeshT Mesh, Box3 BoundingBox)>
+    LoadMeshFromLocalFileAsync(string filePath, CancellationToken cancellationToken)
     {
         // 使用 ModelLoaderFactory 根据文件扩展名创建加载器
         var loader = _modelLoaderFactory.CreateLoaderFromPath(filePath);
@@ -114,15 +115,16 @@ public class SlicingDataService
         // 直接从本地文件路径加载
         var result = await loader.LoadModelAsync(filePath, cancellationToken);
 
-        _logger.LogInformation("从本地文件加载完成：{TriangleCount} 个三角形", result.Triangles.Count);
+        _logger.LogInformation("从本地文件加载完成：{VertexCount} 个顶点, {FaceCount} 个面",
+            result.Mesh.Vertices.Count, result.Mesh.Faces.Count);
         return result;
     }
 
     /// <summary>
-    /// 从MinIO下载到临时文件再加载三角形数据
+    /// 从MinIO下载到临时文件再加载网格数据
     /// </summary>
-    private async Task<(List<Triangle> Triangles, BoundingBox3D BoundingBox, Dictionary<string, Material> Materials)> 
-    LoadTrianglesFromMinIOAsync(
+    private async Task<(MeshT Mesh, Box3 BoundingBox)>
+    LoadMeshFromMinIOAsync(
         string bucket,
         string objectName,
         string originalPath,
@@ -151,7 +153,8 @@ public class SlicingDataService
 
             var result = await loader.LoadModelAsync(tempFilePath, cancellationToken);
 
-            _logger.LogInformation("从MinIO加载完成：{TriangleCount} 个三角形", result.Triangles.Count);
+            _logger.LogInformation("从MinIO加载完成：{VertexCount} 个顶点, {FaceCount} 个面",
+                result.Mesh.Vertices.Count, result.Mesh.Faces.Count);
             return result;
         }
         finally

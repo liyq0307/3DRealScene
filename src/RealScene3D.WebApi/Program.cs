@@ -445,9 +445,6 @@ builder.Services.AddScoped<ITileGeneratorFactory, TileGeneratorFactory>();
 // 工厂会自动创建加载器实例，无需单独注册各个加载器类
 builder.Services.AddScoped<IModelLoaderFactory, ModelLoaderFactory>();
 
-// MTL材质解析器（OBJ加载器需要）
-builder.Services.AddScoped<MtlParser>();
-
 // 网格处理服务：LOD生成和纹理优化
 builder.Services.AddScoped<MeshDecimationService>(); // QEM网格简化服务
 builder.Services.AddScoped<TextureAtlasGenerator>(); // 纹理图集生成器

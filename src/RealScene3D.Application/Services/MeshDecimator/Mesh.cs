@@ -1,0 +1,940 @@
+﻿using RealScene3D.Domain.Utils;
+using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
+
+namespace RealScene3D.Application.Services.MeshDecimator;
+
+/// <summary>
+/// 三维网格。
+/// </summary>
+public sealed class Mesh
+{
+    /// <summary>
+    /// 支持的 UV 通道数量。
+    /// </summary>
+    public const int UVChannelCount = 4;
+
+    /// <summary>
+    /// 网格顶点。
+    /// </summary>
+    private Vector3d[] vertices = null!;
+
+    /// <summary>
+    /// 网格索引。
+    /// </summary>
+    private int[]?[] indices = null!;
+
+    /// <summary>
+    /// 网格顶点属性。
+    /// </summary>
+    private Vector3[]? normals = null;
+
+    /// <summary>
+    /// 网格切线。
+    /// </summary>
+    private Vector4[]? tangents = null;
+
+    /// <summary>
+    /// 二维网格 UV 集合。
+    /// </summary>
+    private Vector2[]?[]? uvs2D = null;
+
+    /// <summary>
+    /// 三维网格 UV 集合。
+    /// </summary>
+    private Vector3[]?[]? uvs3D = null;
+
+    /// <summary>
+    /// 四维网格 UV 集合。
+    /// </summary>
+    private Vector4[]?[]? uvs4D = null;
+
+    /// <summary>
+    /// 网格顶点颜色。
+    /// </summary>
+    private Vector4[]? colors = null;
+
+    /// <summary>
+    /// 网格顶点骨骼权重。
+    /// </summary>
+    private BoneWeight[]? boneWeights = null;
+
+    /// <summary>
+    /// 空索引数组。
+    /// </summary>
+    private static readonly int[] emptyIndices = [];
+
+    /// <summary>
+    /// 获取此网格的顶点数量。
+    /// </summary>
+    public int VertexCount
+    {
+        get { return vertices.Length; }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格中的子网格数量。
+    /// </summary>
+    public int SubMeshCount
+    {
+        get { return indices.Length; }
+        set
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException("value");
+
+            int[][] newIndices = new int[value][];
+            Array.Copy(indices, 0, newIndices, 0, MathHelper.Min(indices.Length, newIndices.Length));
+            indices = newIndices;
+        }
+    }
+
+    /// <summary>
+    /// 获取此网格中的三角形总数。
+    /// </summary>
+    public int TriangleCount
+    {
+        get
+        {
+            int triangleCount = 0;
+            for (int i = 0; i < indices.Length; i++)
+            {
+                if (indices[i] != null)
+                {
+                    triangleCount += indices[i]!.Length / 3;
+                }
+            }
+            return triangleCount;
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的顶点。请注意，这会重置所有其他顶点属性。
+    /// </summary>
+    public Vector3d[] Vertices
+    {
+        get { return vertices; }
+        set
+        {
+            if (value == null)
+                throw new ArgumentNullException("value");
+
+            vertices = value;
+            ClearVertexAttributes();
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的组合索引。一旦设置，子网格数量将被设置为 1。
+    /// </summary>
+    public int[] Indices
+    {
+        get
+        {
+            if (indices.Length == 1)
+            {
+                return indices[0] ?? emptyIndices;
+            }
+            else
+            {
+                List<int> indexList = new List<int>(TriangleCount * 3);
+                for (int i = 0; i < indices.Length; i++)
+                {
+                    if (indices[i] != null)
+                    {
+                        indexList.AddRange(indices[i]!);
+                    }
+                }
+                return indexList.ToArray();
+            }
+        }
+        set
+        {
+            if (value == null)
+                throw new ArgumentNullException("value");
+            else if ((value.Length % 3) != 0)
+                throw new ArgumentException("The index count must be multiple by 3.", "value");
+
+            SubMeshCount = 1;
+            SetIndices(0, value);
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的法线。
+    /// </summary>
+    public Vector3[]? Normals
+    {
+        get { return normals; }
+        set
+        {
+            if (value != null && value.Length != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex normals must be as many as the vertices. Assigned: {0}  Require: {1}", value.Length, vertices.Length));
+
+            normals = value;
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的切线。
+    /// </summary>
+    public Vector4[]? Tangents
+    {
+        get { return tangents; }
+        set
+        {
+            if (value != null && value.Length != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex tangents must be as many as the vertices. Assigned: {0}  Require: {1}", value.Length, vertices.Length));
+
+            tangents = value;
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的第一个 UV 集合。
+    /// </summary>
+    public Vector2[]? UV1
+    {
+        get { return GetUVs2D(0); }
+        set { SetUVs(0, value); }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的第二个 UV 集合。
+    /// </summary>
+    public Vector2[]? UV2
+    {
+        get { return GetUVs2D(1); }
+        set { SetUVs(1, value); }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的第三个 UV 集合。
+    /// </summary>
+    public Vector2[]? UV3
+    {
+        get { return GetUVs2D(2); }
+        set { SetUVs(2, value); }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的第四个 UV 集合。
+    /// </summary>
+    public Vector2[]? UV4
+    {
+        get { return GetUVs2D(3); }
+        set { SetUVs(3, value); }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的顶点颜色。
+    /// </summary>
+    public Vector4[]? Colors
+    {
+        get { return colors; }
+        set
+        {
+            if (value != null && value.Length != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex colors must be as many as the vertices. Assigned: {0}  Require: {1}", value.Length, vertices.Length));
+
+            colors = value;
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置此网格的顶点骨骼权重。
+    /// </summary>
+    public BoneWeight[]? BoneWeights
+    {
+        get { return boneWeights; }
+        set
+        {
+            if (value != null && value.Length != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex bone weights must be as many as the vertices. Assigned: {0}  Require: {1}", value.Length, vertices.Length));
+
+            boneWeights = value;
+        }
+    }
+
+    /// <summary>
+    /// 创建一个新的网格。
+    /// </summary>
+    /// <param name="vertices">网格顶点。</param>
+    /// <param name="indices">网格索引。</param>
+    public Mesh(Vector3d[] vertices, int[] indices)
+    {
+        if (vertices == null)
+            throw new ArgumentNullException("vertices");
+        else if (indices == null)
+            throw new ArgumentNullException("indices");
+        else if ((indices.Length % 3) != 0)
+            throw new ArgumentException("The index count must be multiple by 3.", "indices");
+
+        this.vertices = vertices;
+        this.indices = new int[1][];
+        this.indices[0] = indices;
+    }
+
+    /// <summary>
+    /// 创建一个新的网格。
+    /// </summary>
+    /// <param name="vertices">网格顶点。</param>
+    /// <param name="indices">网格索引。</param>
+    public Mesh(Vector3d[] vertices, int[][] indices)
+    {
+        if (vertices == null)
+            throw new ArgumentNullException("vertices");
+        else if (indices == null)
+            throw new ArgumentNullException("indices");
+
+        for (int i = 0; i < indices.Length; i++)
+        {
+            if (indices[i] != null && (indices[i].Length % 3) != 0)
+                throw new ArgumentException(string.Format("The index count must be multiple by 3 at sub-mesh index {0}.", i), "indices");
+        }
+
+        this.vertices = vertices;
+        this.indices = indices;
+    }
+
+    private void ClearVertexAttributes()
+    {
+        normals = null;
+        tangents = null;
+        uvs2D = null;
+        uvs3D = null;
+        uvs4D = null;
+        colors = null;
+        boneWeights = null;
+    }
+
+    /// <summary>
+    /// 平滑地重新计算此网格的法线。
+    /// </summary>
+    public void RecalculateNormals()
+    {
+        int vertexCount = vertices.Length;
+        Vector3[] normals = new Vector3[vertexCount];
+
+        int subMeshCount = this.indices.Length;
+        for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
+        {
+            int[]? indices = this.indices[subMeshIndex];
+            if (indices == null)
+                continue;
+
+            int indexCount = indices.Length;
+            for (int i = 0; i < indexCount; i += 3)
+            {
+                int i0 = indices[i];
+                int i1 = indices[i + 1];
+                int i2 = indices[i + 2];
+
+                var v0 = (Vector3)vertices[i0];
+                var v1 = (Vector3)vertices[i1];
+                var v2 = (Vector3)vertices[i2];
+
+                var nx = v1 - v0;
+                var ny = v2 - v0;
+                Vector3 normal;
+                Vector3.Cross(ref nx, ref ny, out normal);
+                normal.Normalize();
+
+                normals[i0] += normal;
+                normals[i1] += normal;
+                normals[i2] += normal;
+            }
+        }
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            normals[i].Normalize();
+        }
+
+        this.normals = normals;
+    }
+
+    /// <summary>
+    /// 重新计算此网格的切线。
+    /// </summary>
+    public void RecalculateTangents()
+    {
+        // Make sure we have the normals first
+        if (normals == null)
+            return;
+
+        // Also make sure that we have the first UV set
+        bool uvIs2D = (uvs2D != null && uvs2D[0] != null);
+        bool uvIs3D = (uvs3D != null && uvs3D[0] != null);
+        bool uvIs4D = (uvs4D != null && uvs4D[0] != null);
+        if (!uvIs2D && !uvIs3D && !uvIs4D)
+            return;
+
+        int vertexCount = vertices.Length;
+
+        var tangents = new Vector4[vertexCount];
+        var tan1 = new Vector3[vertexCount];
+        var tan2 = new Vector3[vertexCount];
+
+        Vector2[]? uv2D = (uvIs2D ? uvs2D![0] : null);
+        Vector3[]? uv3D = (uvIs3D ? uvs3D![0] : null);
+        Vector4[]? uv4D = (uvIs4D ? uvs4D![0] : null);
+
+        int subMeshCount = this.indices.Length;
+        for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
+        {
+            int[]? indices = this.indices[subMeshIndex];
+            if (indices == null)
+                continue;
+
+            int indexCount = indices.Length;
+            for (int i = 0; i < indexCount; i += 3)
+            {
+                int i0 = indices[i];
+                int i1 = indices[i + 1];
+                int i2 = indices[i + 2];
+
+                var v0 = vertices[i0];
+                var v1 = vertices[i1];
+                var v2 = vertices[i2];
+
+                float s1, s2, t1, t2;
+                if (uvIs2D)
+                {
+                    var w0 = uv2D![i0];
+                    var w1 = uv2D![i1];
+                    var w2 = uv2D![i2];
+                    s1 = w1.x - w0.x;
+                    s2 = w2.x - w0.x;
+                    t1 = w1.y - w0.y;
+                    t2 = w2.y - w0.y;
+                }
+                else if (uvIs3D)
+                {
+                    var w0 = uv3D![i0];
+                    var w1 = uv3D![i1];
+                    var w2 = uv3D![i2];
+                    s1 = w1.x - w0.x;
+                    s2 = w2.x - w0.x;
+                    t1 = w1.y - w0.y;
+                    t2 = w2.y - w0.y;
+                }
+                else
+                {
+                    var w0 = uv4D![i0];
+                    var w1 = uv4D![i1];
+                    var w2 = uv4D![i2];
+                    s1 = w1.x - w0.x;
+                    s2 = w2.x - w0.x;
+                    t1 = w1.y - w0.y;
+                    t2 = w2.y - w0.y;
+                }
+
+
+                float x1 = (float)(v1.x - v0.x);
+                float x2 = (float)(v2.x - v0.x);
+                float y1 = (float)(v1.y - v0.y);
+                float y2 = (float)(v2.y - v0.y);
+                float z1 = (float)(v1.z - v0.z);
+                float z2 = (float)(v2.z - v0.z);
+                float r = 1f / (s1 * t2 - s2 * t1);
+
+                var sdir = new Vector3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+                var tdir = new Vector3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
+
+                tan1[i0] += sdir;
+                tan1[i1] += sdir;
+                tan1[i2] += sdir;
+                tan2[i0] += tdir;
+                tan2[i1] += tdir;
+                tan2[i2] += tdir;
+            }
+        }
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            var n = normals[i];
+            var t = tan1[i];
+
+            var tmp = (t - n * Vector3.Dot(ref n, ref t));
+            tmp.Normalize();
+
+            Vector3 c;
+            Vector3.Cross(ref n, ref t, out c);
+            float dot = Vector3.Dot(ref c, ref tan2[i]);
+            float w = (dot < 0f ? -1f : 1f);
+            tangents[i] = new Vector4(tmp.x, tmp.y, tmp.z, w);
+        }
+
+        this.tangents = tangents;
+    }
+
+    /// <summary>
+    /// 返回此网格中特定子网格的三角形数量。
+    /// </summary>
+    /// <param name="subMeshIndex">子网格索引。</param>
+    /// <returns>三角形数量。</returns>
+    public int GetTriangleCount(int subMeshIndex)
+    {
+        if (subMeshIndex < 0 || subMeshIndex >= indices.Length)
+            throw new IndexOutOfRangeException();
+
+        return indices[subMeshIndex]?.Length / 3 ?? 0;
+    }
+
+    /// <summary>
+    /// 返回此网格中特定子网格的三角形索引。
+    /// </summary>
+    /// <param name="subMeshIndex">子网格索引。</param>
+    /// <returns>三角形索引。</returns>
+    public int[] GetIndices(int subMeshIndex)
+    {
+        if (subMeshIndex < 0 || subMeshIndex >= indices.Length)
+            throw new IndexOutOfRangeException();
+
+        return indices[subMeshIndex] ?? emptyIndices;
+    }
+
+    /// <summary>
+    /// 返回此网格中所有子网格的三角形索引。
+    /// </summary>
+    /// <returns>子网格三角形索引。</returns>
+    public int[][] GetSubMeshIndices()
+    {
+        var subMeshIndices = new int[indices.Length][];
+        for (int subMeshIndex = 0; subMeshIndex < indices.Length; subMeshIndex++)
+        {
+            subMeshIndices[subMeshIndex] = indices[subMeshIndex] ?? emptyIndices;
+        }
+        return subMeshIndices;
+    }
+
+    /// <summary>
+    /// 设置此网格中特定子网格的三角形索引。
+    /// </summary>
+    /// <param name="subMeshIndex">子网格索引。</param>
+    /// <param name="indices">三角形索引。</param>
+    public void SetIndices(int subMeshIndex, int[] indices)
+    {
+        if (subMeshIndex < 0 || subMeshIndex >= this.indices.Length)
+            throw new IndexOutOfRangeException();
+        else if (indices == null)
+            throw new ArgumentNullException("indices");
+        else if ((indices.Length % 3) != 0)
+            throw new ArgumentException("The index count must be multiple by 3.", "indices");
+
+        this.indices[subMeshIndex] = indices;
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV 维度。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <returns>UV 维度数量。</returns>
+    public int GetUVDimension(int channel)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs2D != null && uvs2D[channel] != null)
+        {
+            return 2;
+        }
+        else if (uvs3D != null && uvs3D[channel] != null)
+        {
+            return 3;
+        }
+        else if (uvs4D != null && uvs4D[channel] != null)
+        {
+            return 4;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV（2D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <returns>UV 坐标。</returns>
+    public Vector2[]? GetUVs2D(int channel)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs2D != null && uvs2D[channel] != null)
+        {
+            return uvs2D[channel]!;
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV（3D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <returns>UV 坐标。</returns>
+    public Vector3[]? GetUVs3D(int channel)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs3D != null && uvs3D[channel] != null)
+        {
+            return uvs3D[channel]!;
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV（4D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <returns>UV 坐标。</returns>
+    public Vector4[]? GetUVs4D(int channel)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs4D != null && uvs4D[channel] != null)
+        {
+            return uvs4D[channel]!;
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV（2D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void GetUVs(int channel, List<Vector2> uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+        else if (uvs == null)
+            throw new ArgumentNullException("uvs");
+
+        uvs.Clear();
+        if (uvs2D != null && uvs2D[channel] != null)
+        {
+            var uvData = uvs2D[channel];
+            if (uvData != null)
+            {
+                uvs.AddRange(uvData);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV（3D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void GetUVs(int channel, List<Vector3> uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+        else if (uvs == null)
+            throw new ArgumentNullException("uvs");
+
+        uvs.Clear();
+        if (uvs3D != null && uvs3D[channel] != null)
+        {
+            var uvData = uvs3D[channel];
+            if (uvData != null)
+            {
+                uvs.AddRange(uvData);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 返回特定通道的 UV（4D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void GetUVs(int channel, List<Vector4> uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+        else if (uvs == null)
+            throw new ArgumentNullException("uvs");
+
+        uvs.Clear();
+        if (uvs4D != null && uvs4D[channel] != null)
+        {
+            var uvData = uvs4D[channel];
+            if (uvData != null)
+            {
+                uvs.AddRange(uvData);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 为特定通道设置 UV（2D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void SetUVs(int channel, Vector2[]? uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs != null && uvs.Length > 0)
+        {
+            if (uvs.Length != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex UVs must be as many as the vertices. Assigned: {0}  Require: {1}", uvs.Length, vertices.Length));
+
+            if (uvs2D == null)
+                uvs2D = new Vector2[UVChannelCount][];
+
+            int uvCount = uvs.Length;
+            var uvSet = new Vector2[uvCount];
+            uvs2D[channel] = uvSet;
+            uvs.CopyTo(uvSet, 0);
+        }
+        else
+        {
+            if (uvs2D != null)
+            {
+                uvs2D[channel] = null;
+            }
+        }
+
+        if (uvs3D != null)
+        {
+            uvs3D[channel] = null;
+        }
+        if (uvs4D != null)
+        {
+            uvs4D[channel] = null;
+        }
+    }
+
+    /// <summary>
+    /// 为特定通道设置 UV（3D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void SetUVs(int channel, Vector3[]? uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs != null && uvs.Length > 0)
+        {
+            int uvCount = uvs.Length;
+            if (uvCount != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex UVs must be as many as the vertices. Assigned: {0}  Require: {1}", uvCount, vertices.Length), "uvs");
+
+            if (uvs3D == null)
+                uvs3D = new Vector3[UVChannelCount][];
+
+            var uvSet = new Vector3[uvCount];
+            uvs3D[channel] = uvSet;
+            uvs.CopyTo(uvSet, 0);
+        }
+        else
+        {
+            if (uvs3D != null)
+            {
+                uvs3D[channel] = null;
+            }
+        }
+
+        if (uvs2D != null)
+        {
+            uvs2D[channel] = null;
+        }
+        if (uvs4D != null)
+        {
+            uvs4D[channel] = null;
+        }
+    }
+
+    /// <summary>
+    /// 为特定通道设置 UV（4D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void SetUVs(int channel, Vector4[]? uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs != null && uvs.Length > 0)
+        {
+            int uvCount = uvs.Length;
+            if (uvCount != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex UVs must be as many as the vertices. Assigned: {0}  Require: {1}", uvCount, vertices.Length), "uvs");
+
+            if (uvs4D == null)
+                uvs4D = new Vector4[UVChannelCount][];
+
+            var uvSet = new Vector4[uvCount];
+            uvs4D[channel] = uvSet;
+            uvs.CopyTo(uvSet, 0);
+        }
+        else
+        {
+            if (uvs4D != null)
+            {
+                uvs4D[channel] = null;
+            }
+        }
+
+        if (uvs2D != null)
+        {
+            uvs2D[channel] = null;
+        }
+        if (uvs3D != null)
+        {
+            uvs3D[channel] = null;
+        }
+    }
+
+    /// <summary>
+    /// 为特定通道设置 UV（2D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void SetUVs(int channel, List<Vector2> uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs != null && uvs.Count > 0)
+        {
+            int uvCount = uvs.Count;
+            if (uvCount != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex UVs must be as many as the vertices. Assigned: {0}  Require: {1}", uvCount, vertices.Length), "uvs");
+
+            if (uvs2D == null)
+                uvs2D = new Vector2[UVChannelCount][];
+
+            var uvSet = new Vector2[uvCount];
+            uvs2D[channel] = uvSet;
+            uvs.CopyTo(uvSet, 0);
+        }
+        else
+        {
+            if (uvs2D != null)
+            {
+                uvs2D[channel] = null;
+            }
+        }
+
+        if (uvs3D != null)
+        {
+            uvs3D[channel] = null;
+        }
+        if (uvs4D != null)
+        {
+            uvs4D[channel] = null;
+        }
+    }
+
+    /// <summary>
+    /// 为特定通道设置 UV（3D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void SetUVs(int channel, List<Vector3> uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs != null && uvs.Count > 0)
+        {
+            int uvCount = uvs.Count;
+            if (uvCount != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex UVs must be as many as the vertices. Assigned: {0}  Require: {1}", uvCount, vertices.Length), "uvs");
+
+            if (uvs3D == null)
+                uvs3D = new Vector3[UVChannelCount][];
+
+            var uvSet = new Vector3[uvCount];
+            uvs3D[channel] = uvSet;
+            uvs.CopyTo(uvSet, 0);
+        }
+        else
+        {
+            if (uvs3D != null)
+            {
+                uvs3D[channel] = null;
+            }
+        }
+
+        if (uvs2D != null)
+        {
+            uvs2D[channel] = null;
+        }
+        if (uvs4D != null)
+        {
+            uvs4D[channel] = null;
+        }
+    }
+
+    /// <summary>
+    /// 为特定通道设置 UV（4D）。
+    /// </summary>
+    /// <param name="channel">通道索引。</param>
+    /// <param name="uvs">UV 坐标。</param>
+    public void SetUVs(int channel, List<Vector4> uvs)
+    {
+        if (channel < 0 || channel >= UVChannelCount)
+            throw new ArgumentOutOfRangeException("channel");
+
+        if (uvs != null && uvs.Count > 0)
+        {
+            int uvCount = uvs.Count;
+            if (uvCount != vertices.Length)
+                throw new ArgumentException(string.Format("The vertex UVs must be as many as the vertices. Assigned: {0}  Require: {1}", uvCount, vertices.Length), "uvs");
+
+            if (uvs4D == null)
+                uvs4D = new Vector4[UVChannelCount][];
+
+            var uvSet = new Vector4[uvCount];
+            uvs4D[channel] = uvSet;
+            uvs.CopyTo(uvSet, 0);
+        }
+        else
+        {
+            if (uvs4D != null)
+            {
+                uvs4D[channel] = null;
+            }
+        }
+
+        if (uvs2D != null)
+        {
+            uvs2D[channel] = null;
+        }
+        if (uvs3D != null)
+        {
+            uvs3D[channel] = null;
+        }
+    }
+
+    /// <summary>
+    /// 返回此网格的文本表示形式。
+    /// </summary>
+    /// <returns>文本表示形式。</returns>
+    public override string ToString()
+    {
+        return string.Format("Vertices: {0}", vertices.Length);
+    }
+}

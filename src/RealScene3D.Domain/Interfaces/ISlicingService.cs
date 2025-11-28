@@ -1,4 +1,5 @@
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
 
 namespace RealScene3D.Domain.Interfaces;
 
@@ -97,7 +98,7 @@ public interface ISlicingService
     /// <param name="allSlices">所有可用切片，用于预测选择</param>
     /// <returns>预测加载的切片集合，优先级按需要程度排序</returns>
     /// <exception cref="ArgumentException">当运动向量无效时抛出</exception>
-    Task<IEnumerable<Slice>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3D movementVector, IEnumerable<Slice> allSlices);
+    Task<IEnumerable<Slice>> PredictLoadingAsync(ViewportInfo currentViewport, Vector3d movementVector, IEnumerable<Slice> allSlices);
 }
 
 /// <summary>
