@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Globalization;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace RealScene3D.Domain.Materials;
 
@@ -23,6 +25,18 @@ public class Material : ICloneable
     /// 法线贴图文件路径
     /// </summary>
     public string? NormalMap;
+
+    /// <summary>
+    /// 纹理图像数据（内存中）
+    /// 如果不为 null，优先使用此数据而不是从 Texture 路径加载
+    /// </summary>
+    public Image<Rgba32>? TextureImage;
+
+    /// <summary>
+    /// 法线贴图图像数据（内存中）
+    /// 如果不为 null，优先使用此数据而不是从 NormalMap 路径加载
+    /// </summary>
+    public Image<Rgba32>? NormalMapImage;
 
     /// <summary>
     /// Ka - 环境光颜色

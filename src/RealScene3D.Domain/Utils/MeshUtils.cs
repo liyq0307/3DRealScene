@@ -173,8 +173,6 @@ public class MeshUtils
             : new Mesh(vertices, faces); // 无纹理的网格
     }
 
-    #region 分割器
-
     // 顶点工具类的静态实例，用于X、Y、Z轴上的分割操作
     private static readonly IVertexUtils yutils3 = new VertexUtilsY(); // Y轴分割工具
     private static readonly IVertexUtils xutils3 = new VertexUtilsX(); // X轴分割工具
@@ -380,6 +378,4 @@ public class MeshUtils
 
         return count + tasks.Sum(t => t.Result); // 返回总分割计数
     }
-
-    #endregion
 }

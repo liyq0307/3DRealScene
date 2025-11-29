@@ -1,5 +1,8 @@
+using RealScene3D.Application.Services.MeshDecimator;
+using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Materials;
+using Mesh = RealScene3D.Application.Services.MeshDecimator.Mesh;
 
 namespace RealScene3D.Application.Services.Loaders;
 
@@ -83,5 +86,39 @@ public abstract class ModelLoader
             new RGB(0.2, 0.2, 0.2), // 镜面反射
             32.0,                    // 高光指数
             1.0);                    // 不透明
+    }
+
+    /// <summary>
+    /// 将 MeshT 转换为 MeshDecimator.Mesh
+    /// 用于仍在使用 MeshT 构建的加载器
+    /// </summary>
+    /// <param name="meshT">MeshT 对象</param>
+    /// <returns>MeshDecimator.Mesh 对象</returns>
+    protected Mesh ConvertMeshTToDecimatorMesh(MeshT meshT)
+    {
+        // 转换顶点
+        var vertices = new Vector3d[meshT.Vertices.Count];
+        for (int i = 0; i < meshT.Vertices.Count; i++)
+        {
+            var v = meshT.Vertices[i];
+            vertices[i] = new Vector3d(v.X, v.Y, v.Z);
+        }
+
+        // 转换面为索引
+        var indices = new int[meshT.Faces.Count * 3];
+        for (int i = 0; i < meshT.Faces.Count; i++)
+        {
+            var face = meshT.Faces[i];
+            indices[i * 3] = face.IndexA;
+            indices[i * 3 + 1] = face.IndexB;
+            indices[i * 3 + 2] = face.IndexC;
+        }
+
+        // 使用单子网格构造函数
+        var mesh = new Mesh(vertices, indices);
+        mesh.SubMeshCount = 1;
+        mesh.SetIndices(0, indices);
+
+        return mesh;
     }
 }

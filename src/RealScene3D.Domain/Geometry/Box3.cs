@@ -13,6 +13,7 @@ public class Box3
     [JsonInclude]
     public readonly Vertex3 Max;
 
+    [JsonConstructor]
     public Box3(Vertex3 min, Vertex3 max)
     {
         Min = min;

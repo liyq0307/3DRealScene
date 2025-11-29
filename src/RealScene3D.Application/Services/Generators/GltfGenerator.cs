@@ -1,16 +1,15 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Geometry;
-using RealScene3D.Domain.Materials;
 using SharpGLTF.Schema2;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
-using System.Numerics;
 using DomainMaterial = RealScene3D.Domain.Materials.Material;
+using SysVector2 = System.Numerics.Vector2;
+using SysVector3 = System.Numerics.Vector3;
+using SysVector4 = System.Numerics.Vector4;
+using SixLaborsImage = SixLabors.ImageSharp.Image;
+using GltfAlphaMode = SharpGLTF.Materials.AlphaMode;
 
 namespace RealScene3D.Application.Services.Generators;
 
@@ -21,119 +20,102 @@ namespace RealScene3D.Application.Services.Generators;
 /// </summary>
 public class GltfGenerator : TileGenerator
 {
-    private readonly TextureAtlasGenerator? _textureAtlasGenerator;
-
-    /// <summary>
-    /// 纹理优化配置
-    /// </summary>
-    public class TextureOptimizationOptions
-    {
-        /// <summary>
-        /// 是否启用纹理压缩（默认启用）
-        /// </summary>
-        public bool EnableCompression { get; set; } = true;
-
-        /// <summary>
-        /// JPEG质量（1-100，默认75）
-        /// </summary>
-        public int JpegQuality { get; set; } = 75;
-
-        /// <summary>
-        /// 最大纹理尺寸（默认2048）
-        /// </summary>
-        public int MaxTextureSize { get; set; } = 2048;
-
-        /// <summary>
-        /// 是否启用降采样（默认启用）
-        /// </summary>
-        public bool EnableDownsampling { get; set; } = true;
-    }
-
-    /// <summary>
-    /// 纹理优化配置（可由外部设置）
-    /// </summary>
-    public TextureOptimizationOptions TextureOptions { get; set; } = new();
-
     /// <summary>
     /// 构造函数
     /// </summary>
-    public GltfGenerator(ILogger<GltfGenerator> logger, TextureAtlasGenerator? textureAtlasGenerator = null)
-        : base(logger)
+    /// <param name="logger">日志记录器实例</param>
+    public GltfGenerator(ILogger<GltfGenerator> logger) : base(logger)
     {
-        _textureAtlasGenerator = textureAtlasGenerator;
     }
 
     /// <summary>
     /// 生成瓦片文件数据 - 实现抽象方法
-    /// 使用SharpGLTF生成GLB格式
     /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <returns>GLB文件的二进制数据</returns>
     public override byte[] GenerateTile(MeshT mesh)
     {
+        return GenerateGLB(mesh);
+    }
+
+    /// <summary>
+    /// 保存瓦片文件到磁盘 - 实现抽象方法
+    /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
+    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    {
+        await SaveGLBFileAsync(mesh, outputPath);
+    }
+
+    /// <summary>
+    /// 获取瓦片格式名称
+    /// </summary>
+    /// <returns>格式名称 "GLTF/GLB"</returns>
+    protected override string GetFormatName()
+    {
+        return "GLTF/GLB";
+    }
+
+    /// <summary>
+    /// 生成GLB (Binary glTF 2.0) 数据
+    /// 使用SharpGLTF库生成，支持完整的PBR材质和纹理
+    /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <returns>GLB文件的二进制数据</returns>
+    public byte[] GenerateGLB(MeshT mesh)
+    {
         ValidateInput(mesh);
+
         _logger.LogDebug("开始生成GLB: 三角形数={Count}", mesh.Faces.Count);
 
         try
         {
-            // 创建glTF模型
+            // 1. 创建场景和根节点
             var model = ModelRoot.CreateModel();
-            var scene = model.UseScene("default");
-            var node = scene.CreateNode("mesh");
+            var scene = model.UseScene("Scene");
+            var rootNode = scene.CreateNode("RootNode");
 
-            // 按材质分组面
+            // 2. 计算法线（如果需要）
+            var normals = CalculateNormals(mesh);
+
+            // 3. 按材质分组处理面
             var facesByMaterial = GroupFacesByMaterial(mesh);
-            _logger.LogDebug("按材质分组: {GroupCount}个组", facesByMaterial.Count);
 
-            // 为每个材质组创建primitive
-            var meshBuilder = new MeshBuilder<VertexPositionNormalTexture1>("mesh");
-
-            foreach (var (materialIndex, groupFaces) in facesByMaterial)
+            // 4. 为每个材质创建网格
+            var allMeshBuilders = new List<IMeshBuilder<MaterialBuilder>>();
+            for (int matIdx = 0; matIdx < facesByMaterial.Count; matIdx++)
             {
-                // 获取或创建材质
-                MaterialBuilder materialBuilder;
-                if (materialIndex >= 0 && materialIndex < mesh.Materials.Count)
-                {
-                    var meshMaterial = mesh.Materials[materialIndex];
-                    materialBuilder = CreateMaterial(model, meshMaterial);
-                }
-                else
-                {
-                    materialBuilder = CreateDefaultMaterial(model);
-                }
+                var faces = facesByMaterial[matIdx];
+                if (faces.Count == 0)
+                    continue;
 
-                // 创建primitive
-                var primitiveBuilder = meshBuilder.UsePrimitive(materialBuilder);
+                var material = mesh.Materials[matIdx];
 
-                // 添加三角形
-                foreach (var face in groupFaces)
-                {
-                    var v0 = CreateVertex(mesh, face.IndexA, face.TextureIndexA);
-                    var v1 = CreateVertex(mesh, face.IndexB, face.TextureIndexB);
-                    var v2 = CreateVertex(mesh, face.IndexC, face.TextureIndexC);
+                // 创建材质
+                var gltfMaterial = CreateMaterial(model, material);
 
-                    primitiveBuilder.AddTriangle(v0, v1, v2);
-                }
-
-                _logger.LogDebug("材质组: 材质索引={Index}, {FaceCount}个面",
-                    materialIndex, groupFaces.Count);
+                // 创建网格
+                var meshBuilder = CreateMeshForMaterial(mesh, faces, normals, gltfMaterial);
+                allMeshBuilders.Add(meshBuilder);
             }
 
-            // 添加到场景
-            node.Mesh = model.CreateMesh(meshBuilder);
-
-            // 写入GLB
-            using var ms = new MemoryStream();
-            var writeSettings = new WriteSettings
+            // 将所有 MeshBuilder 添加到场景
+            if (allMeshBuilders.Count > 0)
             {
-                JsonIndented = false,
-                ImageWriting = ResourceWriteMode.Embedded,
-                MergeBuffers = true
-            };
-            model.SaveGLB(ms, writeSettings);
+                var sceneMesh = rootNode.WithMesh(model.CreateMeshes(allMeshBuilders.ToArray())[0]);
+            }
 
-            var result = ms.ToArray();
-            _logger.LogInformation("GLB生成完成: 总大小={Size}字节", result.Length);
+            // 5. 写入到内存流
+            using var memoryStream = new MemoryStream();
+            model.WriteGLB(memoryStream);
 
-            return result;
+            var glbData = memoryStream.ToArray();
+
+            _logger.LogDebug("GLB生成完成: 总大小={Size}字节", glbData.Length);
+            LogGenerationStats(mesh.Faces.Count, mesh.Vertices.Count, glbData.Length);
+
+            return glbData;
         }
         catch (Exception ex)
         {
@@ -143,279 +125,297 @@ public class GltfGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 按材质分组面
+    /// 计算每个顶点的法线向量
+    /// 使用面法线加权平均的方式计算顶点法线
     /// </summary>
-    private Dictionary<int, List<FaceT>> GroupFacesByMaterial(MeshT mesh)
+    /// <param name="mesh">网格数据</param>
+    /// <returns>顶点法线数组</returns>
+    private SysVector3[] CalculateNormals(MeshT mesh)
     {
-        var groups = new Dictionary<int, List<FaceT>>();
-        const int NoMaterialIndex = -1;
+        var normals = new SysVector3[mesh.Vertices.Count];
+        var normalCounts = new int[mesh.Vertices.Count];
 
+        // 为每个面计算法线，并累加到顶点
         foreach (var face in mesh.Faces)
         {
-            var materialIndex = face.MaterialIndex;
+            var v0 = mesh.Vertices[face.IndexA];
+            var v1 = mesh.Vertices[face.IndexB];
+            var v2 = mesh.Vertices[face.IndexC];
 
-            // 检查材质索引是否有效
-            if (materialIndex < 0 || materialIndex >= mesh.Materials.Count)
-            {
-                materialIndex = NoMaterialIndex;
-            }
-
-            if (!groups.ContainsKey(materialIndex))
-            {
-                groups[materialIndex] = new List<FaceT>();
-            }
-
-            groups[materialIndex].Add(face);
-        }
-
-        return groups;
-    }
-
-    /// <summary>
-    /// 创建顶点（包含位置、法线、纹理坐标）
-    /// </summary>
-    private VertexPositionNormalTexture1 CreateVertex(MeshT mesh, int vertexIndex, int texCoordIndex)
-    {
-        // 位置
-        var pos = mesh.Vertices[vertexIndex];
-        var position = new Vector3((float)pos.X, (float)pos.Y, (float)pos.Z);
-
-        // 法线（暂时使用默认值，可以从mesh中计算）
-        var normal = new Vector3(0, 0, 1);
-
-        // 纹理坐标
-        Vector2 texCoord = Vector2.Zero;
-        if (texCoordIndex >= 0 && texCoordIndex < mesh.TextureVertices.Count)
-        {
-            var uv = mesh.TextureVertices[texCoordIndex];
-            texCoord = new Vector2((float)uv.U, (float)uv.V);
-        }
-
-        return new VertexPositionNormalTexture1(position, normal, texCoord);
-    }
-
-    /// <summary>
-    /// 创建材质
-    /// </summary>
-    private MaterialBuilder CreateMaterial(ModelRoot model, DomainMaterial meshMaterial)
-    {
-        var materialBuilder = new MaterialBuilder(meshMaterial.Name ?? "Material")
-            .WithMetallicRoughnessShader();
-
-        // 设置基础颜色
-        if (meshMaterial.DiffuseColor != null)
-        {
-            var color = new Vector4(
-                (float)meshMaterial.DiffuseColor.R,
-                (float)meshMaterial.DiffuseColor.G,
-                (float)meshMaterial.DiffuseColor.B,
-                (float)meshMaterial.Opacity
+            // 计算面法线
+            var edge1 = new SysVector3(
+                (float)(v1.X - v0.X),
+                (float)(v1.Y - v0.Y),
+                (float)(v1.Z - v0.Z)
             );
-            materialBuilder.WithChannelParam("BaseColor", color);
+            var edge2 = new SysVector3(
+                (float)(v2.X - v0.X),
+                (float)(v2.Y - v0.Y),
+                (float)(v2.Z - v0.Z)
+            );
+            var faceNormal = SysVector3.Cross(edge1, edge2);
+
+            // 累加到每个顶点
+            normals[face.IndexA] += faceNormal;
+            normals[face.IndexB] += faceNormal;
+            normals[face.IndexC] += faceNormal;
+
+            normalCounts[face.IndexA]++;
+            normalCounts[face.IndexB]++;
+            normalCounts[face.IndexC]++;
         }
 
-        // 设置金属度和粗糙度
-        materialBuilder.WithMetallicFactor(0.0f);
-        materialBuilder.WithRoughnessFactor(1.0f);
-
-        // 漫反射纹理
-        if (meshMaterial.DiffuseTexture != null && !string.IsNullOrEmpty(meshMaterial.DiffuseTexture.FilePath))
+        // 归一化所有顶点法线
+        for (int i = 0; i < normals.Length; i++)
         {
-            var texturePath = meshMaterial.DiffuseTexture.FilePath;
-            if (File.Exists(texturePath))
+            if (normalCounts[i] > 0 && normals[i].Length() > 0)
             {
-                try
-                {
-                    if (TextureOptions.EnableCompression)
-                    {
-                        // 使用压缩纹理
-                        var (imageData, _) = CompressAndResizeTexture(
-                            texturePath,
-                            TextureOptions.MaxTextureSize,
-                            TextureOptions.JpegQuality);
-
-                        var imageBuilder = ImageBuilder.From(imageData, texturePath);
-                        materialBuilder.WithChannelImage("BaseColor", imageBuilder);
-                    }
-                    else
-                    {
-                        // 直接加载
-                        var imageBuilder = ImageBuilder.From(texturePath);
-                        materialBuilder.WithChannelImage("BaseColor", imageBuilder);
-                    }
-
-                    _logger.LogDebug("材质 {Name} 添加漫反射纹理: {Path}",
-                        meshMaterial.Name, texturePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "加载纹理失败: {Path}", texturePath);
-                }
-            }
-        }
-
-        // 法线纹理
-        if (meshMaterial.NormalTexture != null && !string.IsNullOrEmpty(meshMaterial.NormalTexture.FilePath))
-        {
-            var texturePath = meshMaterial.NormalTexture.FilePath;
-            if (File.Exists(texturePath))
-            {
-                try
-                {
-                    var imageBuilder = ImageBuilder.From(texturePath);
-                    materialBuilder.WithChannelImage("Normal", imageBuilder);
-                    _logger.LogDebug("材质 {Name} 添加法线纹理: {Path}",
-                        meshMaterial.Name, texturePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "加载法线纹理失败: {Path}", texturePath);
-                }
-            }
-        }
-
-        // 透明度
-        if (meshMaterial.Opacity < 1.0)
-        {
-            materialBuilder.WithAlpha(meshMaterial.Opacity < 0.5 ? AlphaMode.MASK : AlphaMode.BLEND);
-        }
-
-        return materialBuilder;
-    }
-
-    /// <summary>
-    /// 创建默认材质
-    /// </summary>
-    private MaterialBuilder CreateDefaultMaterial(ModelRoot model)
-    {
-        return new MaterialBuilder("default")
-            .WithMetallicRoughnessShader()
-            .WithMetallicFactor(0.0f)
-            .WithRoughnessFactor(1.0f)
-            .WithChannelParam("BaseColor", Vector4.One);
-    }
-
-    /// <summary>
-    /// 压缩和调整纹理大小
-    /// </summary>
-    private (byte[] data, string mimeType) CompressAndResizeTexture(
-        string texturePath,
-        int maxSize,
-        int jpegQuality)
-    {
-        try
-        {
-            using var image = Image.Load<Rgba32>(texturePath);
-            var originalSize = new FileInfo(texturePath).Length;
-
-            // 检查是否需要降采样
-            bool needsResize = TextureOptions.EnableDownsampling &&
-                              (image.Width > maxSize || image.Height > maxSize);
-
-            if (needsResize)
-            {
-                double scale = Math.Min((double)maxSize / image.Width, (double)maxSize / image.Height);
-                int newWidth = (int)(image.Width * scale);
-                int newHeight = (int)(image.Height * scale);
-
-                image.Mutate(x => x.Resize(newWidth, newHeight));
-
-                _logger.LogDebug("纹理降采样: {Path} 从 {OldW}x{OldH} 到 {NewW}x{NewH}",
-                    Path.GetFileName(texturePath), image.Width, image.Height, newWidth, newHeight);
-            }
-
-            // 检查是否有透明通道
-            bool hasAlpha = HasTransparency(image);
-
-            using var ms = new MemoryStream();
-            string mimeType;
-
-            if (hasAlpha)
-            {
-                image.SaveAsPng(ms);
-                mimeType = "image/png";
+                normals[i] = SysVector3.Normalize(normals[i]);
             }
             else
             {
-                var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder
-                {
-                    Quality = jpegQuality
-                };
-                image.SaveAsJpeg(ms, encoder);
-                mimeType = "image/jpeg";
+                // 默认法线朝上
+                normals[i] = new SysVector3(0, 0, 1);
             }
-
-            var compressedData = ms.ToArray();
-            var compressionRatio = (1.0 - (double)compressedData.Length / originalSize) * 100;
-
-            _logger.LogDebug("纹理压缩: {Path} {OriginalSize}KB -> {CompressedSize}KB (减少{Ratio:F1}%, 格式={Format})",
-                Path.GetFileName(texturePath),
-                originalSize / 1024,
-                compressedData.Length / 1024,
-                compressionRatio,
-                hasAlpha ? "PNG" : "JPEG");
-
-            return (compressedData, mimeType);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "纹理压缩失败，使用原始文件: {Path}", texturePath);
-            var data = File.ReadAllBytes(texturePath);
-            var ext = Path.GetExtension(texturePath).ToLowerInvariant();
-            var mimeType = ext switch
-            {
-                ".png" => "image/png",
-                ".jpg" or ".jpeg" => "image/jpeg",
-                _ => "image/png"
-            };
-            return (data, mimeType);
-        }
+
+        return normals;
     }
 
     /// <summary>
-    /// 检查图像是否有透明像素
+    /// 按材质分组面
     /// </summary>
-    private bool HasTransparency(Image<Rgba32> image)
+    /// <param name="mesh">网格数据</param>
+    /// <returns>每个材质对应的面列表</returns>
+    private List<List<FaceT>> GroupFacesByMaterial(MeshT mesh)
     {
-        int step = Math.Max(1, Math.Min(image.Width, image.Height) / 50);
+        var result = new List<List<FaceT>>();
 
-        for (int y = 0; y < image.Height; y += step)
+        // 初始化每个材质的面列表
+        for (int i = 0; i < mesh.Materials.Count; i++)
         {
-            for (int x = 0; x < image.Width; x += step)
+            result.Add(new List<FaceT>());
+        }
+
+        // 分组
+        foreach (var face in mesh.Faces)
+        {
+            if (face.MaterialIndex >= 0 && face.MaterialIndex < result.Count)
             {
-                if (image[x, y].A < 255)
-                {
-                    return true;
-                }
+                result[face.MaterialIndex].Add(face);
             }
         }
-        return false;
+
+        return result;
     }
 
     /// <summary>
-    /// 获取瓦片格式名称
+    /// 创建glTF材质
+    /// 支持基础颜色、金属度、粗糙度和纹理
     /// </summary>
-    protected override string GetFormatName() => "GLTF";
+    /// <param name="model">模型根节点</param>
+    /// <param name="material">领域材质</param>
+    /// <returns>glTF材质</returns>
+    private MaterialBuilder CreateMaterial(ModelRoot model, DomainMaterial material)
+    {
+        var matBuilder = new MaterialBuilder(material.Name ?? "DefaultMaterial");
+
+        // 设置基础颜色
+        SysVector4 baseColor;
+        if (material.DiffuseColor != null)
+        {
+            var diffuse = material.DiffuseColor;
+            baseColor = new SysVector4(
+                (float)diffuse.R,
+                (float)diffuse.G,
+                (float)diffuse.B,
+                (float)(material.Dissolve ?? 1.0)
+            );
+        }
+        else
+        {
+            baseColor = SysVector4.One;
+        }
+
+        // 应用纹理（如果存在）
+        if (material.TextureImage != null)
+        {
+            // ⭐ 优先使用内存中的纹理数据（纹理打包后的结果）
+            try
+            {
+                using var ms = new MemoryStream();
+                material.TextureImage.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
+                var imageBytes = ms.ToArray();
+
+                var imageBuilder = ImageBuilder.From(imageBytes, $"{material.Name}_packed.png");
+
+                matBuilder
+                    .WithMetallicRoughnessShader()
+                    .WithBaseColor(imageBuilder, baseColor);
+
+                _logger.LogDebug("材质 {MaterialName} 使用内存中的打包纹理",
+                    material.Name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "使用内存纹理失败: {MaterialName}，使用纯色材质", material.Name);
+                matBuilder
+                    .WithMetallicRoughnessShader()
+                    .WithBaseColor(baseColor);
+            }
+        }
+        else if (!string.IsNullOrEmpty(material.Texture) && File.Exists(material.Texture))
+        {
+            // ⭐ 从文件加载纹理（原始流程）
+            try
+            {
+                // 读取纹理图像
+                using var image = SixLaborsImage.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(material.Texture);
+                using var ms = new MemoryStream();
+
+                // 转换为PNG格式（glTF标准支持）
+                image.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
+                var imageBytes = ms.ToArray();
+
+                // 创建图像构建器
+                var imageBuilder = ImageBuilder.From(imageBytes, material.Texture);
+
+                // 设置带纹理的通道
+                matBuilder
+                    .WithMetallicRoughnessShader()
+                    .WithBaseColor(imageBuilder, baseColor);
+
+                _logger.LogDebug("材质 {MaterialName} 应用纹理: {Texture}",
+                    material.Name, material.Texture);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "加载纹理失败: {Texture}，使用纯色材质", material.Texture);
+                matBuilder
+                    .WithMetallicRoughnessShader()
+                    .WithBaseColor(baseColor);
+            }
+        }
+        else
+        {
+            // 纯色材质
+            matBuilder
+                .WithMetallicRoughnessShader()
+                .WithBaseColor(baseColor);
+        }
+
+        // 设置金属度和粗糙度（默认值）
+        matBuilder
+            .WithMetallicRoughness(0.0f, 0.8f); // 非金属，中等粗糙度
+
+        // 设置镜面反射（如果有）
+        if (material.SpecularColor != null)
+        {
+            var specular = material.SpecularColor;
+            var specularFactor = (float)((specular.R + specular.G + specular.B) / 3.0);
+
+            // 调整粗糙度（镜面反射强度越高，粗糙度越低）
+            var roughness = 1.0f - Math.Clamp(specularFactor, 0f, 1f);
+            matBuilder.WithMetallicRoughness(0.0f, roughness);
+        }
+
+        // 设置透明度
+        if (material.Dissolve.HasValue && material.Dissolve.Value < 1.0)
+        {
+            matBuilder.WithAlpha(GltfAlphaMode.BLEND);
+        }
+
+        return matBuilder;
+    }
 
     /// <summary>
-    /// 保存瓦片文件到磁盘
+    /// 为特定材质创建网格
     /// </summary>
-    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    /// <param name="mesh">原始网格数据</param>
+    /// <param name="faces">该材质的面列表</param>
+    /// <param name="normals">顶点法线数组</param>
+    /// <param name="material">glTF材质</param>
+    /// <returns>网格构建器</returns>
+    private IMeshBuilder<MaterialBuilder> CreateMeshForMaterial(
+        MeshT mesh,
+        List<FaceT> faces,
+        SysVector3[] normals,
+        MaterialBuilder material)
     {
-        await SaveGLBFileAsync(mesh, outputPath);
+        // 使用 VertexPosition, VertexTexture1, VertexEmpty 组合
+        // 这是 SharpGLTF 的标准顶点类型组合
+        var meshBuilder = new MeshBuilder<VertexPosition, VertexTexture1, VertexEmpty>(mesh.Name ?? "Mesh");
+
+        // 获取或创建图元（Primitive）
+        var primitive = meshBuilder.UsePrimitive(material);
+
+        // 添加三角形
+        foreach (var face in faces)
+        {
+            var v0 = mesh.Vertices[face.IndexA];
+            var v1 = mesh.Vertices[face.IndexB];
+            var v2 = mesh.Vertices[face.IndexC];
+
+            var n0 = normals[face.IndexA];
+            var n1 = normals[face.IndexB];
+            var n2 = normals[face.IndexC];
+
+            // 获取纹理坐标
+            SysVector2 t0, t1, t2;
+            if (face.TextureIndexA < mesh.TextureVertices.Count &&
+                face.TextureIndexB < mesh.TextureVertices.Count &&
+                face.TextureIndexC < mesh.TextureVertices.Count)
+            {
+                var tv0 = mesh.TextureVertices[face.TextureIndexA];
+                var tv1 = mesh.TextureVertices[face.TextureIndexB];
+                var tv2 = mesh.TextureVertices[face.TextureIndexC];
+
+                t0 = new SysVector2((float)tv0.X, (float)tv0.Y);
+                t1 = new SysVector2((float)tv1.X, (float)tv1.Y);
+                t2 = new SysVector2((float)tv2.X, (float)tv2.Y);
+            }
+            else
+            {
+                // 默认纹理坐标
+                t0 = new SysVector2(0f, 0f);
+                t1 = new SysVector2(1f, 0f);
+                t2 = new SysVector2(0f, 1f);
+            }
+
+            // 创建顶点（使用 SharpGLTF 的 VertexBuilder）
+            var vertexBuilder0 = new VertexBuilder<VertexPosition, VertexTexture1, VertexEmpty>(
+                new VertexPosition(new SysVector3((float)v0.X, (float)v0.Y, (float)v0.Z)),
+                new VertexTexture1(t0));
+
+            var vertexBuilder1 = new VertexBuilder<VertexPosition, VertexTexture1, VertexEmpty>(
+                new VertexPosition(new SysVector3((float)v1.X, (float)v1.Y, (float)v1.Z)),
+                new VertexTexture1(t1));
+
+            var vertexBuilder2 = new VertexBuilder<VertexPosition, VertexTexture1, VertexEmpty>(
+                new VertexPosition(new SysVector3((float)v2.X, (float)v2.Y, (float)v2.Z)),
+                new VertexTexture1(t2));
+
+            // 添加三角形（注意顺序，glTF使用逆时针）
+            primitive.AddTriangle(vertexBuilder0, vertexBuilder1, vertexBuilder2);
+        }
+
+        return meshBuilder;
     }
 
     /// <summary>
     /// 保存GLB文件到磁盘
     /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
     public async Task SaveGLBFileAsync(MeshT mesh, string outputPath)
     {
         _logger.LogInformation("保存GLB文件: {Path}", outputPath);
 
         try
         {
-            var glbData = GenerateTile(mesh);
+            var glbData = GenerateGLB(mesh);
 
+            // 确保目录存在
             var directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -424,138 +424,13 @@ public class GltfGenerator : TileGenerator
 
             await File.WriteAllBytesAsync(outputPath, glbData);
 
-            _logger.LogInformation("GLB文件保存成功: {Path}, 大小={Size}字节", outputPath, glbData.Length);
+            _logger.LogInformation("GLB文件保存成功: {Path}, 大小={Size}字节",
+                outputPath, glbData.Length);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "保存GLB文件失败: {Path}", outputPath);
             throw;
         }
-    }
-
-    /// <summary>
-    /// 生成纹理图集并更新材质的UV映射
-    /// </summary>
-    public async Task<(List<DomainMaterial> UpdatedMaterials, TextureAtlasGenerator.AtlasResult? AtlasResult)>
-        GenerateTextureAtlasAsync(
-            IReadOnlyList<DomainMaterial> materials,
-            string? atlasOutputPath = null,
-            double downsampleFactor = 1.0,
-            bool useJpegCompression = true)
-    {
-        if (_textureAtlasGenerator == null)
-        {
-            _logger.LogWarning("TextureAtlasGenerator未注入，跳过纹理图集生成");
-            return (new List<DomainMaterial>(materials), null);
-        }
-
-        if (materials == null || materials.Count == 0)
-        {
-            return (new List<DomainMaterial>(), null);
-        }
-
-        // 收集所有纹理路径
-        var texturePaths = new HashSet<string>();
-        foreach (var material in materials)
-        {
-            foreach (var texture in material.GetAllTextures())
-            {
-                if (!string.IsNullOrEmpty(texture.FilePath) && File.Exists(texture.FilePath))
-                {
-                    texturePaths.Add(texture.FilePath);
-                }
-            }
-        }
-
-        if (texturePaths.Count == 0)
-        {
-            _logger.LogInformation("没有找到有效的纹理文件，跳过图集生成");
-            return (new List<Material>(materials), null);
-        }
-
-        _logger.LogInformation("开始生成纹理图集: {Count}张纹理", texturePaths.Count);
-
-        // 生成纹理图集
-        var atlasResult = await _textureAtlasGenerator.GenerateAtlasAsync(
-            texturePaths,
-            maxAtlasSize: 4096,
-            padding: 2,
-            downsampleFactor: downsampleFactor,
-            useJpegCompression: useJpegCompression);
-
-        // 保存图集文件
-        if (!string.IsNullOrEmpty(atlasOutputPath))
-        {
-            var directory = Path.GetDirectoryName(atlasOutputPath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            await File.WriteAllBytesAsync(atlasOutputPath, atlasResult.ImageData);
-            _logger.LogInformation("纹理图集已保存: {Path}", atlasOutputPath);
-        }
-
-        // 更新材质UV映射
-        var updatedMaterials = materials.Select(m => CloneMaterialWithAtlasInfo(m, atlasResult)).ToList();
-
-        return (updatedMaterials, atlasResult);
-    }
-
-    /// <summary>
-    /// 克隆材质并更新图集信息
-    /// </summary>
-    private DomainMaterial CloneMaterialWithAtlasInfo(DomainMaterial source, TextureAtlasGenerator.AtlasResult atlasResult)
-    {
-        var cloned = new DomainMaterial
-        {
-            Name = source.Name,
-            AmbientColor = source.AmbientColor,
-            DiffuseColor = source.DiffuseColor,
-            SpecularColor = source.SpecularColor,
-            EmissiveColor = source.EmissiveColor,
-            Shininess = source.Shininess,
-            Opacity = source.Opacity,
-            RefractiveIndex = source.RefractiveIndex,
-            DiffuseTexture = CloneTextureWithAtlas(source.DiffuseTexture, atlasResult),
-            NormalTexture = CloneTextureWithAtlas(source.NormalTexture, atlasResult),
-            SpecularTexture = CloneTextureWithAtlas(source.SpecularTexture, atlasResult),
-            EmissiveTexture = CloneTextureWithAtlas(source.EmissiveTexture, atlasResult),
-            OpacityTexture = CloneTextureWithAtlas(source.OpacityTexture, atlasResult),
-            MetallicTexture = CloneTextureWithAtlas(source.MetallicTexture, atlasResult),
-            RoughnessTexture = CloneTextureWithAtlas(source.RoughnessTexture, atlasResult)
-        };
-
-        return cloned;
-    }
-
-    /// <summary>
-    /// 克隆纹理并设置图集信息
-    /// </summary>
-    private TextureInfo? CloneTextureWithAtlas(TextureInfo? source, TextureAtlasGenerator.AtlasResult atlasResult)
-    {
-        if (source == null) return null;
-
-        var cloned = new TextureInfo
-        {
-            Type = source.Type,
-            FilePath = source.FilePath,
-            WrapU = source.WrapU,
-            WrapV = source.WrapV,
-            FilterMode = source.FilterMode
-        };
-
-        // 更新图集UV信息
-        if (!string.IsNullOrEmpty(source.FilePath) &&
-            atlasResult.TextureRegions.TryGetValue(source.FilePath, out var region))
-        {
-            cloned.AtlasOffset = region.UVMin;
-            cloned.AtlasScale = new Vector2D(
-                region.UVMax.U - region.UVMin.U,
-                region.UVMax.V - region.UVMin.V
-            );
-        }
-
-        return cloned;
     }
 }

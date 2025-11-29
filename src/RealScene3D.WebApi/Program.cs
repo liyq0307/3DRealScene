@@ -422,9 +422,7 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 /// </summary>
 
 // === 核心切片服务 ===
-// 网格分割器：实现真正的网格分割逻辑
-builder.Services.AddScoped<MeshSplitter>();
-builder.Services.AddScoped<ISpatialSplitterService, SpatialSplitterService>();
+// 注意：网格分割功能已集成到 MeshT 类中，无需单独的服务
 
 // 独立功能服务（依赖其他注册的服务，需要通过DI注入）
 builder.Services.AddScoped<IncrementalUpdateService>();
@@ -444,10 +442,6 @@ builder.Services.AddScoped<ITileGeneratorFactory, TileGeneratorFactory>();
 // 支持格式: .obj, .gltf, .glb, .stl, .ply, .fbx, .ifc, .ifcxml, .ifczip, .osgb, .osg
 // 工厂会自动创建加载器实例，无需单独注册各个加载器类
 builder.Services.AddScoped<IModelLoaderFactory, ModelLoaderFactory>();
-
-// 网格处理服务：LOD生成和纹理优化
-builder.Services.AddScoped<MeshDecimationService>(); // QEM网格简化服务
-builder.Services.AddScoped<TextureAtlasGenerator>(); // 纹理图集生成器
 
 // ========== 系统监控服务配置 ==========
 /// <summary>

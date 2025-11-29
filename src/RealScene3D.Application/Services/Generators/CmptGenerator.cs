@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
 using System.Text;
 
 namespace RealScene3D.Application.Services.Generators;
@@ -9,6 +9,7 @@ namespace RealScene3D.Application.Services.Generators;
 /// 将多个不同格式的瓦片（B3DM、I3DM、PNTS等）组合成一个复合瓦片
 /// 参考: Cesium 3D Tiles Specification - CMPT Format
 /// 适用场景：混合数据类型、复杂场景优化、批量瓦片合并
+/// 重构说明：已迁移到 MeshT 架构
 /// </summary>
 public class CmptGenerator : TileGenerator
 {
@@ -53,18 +54,16 @@ public class CmptGenerator : TileGenerator
 
     /// <summary>
     /// 生成瓦片文件数据 - 实现抽象方法
-    /// 默认实现：将三角形数据生成为B3DM瓦片
+    /// 默认实现：将网格数据生成为B3DM瓦片
     /// </summary>
-    /// <param name="triangles">三角形网格数据</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据</param>
     /// <returns>CMPT瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public override byte[] GenerateTile(MeshT mesh)
     {
         if (_b3dmGenerator == null)
             throw new InvalidOperationException("B3dmGenerator未注入，无法使用默认实现");
 
-        var b3dmData = _b3dmGenerator.GenerateTile(triangles, bounds, materials);
+        var b3dmData = _b3dmGenerator.GenerateTile(mesh);
         var tiles = new[]
         {
             new TileData
@@ -77,6 +76,21 @@ public class CmptGenerator : TileGenerator
 
         return GenerateCMPT(tiles);
     }
+
+    /// <summary>
+    /// 保存瓦片文件到磁盘 - 实现抽象方法
+    /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
+    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    {
+        await SaveCMPTFileAsync(mesh, outputPath, true, false);
+    }
+
+    /// <summary>
+    /// 获取瓦片格式名称
+    /// </summary>
+    protected override string GetFormatName() => "CMPT";
 
     /// <summary>
     /// 生成CMPT文件数据 - 从多个子瓦片数据
@@ -145,21 +159,19 @@ public class CmptGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 生成CMPT文件 - 从三角形数据生成多种格式的组合
+    /// 生成CMPT文件 - 从网格数据生成多种格式的组合
     /// 算法：同时生成B3DM（网格）、PNTS（点云）并组合
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">包围盒</param>
+    /// <param name="mesh">网格数据</param>
     /// <param name="includeB3dm">是否包含B3DM</param>
     /// <param name="includePnts">是否包含PNTS点云</param>
     /// <returns>CMPT文件的二进制数据</returns>
-    public byte[] GenerateCMPTFromTriangles(
-        List<Triangle> triangles,
-        BoundingBox3D bounds,
+    public byte[] GenerateCMPTFromMesh(
+        MeshT mesh,
         bool includeB3dm = true,
         bool includePnts = false)
     {
-        ValidateInput(triangles, bounds);
+        ValidateInput(mesh);
 
         var tilesList = new List<TileData>();
 
@@ -169,12 +181,12 @@ public class CmptGenerator : TileGenerator
             if (_b3dmGenerator == null)
                 throw new InvalidOperationException("B3dmGenerator未注入");
 
-            var b3dmData = _b3dmGenerator.GenerateTile(triangles, bounds);
+            var b3dmData = _b3dmGenerator.GenerateTile(mesh);
             tilesList.Add(new TileData
             {
                 Format = "b3dm",
                 Data = b3dmData,
-                Description = $"网格模型 ({triangles.Count}个三角形)"
+                Description = $"网格模型 ({mesh.Faces.Count}个三角形)"
             });
         }
 
@@ -184,7 +196,7 @@ public class CmptGenerator : TileGenerator
             if (_pntsGenerator == null)
                 throw new InvalidOperationException("PntsGenerator未注入");
 
-            var pntsData = _pntsGenerator.GenerateTile(triangles, bounds);
+            var pntsData = _pntsGenerator.GenerateTile(mesh);
             tilesList.Add(new TileData
             {
                 Format = "pnts",
@@ -290,23 +302,6 @@ public class CmptGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 获取瓦片格式名称
-    /// </summary>
-    protected override string GetFormatName() => "CMPT";
-
-    /// <summary>
-    /// 保存瓦片文件到磁盘 - 实现抽象方法
-    /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="outputPath">输出文件路径</param>
-    /// <param name="materials">材质字典（可选）</param>
-    public override async Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
-    {
-        await SaveCMPTFileAsync(triangles, bounds, outputPath, true, false);
-    }
-
-    /// <summary>
     /// 保存CMPT文件到磁盘
     /// </summary>
     public async Task SaveCMPTFileAsync(TileData[] tiles, string outputPath)
@@ -336,16 +331,15 @@ public class CmptGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 保存CMPT文件 - 从三角形数据
+    /// 保存CMPT文件 - 从网格数据
     /// </summary>
     public async Task SaveCMPTFileAsync(
-        List<Triangle> triangles,
-        BoundingBox3D bounds,
+        MeshT mesh,
         string outputPath,
         bool includeB3dm = true,
         bool includePnts = false)
     {
-        var cmptData = GenerateCMPTFromTriangles(triangles, bounds, includeB3dm, includePnts);
+        var cmptData = GenerateCMPTFromMesh(mesh, includeB3dm, includePnts);
 
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))

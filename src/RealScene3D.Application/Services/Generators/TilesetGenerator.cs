@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -114,7 +115,7 @@ public class TilesetGenerator
     public async Task GenerateTilesetJsonAsync(
         List<Slice> slices,
         SlicingConfig config,
-        BoundingBox3D modelBounds,
+        Box3 modelBounds,
         string outputPath,
         GpsCoords? gpsCoords = null)
     {
@@ -178,7 +179,7 @@ public class TilesetGenerator
     private TilesetNode? BuildTilesetRoot(
         List<Slice> slices,
         SlicingConfig config,
-        BoundingBox3D modelBounds,
+        Box3 modelBounds,
         int maxLod,
         GpsCoords? gpsCoords)
     {
@@ -266,7 +267,7 @@ public class TilesetGenerator
     /// <param name="lodChain">同一空间位置的所有LOD级别的切片</param>
     /// <param name="maxLod">最大LOD级别</param>
     /// <param name="modelBounds">整个模型的边界框，用作geometricError计算的参考</param>
-    private TilesetNode? BuildLodChain(List<Slice> lodChain, int maxLod, BoundingBox3D modelBounds)
+    private TilesetNode? BuildLodChain(List<Slice> lodChain, int maxLod, Box3 modelBounds)
     {
         if (lodChain.Count == 0) return null;
 
@@ -311,7 +312,7 @@ public class TilesetGenerator
     /// <summary>
     /// 计算根节点的几何误差
     /// </summary>
-    private double CalculateRootGeometricError(BoundingBox3D bounds)
+    private double CalculateRootGeometricError(Box3 bounds)
     {
         // 魔法数字，默认100，不要问我为啥是100，反正这样设置显示正确
         // https://github.com/CesiumGS/3d-tiles/issues/162
@@ -327,7 +328,7 @@ public class TilesetGenerator
     /// - dD = |refBox.Depth - box.Depth| / box.Depth + 1
     /// - LOD-0（最精细）直接设为0
     /// </summary>
-    private double CalculateGeometricErrorForLod(BoundingBox3D refBox, BoundingBox3D tileBox, int lodLevel)
+    private double CalculateGeometricErrorForLod(Box3 refBox, Box3 tileBox, int lodLevel)
     {
         // LOD-0（最精细）的几何误差为0
         if (lodLevel == 0)
@@ -336,13 +337,18 @@ public class TilesetGenerator
         }
 
         // 获取边界框尺寸
-        var refSize = refBox.GetSize();
-        var tileSize = tileBox.GetSize();
+        var refWidth = refBox.Width;
+        var refHeight = refBox.Height;
+        var refDepth = refBox.Depth;
+
+        var tileWidth = tileBox.Width;
+        var tileHeight = tileBox.Height;
+        var tileDepth = tileBox.Depth;
 
         // 计算三个维度的相对差异
-        var dW = Math.Abs(refSize.Width - tileSize.Width) / Math.Max(tileSize.Width, 0.001) + 1;
-        var dH = Math.Abs(refSize.Height - tileSize.Height) / Math.Max(tileSize.Height, 0.001) + 1;
-        var dD = Math.Abs(refSize.Depth - tileSize.Depth) / Math.Max(tileSize.Depth, 0.001) + 1;
+        var dW = Math.Abs(refWidth - tileWidth) / Math.Max(tileWidth, 0.001) + 1;
+        var dH = Math.Abs(refHeight - tileHeight) / Math.Max(tileHeight, 0.001) + 1;
+        var dD = Math.Abs(refDepth - tileDepth) / Math.Max(tileDepth, 0.001) + 1;
 
         var geometricError = Math.Pow(dW + dH + dD, lodLevel);
 
@@ -350,36 +356,38 @@ public class TilesetGenerator
     }
 
     /// <summary>
-    /// 将BoundingBox3D转换为Cesium tileset box格式
+    /// 将Box3转换为Cesium tileset box格式
     /// </summary>
-    private double[] ConvertToTilesetBox(BoundingBox3D bounds)
+    private double[] ConvertToTilesetBox(Box3 bounds)
     {
-        var center = bounds.GetCenter();
-        var size = bounds.GetSize();
+        var center = bounds.Center;
+        var halfWidth = bounds.Width / 2;
+        var halfHeight = bounds.Height / 2;
+        var halfDepth = bounds.Depth / 2;
 
         return new double[]
         {
             center.X, center.Y, center.Z,
-            size.Width / 2, 0, 0,
-            0, size.Height / 2, 0,
-            0, 0, size.Depth / 2
+            halfWidth, 0, 0,
+            0, halfHeight, 0,
+            0, 0, halfDepth
         };
     }
 
     /// <summary>
     /// 解析包围盒JSON字符串
     /// </summary>
-    private BoundingBox3D ParseBoundingBox(string boundingBoxJson)
+    private Box3 ParseBoundingBox(string boundingBoxJson)
     {
         try
         {
-            var bbox = JsonSerializer.Deserialize<BoundingBox3D>(boundingBoxJson);
-            return bbox ?? new BoundingBox3D();
+            var bbox = JsonSerializer.Deserialize<Box3>(boundingBoxJson);
+            return bbox ?? new Box3(0, 0, 0, 1, 1, 1);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "解析包围盒JSON失败: {Json}", boundingBoxJson);
-            return new BoundingBox3D();
+            return new Box3(0, 0, 0, 1, 1, 1);
         }
     }
 

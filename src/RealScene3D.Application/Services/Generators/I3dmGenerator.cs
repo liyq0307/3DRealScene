@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
 using System.Text;
 using System.Text.Json;
 
@@ -10,6 +10,7 @@ namespace RealScene3D.Application.Services.Generators;
 /// 用于大量相同模型的实例化渲染（如树木、路灯、标志牌等）
 /// 参考: Cesium 3D Tiles Specification - I3DM Format
 /// 适用场景：批量重复对象、GPU实例化渲染优化
+/// 重构说明：已迁移到 MeshT 架构
 /// </summary>
 public class I3dmGenerator : TileGenerator
 {
@@ -27,48 +28,55 @@ public class I3dmGenerator : TileGenerator
 
     /// <summary>
     /// 生成瓦片文件数据 - 实现抽象方法
+    /// 生成单实例I3DM（实际场景中应使用多实例版本）
     /// </summary>
-    /// <param name="triangles">三角形网格数据（用于生成基础模型）</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="materials">材质字典</param>
+    /// <param name="mesh">网格数据（用于生成基础模型）</param>
     /// <returns>I3DM瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public override byte[] GenerateTile(MeshT mesh)
     {
-        return GenerateI3DM(triangles, bounds, 1, null, materials); // 默认1个实例
+        return GenerateI3DM(mesh, 1, null); // 默认1个实例
     }
 
     /// <summary>
-    /// 生成I3DM文件数据 - 支持多实例
-    /// 算法流程: 基础模型 → GLB → I3DM (Feature Table + GLB)
+    /// 保存瓦片文件到磁盘 - 实现抽象方法
     /// </summary>
-    /// <param name="triangles">基础模型的三角形列表</param>
-    /// <param name="bounds">包围盒</param>
-    /// <param name="instanceCount">实例数量</param>
-    /// <param name="positions">实例位置数组（可选，未提供则均匀分布）</param>
-    /// <param name="materials">材质字典</param>
-    /// <returns>I3DM文件的二进制数据</returns>
-    public byte[] GenerateI3DM(
-        List<Triangle> triangles,
-        BoundingBox3D bounds,
-        int instanceCount,
-        Vector3D[]? positions = null,
-        Dictionary<string, Material>? materials = null)
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
+    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
     {
-        ValidateInput(triangles, bounds);
+        await SaveI3DMFileAsync(mesh, outputPath, 1, null);
+    }
+
+    /// <summary>
+    /// 获取瓦片格式名称
+    /// </summary>
+    protected override string GetFormatName() => "I3DM";
+
+    /// <summary>
+    /// 生成I3DM文件数据 - 支持多实例
+    /// 算法流程: MeshT → B3DM → I3DM (Feature Table + B3DM)
+    /// </summary>
+    /// <param name="mesh">基础模型网格</param>
+    /// <param name="instanceCount">实例数量</param>
+    /// <param name="positions">实例位置数组（可选，未提供则在包围盒内均匀分布）</param>
+    /// <returns>I3DM文件的二进制数据</returns>
+    public byte[] GenerateI3DM(MeshT mesh, int instanceCount, Vertex3[]? positions = null)
+    {
+        ValidateInput(mesh);
 
         if (instanceCount <= 0)
             throw new ArgumentException("实例数量必须大于0", nameof(instanceCount));
 
-        _logger.LogDebug("开始生成I3DM: 三角形数={TriangleCount}, 实例数={InstanceCount}",
-            triangles.Count, instanceCount);
+        _logger.LogDebug("开始生成I3DM: 三角形数={FaceCount}, 实例数={InstanceCount}",
+            mesh.Faces.Count, instanceCount);
 
         try
         {
-            // 1. 生成基础模型的GLB数据
-            var glbData = _b3dmGenerator.GenerateTile(triangles, bounds, materials);
+            // 1. 生成基础模型的B3DM数据（包含GLB）
+            var b3dmData = _b3dmGenerator.GenerateTile(mesh);
 
             // 2. 生成实例位置数据
-            var instancePositions = positions ?? GenerateDefaultPositions(bounds, instanceCount);
+            var instancePositions = positions ?? GenerateDefaultPositions(mesh.Bounds, instanceCount);
 
             // 3. 构建Feature Table
             var (featureTableJson, featureTableBinary) = CreateFeatureTable(instancePositions);
@@ -88,14 +96,14 @@ public class I3dmGenerator : TileGenerator
             int featureTableBinaryLength = featureTableBinaryPadded.Length;
             int batchTableJsonLength = batchTableJsonPadded.Length;
             int batchTableBinaryLength = batchTableBinary.Length;
-            int glbLength = glbData.Length;
+            int b3dmLength = b3dmData.Length;
 
             int totalLength = headerLength +
                             featureTableJsonLength +
                             featureTableBinaryLength +
                             batchTableJsonLength +
                             batchTableBinaryLength +
-                            glbLength;
+                            b3dmLength;
 
             // 6. 写入I3DM数据
             using var ms = new MemoryStream(totalLength);
@@ -109,7 +117,7 @@ public class I3dmGenerator : TileGenerator
             writer.Write((uint)featureTableBinaryLength);  // featureTableBinaryByteLength (4 bytes)
             writer.Write((uint)batchTableJsonLength);      // batchTableJSONByteLength (4 bytes)
             writer.Write((uint)batchTableBinaryLength);    // batchTableBinaryByteLength (4 bytes)
-            writer.Write((uint)1);                         // gltfFormat: 1=embedded GLB (4 bytes)
+            writer.Write((uint)0);                         // gltfFormat: 0=使用外部URI, 1=embedded GLB
 
             // Feature Table
             writer.Write(featureTableJsonPadded);
@@ -119,11 +127,14 @@ public class I3dmGenerator : TileGenerator
             writer.Write(batchTableJsonPadded);
             writer.Write(batchTableBinary);
 
-            // GLB
-            writer.Write(glbData);
+            // B3DM (包含GLB)
+            writer.Write(b3dmData);
 
             var result = ms.ToArray();
-            LogGenerationStats(triangles.Count, instancePositions.Length, result.Length);
+            LogGenerationStats(mesh.Faces.Count, instancePositions.Length, result.Length);
+
+            _logger.LogDebug("I3DM生成完成: 总大小={Size}字节, 实例数={InstanceCount}",
+                result.Length, instanceCount);
 
             return result;
         }
@@ -137,7 +148,9 @@ public class I3dmGenerator : TileGenerator
     /// <summary>
     /// 创建Feature Table - 包含实例位置信息
     /// </summary>
-    private (string json, byte[] binary) CreateFeatureTable(Vector3D[] positions)
+    /// <param name="positions">实例位置数组</param>
+    /// <returns>JSON字符串和二进制数据</returns>
+    private (string json, byte[] binary) CreateFeatureTable(Vertex3[] positions)
     {
         int instanceCount = positions.Length;
         int positionsByteLength = instanceCount * 3 * sizeof(float);
@@ -180,22 +193,25 @@ public class I3dmGenerator : TileGenerator
     /// 生成默认实例位置 - 在包围盒内均匀分布
     /// 算法：网格分布策略
     /// </summary>
-    private Vector3D[] GenerateDefaultPositions(BoundingBox3D bounds, int count)
+    /// <param name="bounds">包围盒</param>
+    /// <param name="count">实例数量</param>
+    /// <returns>实例位置数组</returns>
+    private Vertex3[] GenerateDefaultPositions(Box3 bounds, int count)
     {
-        var positions = new Vector3D[count];
+        var positions = new Vertex3[count];
         var center = CalculateCenter(bounds);
 
         if (count == 1)
         {
-            positions[0] = center;
+            positions[0] = new Vertex3(center.x, center.y, center.z);
             return positions;
         }
 
         // 计算网格维度
         int gridSize = (int)Math.Ceiling(Math.Pow(count, 1.0 / 3.0));
-        var sizeX = (bounds.MaxX - bounds.MinX) / gridSize;
-        var sizeY = (bounds.MaxY - bounds.MinY) / gridSize;
-        var sizeZ = (bounds.MaxZ - bounds.MinZ) / gridSize;
+        var sizeX = (bounds.Max.X - bounds.Min.X) / gridSize;
+        var sizeY = (bounds.Max.Y - bounds.Min.Y) / gridSize;
+        var sizeZ = (bounds.Max.Z - bounds.Min.Z) / gridSize;
 
         int index = 0;
         for (int z = 0; z < gridSize && index < count; z++)
@@ -204,12 +220,11 @@ public class I3dmGenerator : TileGenerator
             {
                 for (int x = 0; x < gridSize && index < count; x++)
                 {
-                    positions[index++] = new Vector3D
-                    {
-                        X = bounds.MinX + (x + 0.5) * sizeX,
-                        Y = bounds.MinY + (y + 0.5) * sizeY,
-                        Z = bounds.MinZ + (z + 0.5) * sizeZ
-                    };
+                    positions[index++] = new Vertex3(
+                        bounds.Min.X + (x + 0.5) * sizeX,
+                        bounds.Min.Y + (y + 0.5) * sizeY,
+                        bounds.Min.Z + (z + 0.5) * sizeZ
+                    );
                 }
             }
         }
@@ -218,37 +233,23 @@ public class I3dmGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 获取瓦片格式名称
-    /// </summary>
-    protected override string GetFormatName() => "I3DM";
-
-    /// <summary>
-    /// 保存瓦片文件到磁盘 - 实现抽象方法
-    /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="outputPath">输出文件路径</param>
-    /// <param name="materials">材质字典（可选）</param>
-    public override async Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
-    {
-        await SaveI3DMFileAsync(triangles, bounds, outputPath, 1, null);
-    }
-
-    /// <summary>
     /// 保存I3DM文件到磁盘
     /// </summary>
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
+    /// <param name="instanceCount">实例数量（默认1）</param>
+    /// <param name="positions">实例位置（可选）</param>
     public async Task SaveI3DMFileAsync(
-        List<Triangle> triangles,
-        BoundingBox3D bounds,
+        MeshT mesh,
         string outputPath,
         int instanceCount = 1,
-        Vector3D[]? positions = null)
+        Vertex3[]? positions = null)
     {
         _logger.LogInformation("保存I3DM文件: {Path}", outputPath);
 
         try
         {
-            var i3dmData = GenerateI3DM(triangles, bounds, instanceCount, positions);
+            var i3dmData = GenerateI3DM(mesh, instanceCount, positions);
 
             var directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))

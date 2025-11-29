@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Enums;
-using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Geometry;
 using System.Text;
 using System.Text.Json;
 
@@ -12,6 +12,7 @@ namespace RealScene3D.Application.Services.Generators;
 /// 支持点位置、颜色和法线数据
 /// 参考: Cesium 3D Tiles Specification - PNTS Format
 /// 适用场景：激光扫描数据、大规模点云可视化、地形点采样
+/// 重构说明：已迁移到 MeshT 架构
 /// </summary>
 public class PntsGenerator : TileGenerator
 {
@@ -26,45 +27,56 @@ public class PntsGenerator : TileGenerator
     /// 生成瓦片文件数据 - 实现抽象方法
     /// 使用默认的顶点采样策略
     /// </summary>
-    /// <param name="triangles">三角形网格数据</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="materials">材质字典（点云暂不使用）</param>
+    /// <param name="mesh">网格数据</param>
     /// <returns>PNTS瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(List<Triangle> triangles, BoundingBox3D bounds, Dictionary<string, Material>? materials = null)
+    public override byte[] GenerateTile(MeshT mesh)
     {
-        return GeneratePNTS(triangles, bounds, SamplingStrategy.VerticesOnly);
+        return GeneratePNTS(mesh, SamplingStrategy.VerticesOnly);
     }
 
     /// <summary>
-    /// 生成PNTS文件数据 - 支持多种采样策略
-    /// 算法流程: 三角形 → 点采样 → PNTS
+    /// 保存瓦片文件到磁盘 - 实现抽象方法
     /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">包围盒</param>
+    /// <param name="mesh">网格数据</param>
+    /// <param name="outputPath">输出文件路径</param>
+    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    {
+        await SavePNTSFileAsync(mesh, outputPath, SamplingStrategy.VerticesOnly, 10);
+    }
+
+    /// <summary>
+    /// 获取瓦片格式名称
+    /// </summary>
+    protected override string GetFormatName() => "PNTS";
+
+    /// <summary>
+    /// 生成PNTS文件数据 - 支持多种采样策略
+    /// 算法流程: MeshT → 点采样 → PNTS
+    /// </summary>
+    /// <param name="mesh">网格数据</param>
     /// <param name="strategy">采样策略</param>
     /// <param name="samplingDensity">采样密度（仅用于表面采样，每个三角形的采样点数）</param>
     /// <returns>PNTS文件的二进制数据</returns>
     public byte[] GeneratePNTS(
-        List<Triangle> triangles,
-        BoundingBox3D bounds,
+        MeshT mesh,
         SamplingStrategy strategy = SamplingStrategy.VerticesOnly,
         int samplingDensity = 10)
     {
-        ValidateInput(triangles, bounds);
+        ValidateInput(mesh);
 
-        _logger.LogDebug("开始生成PNTS: 三角形数={TriangleCount}, 采样策略={Strategy}",
-            triangles.Count, strategy);
+        _logger.LogDebug("开始生成PNTS: 三角形数={FaceCount}, 采样策略={Strategy}",
+            mesh.Faces.Count, strategy);
 
         try
         {
             // 1. 根据策略生成点云（包含法线）
-            var pointCloud = GeneratePointCloud(triangles, strategy, samplingDensity);
+            var pointCloud = GeneratePointCloud(mesh, strategy, samplingDensity);
 
             _logger.LogInformation("点云生成完成: 点数={PointCount}, 有法线={HasNormals}",
                 pointCloud.Points.Length, pointCloud.HasNormals);
 
             // 2. 生成点颜色（基于高度的渐变色）
-            var colors = GenerateColors(pointCloud.Points, bounds);
+            var colors = GenerateColors(pointCloud.Points, mesh.Bounds);
 
             // 3. 构建Feature Table
             var (featureTableJson, featureTableBinary) = CreateFeatureTable(pointCloud, colors);
@@ -113,7 +125,7 @@ public class PntsGenerator : TileGenerator
             writer.Write(batchTableBinary);
 
             var result = ms.ToArray();
-            LogGenerationStats(triangles.Count, pointCloud.Points.Length, result.Length);
+            LogGenerationStats(mesh.Faces.Count, pointCloud.Points.Length, result.Length);
 
             return result;
         }
@@ -127,57 +139,92 @@ public class PntsGenerator : TileGenerator
     /// <summary>
     /// 根据策略生成点云（包含法线）
     /// </summary>
-    private PointCloud GeneratePointCloud(List<Triangle> triangles, SamplingStrategy strategy, int density)
+    private PointCloud GeneratePointCloud(MeshT mesh, SamplingStrategy strategy, int density)
     {
         return strategy switch
         {
-            SamplingStrategy.VerticesOnly => GeneratePointCloudFromVertices(triangles),
-            SamplingStrategy.UniformSampling => GeneratePointCloudUniformSampling(triangles, density),
-            SamplingStrategy.DenseSampling => GeneratePointCloudUniformSampling(triangles, density * 2),
-            _ => GeneratePointCloudFromVertices(triangles)
+            SamplingStrategy.VerticesOnly => GeneratePointCloudFromVertices(mesh),
+            SamplingStrategy.UniformSampling => GeneratePointCloudUniformSampling(mesh, density),
+            SamplingStrategy.DenseSampling => GeneratePointCloudUniformSampling(mesh, density * 2),
+            _ => GeneratePointCloudFromVertices(mesh)
         };
     }
 
     /// <summary>
-    /// 从三角形顶点生成点云 - 最简单的策略
-    /// 提取所有不重复的顶点及其法线
+    /// 从网格顶点生成点云 - 最简单的策略
+    /// 提取所有顶点及其法线
     /// </summary>
-    private PointCloud GeneratePointCloudFromVertices(List<Triangle> triangles)
+    private PointCloud GeneratePointCloudFromVertices(MeshT mesh)
     {
-        var pointSet = new HashSet<string>();
-        var points = new List<Vector3D>();
-        var normals = new List<Vector3D>();
+        var points = new Vertex3[mesh.Vertices.Count];
+        var normals = new Vertex3[mesh.Vertices.Count];
 
-        bool hasNormals = triangles.Any(t => t.HasVertexNormals());
-
-        foreach (var triangle in triangles)
+        // 直接使用网格的顶点
+        for (int i = 0; i < mesh.Vertices.Count; i++)
         {
-            var vertices = new[] {
-                (triangle.V1, triangle.Normal1),
-                (triangle.V2, triangle.Normal2),
-                (triangle.V3, triangle.Normal3)
-            };
+            points[i] = mesh.Vertices[i];
+        }
 
-            foreach (var (vertex, normal) in vertices)
+        // 计算每个顶点的法线（基于所有使用该顶点的面）
+        var vertexNormals = new Dictionary<int, List<Vertex3>>();
+
+        foreach (var face in mesh.Faces)
+        {
+            // 计算面法线
+            var v0 = mesh.Vertices[face.IndexA];
+            var v1 = mesh.Vertices[face.IndexB];
+            var v2 = mesh.Vertices[face.IndexC];
+
+            var edge1 = v1 - v0;
+            var edge2 = v2 - v0;
+            var faceNormal = edge1.Cross(edge2);
+
+            // 累加到每个顶点
+            if (!vertexNormals.ContainsKey(face.IndexA))
+                vertexNormals[face.IndexA] = new List<Vertex3>();
+            if (!vertexNormals.ContainsKey(face.IndexB))
+                vertexNormals[face.IndexB] = new List<Vertex3>();
+            if (!vertexNormals.ContainsKey(face.IndexC))
+                vertexNormals[face.IndexC] = new List<Vertex3>();
+
+            vertexNormals[face.IndexA].Add(faceNormal);
+            vertexNormals[face.IndexB].Add(faceNormal);
+            vertexNormals[face.IndexC].Add(faceNormal);
+        }
+
+        // 计算平均法线
+        for (int i = 0; i < mesh.Vertices.Count; i++)
+        {
+            if (vertexNormals.TryGetValue(i, out var normalList) && normalList.Count > 0)
             {
-                var key = $"{vertex.X:F6}_{vertex.Y:F6}_{vertex.Z:F6}";
-                if (pointSet.Add(key))
-                {
-                    points.Add(vertex);
+                var sum = normalList.Aggregate((a, b) => a + b);
+                var avgNormal = sum / normalList.Count;
 
-                    // 添加法线（如果有）
-                    if (hasNormals && normal != null)
-                    {
-                        normals.Add(normal);
-                    }
+                // 归一化
+                var length = Math.Sqrt(avgNormal.X * avgNormal.X + avgNormal.Y * avgNormal.Y + avgNormal.Z * avgNormal.Z);
+                if (length > 0)
+                {
+                    normals[i] = new Vertex3(
+                        avgNormal.X / length,
+                        avgNormal.Y / length,
+                        avgNormal.Z / length
+                    );
                 }
+                else
+                {
+                    normals[i] = new Vertex3(0, 0, 1); // 默认朝上
+                }
+            }
+            else
+            {
+                normals[i] = new Vertex3(0, 0, 1); // 默认朝上
             }
         }
 
         return new PointCloud
         {
-            Points = points.ToArray(),
-            Normals = hasNormals ? normals.ToArray() : null
+            Points = points,
+            Normals = normals
         };
     }
 
@@ -185,22 +232,30 @@ public class PntsGenerator : TileGenerator
     /// 均匀采样三角形表面生成点云
     /// 算法：重心坐标插值（位置和法线）
     /// </summary>
-    private PointCloud GeneratePointCloudUniformSampling(List<Triangle> triangles, int samplesPerTriangle)
+    private PointCloud GeneratePointCloudUniformSampling(MeshT mesh, int samplesPerTriangle)
     {
-        var points = new List<Vector3D>();
-        var normals = new List<Vector3D>();
+        var points = new List<Vertex3>();
+        var normals = new List<Vertex3>();
 
-        bool hasNormals = triangles.Any(t => t.HasVertexNormals());
-
-        foreach (var triangle in triangles)
+        foreach (var face in mesh.Faces)
         {
-            var v0 = triangle.V1;
-            var v1 = triangle.V2;
-            var v2 = triangle.V3;
+            var v0 = mesh.Vertices[face.IndexA];
+            var v1 = mesh.Vertices[face.IndexB];
+            var v2 = mesh.Vertices[face.IndexC];
 
-            var n0 = triangle.Normal1;
-            var n1 = triangle.Normal2;
-            var n2 = triangle.Normal3;
+            // 计算面法线
+            var edge1 = v1 - v0;
+            var edge2 = v2 - v0;
+            var faceNormal = edge1.Cross(edge2);
+            var length = Math.Sqrt(faceNormal.X * faceNormal.X + faceNormal.Y * faceNormal.Y + faceNormal.Z * faceNormal.Z);
+            if (length > 0)
+            {
+                faceNormal = new Vertex3(
+                    faceNormal.X / length,
+                    faceNormal.Y / length,
+                    faceNormal.Z / length
+                );
+            }
 
             // 在三角形表面采样
             for (int i = 0; i < samplesPerTriangle; i++)
@@ -219,45 +274,33 @@ public class PntsGenerator : TileGenerator
                 var r3 = 1.0 - r1 - r2;
 
                 // 重心坐标插值 - 位置
-                var point = new Vector3D
-                {
-                    X = v0.X * r1 + v1.X * r2 + v2.X * r3,
-                    Y = v0.Y * r1 + v1.Y * r2 + v2.Y * r3,
-                    Z = v0.Z * r1 + v1.Z * r2 + v2.Z * r3
-                };
+                var point = new Vertex3(
+                    v0.X * r1 + v1.X * r2 + v2.X * r3,
+                    v0.Y * r1 + v1.Y * r2 + v2.Y * r3,
+                    v0.Z * r1 + v1.Z * r2 + v2.Z * r3
+                );
                 points.Add(point);
 
-                // 重心坐标插值 - 法线
-                if (hasNormals && n0 != null && n1 != null && n2 != null)
-                {
-                    var normal = new Vector3D
-                    {
-                        X = n0.X * r1 + n1.X * r2 + n2.X * r3,
-                        Y = n0.Y * r1 + n1.Y * r2 + n2.Y * r3,
-                        Z = n0.Z * r1 + n1.Z * r2 + n2.Z * r3
-                    };
-                    // 归一化法线
-                    normal = normal.Normalize();
-                    normals.Add(normal);
-                }
+                // 使用面法线
+                normals.Add(faceNormal);
             }
         }
 
         return new PointCloud
         {
             Points = points.ToArray(),
-            Normals = hasNormals ? normals.ToArray() : null
+            Normals = normals.ToArray()
         };
     }
 
     /// <summary>
     /// 生成点颜色 - 基于高度的渐变色（蓝→绿→红）
     /// </summary>
-    private byte[] GenerateColors(Vector3D[] points, BoundingBox3D bounds)
+    private byte[] GenerateColors(Vertex3[] points, Box3 bounds)
     {
         var colors = new byte[points.Length * 3]; // RGB
-        var minZ = bounds.MinZ;
-        var maxZ = bounds.MaxZ;
+        var minZ = bounds.Min.Z;
+        var maxZ = bounds.Max.Z;
         var range = maxZ - minZ;
 
         for (int i = 0; i < points.Length; i++)
@@ -362,28 +405,10 @@ public class PntsGenerator : TileGenerator
     }
 
     /// <summary>
-    /// 获取瓦片格式名称
-    /// </summary>
-    protected override string GetFormatName() => "PNTS";
-
-    /// <summary>
-    /// 保存瓦片文件到磁盘 - 实现抽象方法
-    /// </summary>
-    /// <param name="triangles">三角形列表</param>
-    /// <param name="bounds">空间包围盒</param>
-    /// <param name="outputPath">输出文件路径</param>
-    /// <param name="materials">材质字典（可选）</param>
-    public override async Task SaveTileAsync(List<Triangle> triangles, BoundingBox3D bounds, string outputPath, Dictionary<string, Material>? materials = null)
-    {
-        await SavePNTSFileAsync(triangles, bounds, outputPath, SamplingStrategy.VerticesOnly, 10);
-    }
-
-    /// <summary>
     /// 保存PNTS文件到磁盘
     /// </summary>
     public async Task SavePNTSFileAsync(
-        List<Triangle> triangles,
-        BoundingBox3D bounds,
+        MeshT mesh,
         string outputPath,
         SamplingStrategy strategy = SamplingStrategy.VerticesOnly,
         int samplingDensity = 10)
@@ -392,7 +417,7 @@ public class PntsGenerator : TileGenerator
 
         try
         {
-            var pntsData = GeneratePNTS(triangles, bounds, strategy, samplingDensity);
+            var pntsData = GeneratePNTS(mesh, strategy, samplingDensity);
 
             var directory = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
@@ -417,8 +442,8 @@ public class PntsGenerator : TileGenerator
     /// </summary>
     private class PointCloud
     {
-        public Vector3D[] Points { get; set; } = Array.Empty<Vector3D>();
-        public Vector3D[]? Normals { get; set; }
+        public Vertex3[] Points { get; set; } = Array.Empty<Vertex3>();
+        public Vertex3[]? Normals { get; set; }
         public bool HasNormals => Normals != null && Normals.Length > 0;
     }
 }

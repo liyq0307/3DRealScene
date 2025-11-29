@@ -8,6 +8,7 @@ using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
 using System.Buffers;
 using System.Text.Json;
+using RealScene3D.Domain.Geometry;
 
 namespace RealScene3D.Application.Services.Slicing;
 
@@ -766,11 +767,11 @@ public class SlicingAppService : ISlicingAppService
     /// <param name="point1">点1</param>
     /// <param name="point2">点2</param>
     /// <returns>欧几里得距离</returns>
-    private double CalculateDistance(Vector3D point1, Vector3D point2)
+    private double CalculateDistance(Vector3d point1, Vector3d point2)
     {
-        var dx = point2.X - point1.X;
-        var dy = point2.Y - point1.Y;
-        var dz = point2.Z - point1.Z;
+        var dx = point2.x - point1.x;
+        var dy = point2.y - point1.y;
+        var dz = point2.z - point1.z;
 
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
