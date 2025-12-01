@@ -72,13 +72,13 @@ public class GpsCoords
         rotation[2, 2] = sinLat;
 
         // 构建4x4变换矩阵（列优先顺序）
-        return new double[]
-        {
+        return
+        [
             rotation[0, 0], rotation[1, 0], rotation[2, 0], 0,
             rotation[0, 1], rotation[1, 1], rotation[2, 1], 0,
             rotation[0, 2], rotation[1, 2], rotation[2, 2], 0,
             x, y, z, 1
-        };
+        ];
     }
 }
 
@@ -273,6 +273,10 @@ public class TilesetGenerator
 
         TilesetNode? currentNode = null;
 
+        // 获取LOD-0的边界框作为参考,避免GeometricError值过大导致显示异常
+        var lod0Slice = lodChain.FirstOrDefault(s => s.Level == 0);
+        var refBox = lod0Slice != null ? ParseBoundingBox(lod0Slice.BoundingBox) : modelBounds;
+
         // 从最精细的 LOD 开始向外构建（LOD-0 -> LOD-N）
         // 这样 LOD-0（精细）是最内层，LOD-N（粗糙）是外层
         for (int i = 0; i < lodChain.Count; i++)
@@ -280,8 +284,8 @@ public class TilesetGenerator
             var slice = lodChain[i];
             var sliceBounds = ParseBoundingBox(slice.BoundingBox);
 
-            // 计算geometricError使用模型边界框作为参考，计算相对差异的指数增长
-            var geometricError = CalculateGeometricErrorForLod(modelBounds, sliceBounds, slice.Level);
+            // 计算geometricError使用LOD-0边界框作为参考，计算相对差异的指数增长
+            var geometricError = CalculateGeometricErrorForLod(refBox, sliceBounds, slice.Level);
 
             var node = new TilesetNode
             {
@@ -365,13 +369,14 @@ public class TilesetGenerator
         var halfHeight = bounds.Height / 2;
         var halfDepth = bounds.Depth / 2;
 
-        return new double[]
-        {
-            center.X, center.Y, center.Z,
-            halfWidth, 0, 0,
-            0, halfHeight, 0,
-            0, 0, halfDepth
-        };
+        // X不变, Y←-Z, Z←Y
+        return
+        [
+            center.X, -center.Z, center.Y,        // center: (X, -Z, Y)
+            halfWidth, 0, 0,                      // halfX: Width/2
+            0, -halfDepth, 0,                     // halfY: -Depth/2
+            0, 0, halfHeight                      // halfZ: Height/2
+        ];
     }
 
     /// <summary>
