@@ -79,7 +79,7 @@ public abstract class DecimationAlgorithm
     /// 使用原始网格初始化算法。
     /// </summary>
     /// <param name="mesh">网格。</param>
-    public abstract void Initialize(Mesh mesh);
+    public abstract void Initialize(SimpleMesh mesh);
 
     /// <summary>
     /// 简化网格。
@@ -96,5 +96,5 @@ public abstract class DecimationAlgorithm
     /// 返回结果网格。
     /// </summary>
     /// <returns>结果网格。</returns>
-    public abstract Mesh ToMesh();
+    public abstract SimpleMesh ToMesh();
 }

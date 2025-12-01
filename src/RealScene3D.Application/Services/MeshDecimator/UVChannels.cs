@@ -22,7 +22,7 @@ internal sealed class UVChannels<TVec>
     {
         get
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 if (channels[i] != null)
                 {
@@ -52,8 +52,8 @@ internal sealed class UVChannels<TVec>
     /// </summary>
     public UVChannels()
     {
-        channels = new ResizableArray<TVec>?[Mesh.UVChannelCount];
-        channelsData = new TVec?[Mesh.UVChannelCount][];
+        channels = new ResizableArray<TVec>?[SimpleMesh.UVChannelCount];
+        channelsData = new TVec?[SimpleMesh.UVChannelCount][];
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ internal sealed class UVChannels<TVec>
     /// <param name="trimExess">是否应修剪多余内存。</param>
     public void Resize(int capacity, bool trimExess = false)
     {
-        for (int i = 0; i < Mesh.UVChannelCount; i++)
+        for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
         {
             if (channels[i] != null)
             {

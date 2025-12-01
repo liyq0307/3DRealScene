@@ -50,7 +50,7 @@ public static class MeshDecimation
     /// <param name="mesh">要简化的网格。</param>
     /// <param name="targetTriangleCount">目标三角形数量。</param>
     /// <returns>简化的网格。</returns>
-    public static Mesh DecimateMesh(Mesh mesh, int targetTriangleCount)
+    public static SimpleMesh DecimateMesh(SimpleMesh mesh, int targetTriangleCount)
     {
         return DecimateMesh(Algorithm.Default, mesh, targetTriangleCount);
     }
@@ -62,7 +62,7 @@ public static class MeshDecimation
     /// <param name="mesh">要简化的网格。</param>
     /// <param name="targetTriangleCount">目标三角形数量。</param>
     /// <returns>简化的网格。</returns>
-    public static Mesh DecimateMesh(Algorithm algorithm, Mesh mesh, int targetTriangleCount)
+    public static SimpleMesh DecimateMesh(Algorithm algorithm, SimpleMesh mesh, int targetTriangleCount)
     {
         if (mesh == null)
             throw new ArgumentNullException("mesh");
@@ -78,7 +78,7 @@ public static class MeshDecimation
     /// <param name="mesh">要简化的网格。</param>
     /// <param name="targetTriangleCount">目标三角形数量。</param>
     /// <returns>简化的网格。</returns>
-    public static Mesh DecimateMesh(DecimationAlgorithm algorithm, Mesh mesh, int targetTriangleCount)
+    public static SimpleMesh DecimateMesh(DecimationAlgorithm algorithm, SimpleMesh mesh, int targetTriangleCount)
     {
         if (algorithm == null)
             throw new ArgumentNullException("algorithm");
@@ -101,7 +101,7 @@ public static class MeshDecimation
     /// </summary>
     /// <param name="mesh">要简化的网格。</param>
     /// <returns>简化的网格。</returns>
-    public static Mesh DecimateMeshLossless(Mesh mesh)
+    public static SimpleMesh DecimateMeshLossless(SimpleMesh mesh)
     {
         return DecimateMeshLossless(Algorithm.Default, mesh);
     }
@@ -112,7 +112,7 @@ public static class MeshDecimation
     /// <param name="algorithm">期望的算法。</param>
     /// <param name="mesh">要简化的网格。</param>
     /// <returns>简化的网格。</returns>
-    public static Mesh DecimateMeshLossless(Algorithm algorithm, Mesh mesh)
+    public static SimpleMesh DecimateMeshLossless(Algorithm algorithm, SimpleMesh mesh)
     {
         if (mesh == null)
             throw new ArgumentNullException("mesh");
@@ -127,7 +127,7 @@ public static class MeshDecimation
     /// <param name="algorithm">简化算法。</param>
     /// <param name="mesh">要简化的网格。</param>
     /// <returns>简化的网格。</returns>
-    public static Mesh DecimateMeshLossless(DecimationAlgorithm algorithm, Mesh mesh)
+    public static SimpleMesh DecimateMeshLossless(DecimationAlgorithm algorithm, SimpleMesh mesh)
     {
         if (algorithm == null)
             throw new ArgumentNullException("algorithm");

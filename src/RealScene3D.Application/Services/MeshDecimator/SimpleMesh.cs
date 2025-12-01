@@ -5,9 +5,9 @@ using RealScene3D.Domain.Geometry;
 namespace RealScene3D.Application.Services.MeshDecimator;
 
 /// <summary>
-/// 三维网格。
+/// 简单的三维网格，不包含材质等，仅用于简化。
 /// </summary>
-public sealed class Mesh
+public sealed class SimpleMesh
 {
     /// <summary>
     /// 支持的 UV 通道数量。
@@ -261,7 +261,7 @@ public sealed class Mesh
     /// </summary>
     /// <param name="vertices">网格顶点。</param>
     /// <param name="indices">网格索引。</param>
-    public Mesh(Vector3d[] vertices, int[] indices)
+    public SimpleMesh(Vector3d[] vertices, int[] indices)
     {
         if (vertices == null)
             throw new ArgumentNullException("vertices");
@@ -280,7 +280,7 @@ public sealed class Mesh
     /// </summary>
     /// <param name="vertices">网格顶点。</param>
     /// <param name="indices">网格索引。</param>
-    public Mesh(Vector3d[] vertices, int[][] indices)
+    public SimpleMesh(Vector3d[] vertices, int[][] indices)
     {
         if (vertices == null)
             throw new ArgumentNullException("vertices");

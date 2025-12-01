@@ -508,7 +508,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         if (vertUV2D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 var vertUV = vertUV2D[i];
                 if (vertUV != null)
@@ -520,7 +520,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         if (vertUV3D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 var vertUV = vertUV3D[i];
                 if (vertUV != null)
@@ -532,7 +532,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         if (vertUV4D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 var vertUV = vertUV4D[i];
                 if (vertUV != null)
@@ -572,7 +572,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         if (vertUV2D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 var vertUV = vertUV2D[i];
                 if (vertUV != null)
@@ -584,7 +584,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         if (vertUV3D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 var vertUV = vertUV3D[i];
                 if (vertUV != null)
@@ -596,7 +596,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         if (vertUV4D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 var vertUV = vertUV4D[i];
                 if (vertUV != null)
@@ -1168,7 +1168,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
                     if (vertTangents != null) vertTangents[dst] = vertTangents[i];
                     if (vertUV2D != null)
                     {
-                        for (int j = 0; j < Mesh.UVChannelCount; j++)
+                        for (int j = 0; j < SimpleMesh.UVChannelCount; j++)
                         {
                             var vertUV = vertUV2D[j];
                             if (vertUV != null)
@@ -1179,7 +1179,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
                     }
                     if (vertUV3D != null)
                     {
-                        for (int j = 0; j < Mesh.UVChannelCount; j++)
+                        for (int j = 0; j < SimpleMesh.UVChannelCount; j++)
                         {
                             var vertUV = vertUV3D[j];
                             if (vertUV != null)
@@ -1190,7 +1190,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
                     }
                     if (vertUV4D != null)
                     {
-                        for (int j = 0; j < Mesh.UVChannelCount; j++)
+                        for (int j = 0; j < SimpleMesh.UVChannelCount; j++)
                         {
                             var vertUV = vertUV4D[j];
                             if (vertUV != null)
@@ -1230,7 +1230,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
     /// 使用原始网格初始化算法。
     /// </summary>
     /// <param name="mesh">网格。</param>
-    public override void Initialize(Mesh mesh)
+    public override void Initialize(SimpleMesh mesh)
     {
         if (mesh == null)
             throw new ArgumentNullException("mesh");
@@ -1273,7 +1273,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
         vertColors = InitializeVertexAttribute(meshColors, "colors");
         vertBoneWeights = InitializeVertexAttribute(meshBoneWeights, "boneWeights");
 
-        for (int i = 0; i < Mesh.UVChannelCount; i++)
+        for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
         {
             int uvDim = mesh.GetUVDimension(i);
             string uvAttributeName = string.Format("uv{0}", i);
@@ -1452,7 +1452,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
     /// 返回结果网格。
     /// </summary>
     /// <returns>结果网格。</returns>
-    public override Mesh ToMesh()
+    public override SimpleMesh ToMesh()
     {
         // 获取顶点和三角形数量
         int vertexCount = this.vertices.Length;
@@ -1527,7 +1527,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
         }
 
         // 创建新的网格对象
-        Mesh newMesh = new Mesh(vertices, indices);
+        SimpleMesh newMesh = new SimpleMesh(vertices, indices);
 
         // 设置顶点法线
         if (vertNormals != null)
@@ -1553,7 +1553,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
         // 设置2D UV坐标
         if (vertUV2D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 if (vertUV2D[i] != null)
                 {
@@ -1566,7 +1566,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
         // 设置3D UV坐标
         if (vertUV3D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 if (vertUV3D[i] != null)
                 {
@@ -1579,7 +1579,7 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
         // 设置4D UV坐标
         if (vertUV4D != null)
         {
-            for (int i = 0; i < Mesh.UVChannelCount; i++)
+            for (int i = 0; i < SimpleMesh.UVChannelCount; i++)
             {
                 if (vertUV4D[i] != null)
                 {
