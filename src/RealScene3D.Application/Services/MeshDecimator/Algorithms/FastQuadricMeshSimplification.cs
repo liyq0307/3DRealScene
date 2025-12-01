@@ -1591,4 +1591,243 @@ public sealed class FastQuadricMeshSimplification : DecimationAlgorithm
 
         return newMesh;
     }
+
+    /// <summary>
+    /// 使用 MeshT 网格初始化算法 - 直接从 MeshT 提取数据,避免转换。
+    /// </summary>
+    /// <param name="mesh">MeshT 网格。</param>
+    public override void Initialize(MeshT mesh)
+    {
+        if (mesh == null)
+            throw new ArgumentNullException(nameof(mesh));
+
+        // 按材质分组面,确定子网格数量
+        var facesByMaterial = new Dictionary<int, List<int>>();
+        for (int i = 0; i < mesh.Faces.Count; i++)
+        {
+            var face = mesh.Faces[i];
+            if (!facesByMaterial.ContainsKey(face.MaterialIndex))
+            {
+                facesByMaterial[face.MaterialIndex] = new List<int>();
+            }
+            facesByMaterial[face.MaterialIndex].Add(i);
+        }
+
+        subMeshCount = facesByMaterial.Count;
+
+        // 使用字典存储唯一的 (顶点索引, 纹理索引) 组合 - 这是必需的,因为简化算法需要展开的顶点
+        var vertexMap = new Dictionary<(int vertexIndex, int textureIndex), int>();
+        var expandedVertices = new List<Vector3d>();
+        var expandedUVs = new List<Vector2>();
+
+        // 按材质索引排序的索引数组
+        var materialIndices = new List<List<int>>();
+        foreach (var _ in facesByMaterial.OrderBy(kvp => kvp.Key))
+        {
+            materialIndices.Add(new List<int>());
+        }
+
+        // 展开顶点并构建映射
+        var sortedMaterials = facesByMaterial.OrderBy(kvp => kvp.Key).ToList();
+
+        for (int matIdx = 0; matIdx < sortedMaterials.Count; matIdx++)
+        {
+            var materialFaces = sortedMaterials[matIdx].Value;
+
+            foreach (var faceIndex in materialFaces)
+            {
+                var face = mesh.Faces[faceIndex];
+
+                var faceKeys = new[] {
+                    (face.IndexA, face.TextureIndexA),
+                    (face.IndexB, face.TextureIndexB),
+                    (face.IndexC, face.TextureIndexC)
+                };
+
+                foreach (var (vertexIndex, textureIndex) in faceKeys)
+                {
+                    if (!vertexMap.ContainsKey((vertexIndex, textureIndex)))
+                    {
+                        var vertex = mesh.Vertices[vertexIndex];
+                        expandedVertices.Add(new Vector3d(vertex.X, vertex.Y, vertex.Z));
+
+                        if (textureIndex >= 0 && textureIndex < mesh.TextureVertices.Count)
+                        {
+                            var uv = mesh.TextureVertices[textureIndex];
+                            expandedUVs.Add(new Vector2((float)uv.X, (float)uv.Y));
+                        }
+                        else
+                        {
+                            expandedUVs.Add(new Vector2(0f, 0f));
+                        }
+
+                        vertexMap[(vertexIndex, textureIndex)] = expandedVertices.Count - 1;
+                    }
+
+                    materialIndices[matIdx].Add(vertexMap[(vertexIndex, textureIndex)]);
+                }
+            }
+        }
+
+        // 初始化顶点数组
+        vertices.Resize(expandedVertices.Count);
+        var vertArr = vertices.Data;
+        for (int i = 0; i < expandedVertices.Count; i++)
+        {
+            vertArr[i] = new Vertex(expandedVertices[i]);
+        }
+
+        // 初始化三角形数组
+        int totalTriangles = mesh.Faces.Count;
+        triangles.Resize(totalTriangles);
+        var trisArr = triangles.Data;
+        int triangleIndex = 0;
+
+        for (int subMeshIndex = 0; subMeshIndex < materialIndices.Count; subMeshIndex++)
+        {
+            var indices = materialIndices[subMeshIndex];
+            for (int i = 0; i < indices.Count; i += 3)
+            {
+                int v0 = indices[i];
+                int v1 = indices[i + 1];
+                int v2 = indices[i + 2];
+                trisArr[triangleIndex++] = new Triangle(v0, v1, v2, subMeshIndex);
+            }
+        }
+
+        // 初始化 UV
+        if (expandedUVs.Count > 0 && expandedUVs.Count == expandedVertices.Count)
+        {
+            vertUV2D = new UVChannels<Vector2>();
+            var uvChannel = new ResizableArray<Vector2>(expandedUVs.Count, expandedUVs.Count);
+            for (int i = 0; i < expandedUVs.Count; i++)
+            {
+                uvChannel.Data[i] = expandedUVs[i];
+            }
+            vertUV2D[0] = uvChannel;
+        }
+
+        // MeshT 不包含法线、切线、颜色和骨骼权重,所以这些保持为 null
+        vertNormals = null;
+        vertTangents = null;
+        vertColors = null;
+        vertBoneWeights = null;
+        vertUV3D = null;
+        vertUV4D = null;
+    }
+
+    /// <summary>
+    /// 将简化后的网格转换为 MeshT - 直接构建,避免中间转换。
+    /// </summary>
+    /// <param name="originalMesh">原始 MeshT,用于保留材质信息。</param>
+    /// <returns>简化后的 MeshT 网格。</returns>
+    public override MeshT ToMeshT(MeshT? originalMesh = null)
+    {
+        // 获取顶点和三角形数量
+        int vertexCount = this.vertices.Length;
+        int triangleCount = this.triangles.Length;
+
+        // 转换顶点 - 从 Vector3d 转换为 Vertex3
+        var vertices = new List<RealScene3D.Domain.Geometry.Vertex3>(vertexCount);
+        var vertArr = this.vertices.Data;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            var v = vertArr[i].p;
+            vertices.Add(new RealScene3D.Domain.Geometry.Vertex3(v.x, v.y, v.z));
+        }
+
+        // 转换纹理顶点 (UV坐标)
+        var textureVertices = new List<RealScene3D.Domain.Geometry.Vertex2>();
+        if (vertUV2D != null && vertUV2D[0] != null)
+        {
+            var uvData = vertUV2D[0]!.Data;
+            for (int i = 0; i < vertexCount; i++)
+            {
+                textureVertices.Add(new RealScene3D.Domain.Geometry.Vertex2(uvData[i].x, uvData[i].y));
+            }
+        }
+        else
+        {
+            // 如果没有 UV,创建默认 UV
+            for (int i = 0; i < vertexCount; i++)
+            {
+                textureVertices.Add(new RealScene3D.Domain.Geometry.Vertex2(0.0, 0.0));
+            }
+        }
+
+        // 转换面 - 按子网格组织
+        var faces = new List<RealScene3D.Domain.Geometry.FaceT>();
+        var triArr = this.triangles.Data;
+
+        // 计算子网格偏移量
+        int[] subMeshOffsets = new int[subMeshCount];
+        int lastSubMeshOffset = -1;
+        for (int i = 0; i < triangleCount; i++)
+        {
+            var triangle = triArr[i];
+            if (triangle.subMeshIndex != lastSubMeshOffset)
+            {
+                for (int j = lastSubMeshOffset + 1; j < triangle.subMeshIndex; j++)
+                {
+                    subMeshOffsets[j] = i;
+                }
+                subMeshOffsets[triangle.subMeshIndex] = i;
+                lastSubMeshOffset = triangle.subMeshIndex;
+            }
+        }
+        for (int i = lastSubMeshOffset + 1; i < subMeshCount; i++)
+        {
+            subMeshOffsets[i] = triangleCount;
+        }
+
+        // 为每个子网格创建面
+        for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
+        {
+            int startOffset = subMeshOffsets[subMeshIndex];
+            if (startOffset < triangleCount)
+            {
+                int endOffset = (subMeshIndex + 1) < subMeshCount ? subMeshOffsets[subMeshIndex + 1] : triangleCount;
+
+                for (int triangleIndex = startOffset; triangleIndex < endOffset; triangleIndex++)
+                {
+                    var triangle = triArr[triangleIndex];
+
+                    // MeshT 中,顶点索引和纹理索引是分开的,这里我们使用相同的索引
+                    faces.Add(new FaceT(
+                        triangle.v0, triangle.v1, triangle.v2,  // 顶点索引
+                        triangle.v0, triangle.v1, triangle.v2,  // 纹理索引 (1:1映射)
+                        subMeshIndex));  // 材质索引
+                }
+            }
+        }
+
+        // 创建材质列表
+        var materials = new List<Domain.Materials.Material>();
+        if (originalMesh != null && originalMesh.Materials.Count > 0)
+        {
+            // 复制原始材质
+            int materialsNeeded = Math.Max(subMeshCount, originalMesh.Materials.Count);
+            for (int i = 0; i < materialsNeeded; i++)
+            {
+                if (i < originalMesh.Materials.Count)
+                {
+                    materials.Add((Domain.Materials.Material)originalMesh.Materials[i].Clone());
+                }
+                else
+                {
+                    materials.Add(new Domain.Materials.Material($"Material_{i}"));
+                }
+            }
+        }
+        else
+        {
+            // 创建默认材质
+            for (int i = 0; i < Math.Max(1, subMeshCount); i++)
+            {
+                materials.Add(new Domain.Materials.Material($"Material_{i}"));
+            }
+        }
+
+        return new MeshT(vertices, textureVertices, faces, materials);
+    }
 }

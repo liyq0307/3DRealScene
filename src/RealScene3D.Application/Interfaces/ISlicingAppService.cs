@@ -1,5 +1,4 @@
 using RealScene3D.Application.DTOs;
-using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Interfaces;
 
 namespace RealScene3D.Application.Interfaces;

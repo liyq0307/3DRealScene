@@ -1,4 +1,5 @@
-﻿using RealScene3D.Domain.Utils;
+﻿using RealScene3D.Domain.Geometry;
+using RealScene3D.Domain.Utils;
 
 namespace RealScene3D.Application.Services.MeshDecimator.Algorithms;
 
@@ -97,4 +98,17 @@ public abstract class DecimationAlgorithm
     /// </summary>
     /// <returns>结果网格。</returns>
     public abstract SimpleMesh ToMesh();
+
+    /// <summary>
+    /// 使用原始 MeshT 网格初始化算法。
+    /// </summary>
+    /// <param name="mesh">MeshT 网格。</param>
+    public abstract void Initialize(MeshT mesh);
+
+    /// <summary>
+    /// 返回结果 MeshT 网格。
+    /// </summary>
+    /// <param name="originalMesh">原始 MeshT,用于保留材质信息。</param>
+    /// <returns>结果 MeshT 网格。</returns>
+    public abstract MeshT ToMeshT(MeshT? originalMesh = null);
 }
