@@ -50,7 +50,7 @@ public class SlicingDataService
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>MeshT 网格和包围盒</returns>
-    public async Task<(MeshT Mesh, Box3 BoundingBox)>
+    public async Task<(IMesh Mesh, Box3 BoundingBox)>
     LoadMeshFromModelAsync(string modelPath, CancellationToken cancellationToken)
     {
         _logger.LogInformation("开始加载模型：{ModelPath}", modelPath);
@@ -105,7 +105,7 @@ public class SlicingDataService
     /// <summary>
     /// 从本地文件直接加载网格数据（无需临时文件）
     /// </summary>
-    private async Task<(MeshT Mesh, Box3 BoundingBox)>
+    private async Task<(IMesh Mesh, Box3 BoundingBox)>
     LoadMeshFromLocalFileAsync(string filePath, CancellationToken cancellationToken)
     {
         // 使用 ModelLoaderFactory 根据文件扩展名创建加载器
@@ -117,13 +117,14 @@ public class SlicingDataService
 
         _logger.LogInformation("从本地文件加载完成：{VertexCount} 个顶点, {FaceCount} 个面",
             result.Mesh.Vertices.Count, result.Mesh.Faces.Count);
+
         return result;
     }
 
     /// <summary>
     /// 从MinIO下载到临时文件再加载网格数据
     /// </summary>
-    private async Task<(MeshT Mesh, Box3 BoundingBox)>
+    private async Task<(IMesh Mesh, Box3 BoundingBox)>
     LoadMeshFromMinIOAsync(
         string bucket,
         string objectName,
@@ -155,6 +156,7 @@ public class SlicingDataService
 
             _logger.LogInformation("从MinIO加载完成：{VertexCount} 个顶点, {FaceCount} 个面",
                 result.Mesh.Vertices.Count, result.Mesh.Faces.Count);
+                
             return result;
         }
         finally
@@ -197,23 +199,33 @@ public class SlicingDataService
     /// <summary>
     /// 生成切片文件 - 多格式切片文件生成算法
     /// 支持纹理重打包策略
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
     public async Task<bool> GenerateSliceFileAsync(
         Slice slice,
         SlicingConfig config,
-        MeshT mesh,
+        IMesh mesh,
         CancellationToken cancellationToken)
     {
         // 如果没有面数据，跳过生成
-        if (mesh == null || mesh.Faces.Count == 0)
+        if (mesh == null || mesh.FacesCount == 0)
         {
             _logger.LogDebug("切片({Level},{X},{Y},{Z})没有找到相交面，跳过生成",
                 slice.Level, slice.X, slice.Y, slice.Z);
             return false;
         }
 
-        // ⭐ 纹理处理 - 根据配置的纹理策略处理网格材质和纹理
-        var processedMesh = await ProcessTexturesAsync(mesh, slice, config, cancellationToken);
+        // ⭐ 纹理处理 - 仅对有纹理的 MeshT 进行纹理处理
+        IMesh processedMesh;
+        if (mesh.HasTexture && mesh is MeshT meshT)
+        {
+            processedMesh = await ProcessTexturesAsync(meshT, slice, config, cancellationToken);
+        }
+        else
+        {
+            // 无纹理网格直接使用
+            processedMesh = mesh;
+        }
 
         // 根据输出格式生成文件内容
         byte[]? fileContent = config.OutputFormat.ToLower() switch
@@ -266,11 +278,11 @@ public class SlicingDataService
     /// <summary>
     /// 生成B3DM格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateB3DMAsync(Slice slice, MeshT mesh)
+    private async Task<byte[]> GenerateB3DMAsync(Slice slice, IMesh mesh)
     {
         var generator = _tileGeneratorFactory.CreateB3dmGenerator();
         _logger.LogDebug("生成B3DM：切片{SliceId}, 面数={Count}, 材质数={MaterialCount}",
-            slice.Id, mesh.Faces.Count, mesh.Materials.Count);
+            slice.Id, mesh.Faces.Count, mesh.Materials?.Count);
 
         var b3dmData = generator.GenerateTile(mesh);
 
@@ -282,11 +294,11 @@ public class SlicingDataService
     /// <summary>
     /// 生成GLTF格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateGLTFAsync(Slice slice, MeshT mesh)
+    private async Task<byte[]> GenerateGLTFAsync(Slice slice, IMesh mesh)
     {
         var generator = _tileGeneratorFactory.CreateGltfGenerator();
         _logger.LogDebug("生成GLB：切片{SliceId}, 面数={Count}, 材质数={MaterialCount}",
-            slice.Id, mesh.Faces.Count, mesh.Materials.Count);
+            slice.Id, mesh.Faces.Count, mesh.Materials?.Count);
 
         var glbData = generator.GenerateTile(mesh);
 
@@ -298,11 +310,11 @@ public class SlicingDataService
     /// <summary>
     /// 生成I3DM格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateI3DMAsync(Slice slice, MeshT mesh)
+    private async Task<byte[]> GenerateI3DMAsync(Slice slice, IMesh mesh)
     {
         var generator = _tileGeneratorFactory.CreateI3dmGenerator();
         _logger.LogDebug("生成I3DM：切片{SliceId}, 面数={Count}, 材质数={MaterialCount}",
-            slice.Id, mesh.Faces.Count, mesh.Materials.Count);
+            slice.Id, mesh.Faces.Count, mesh.Materials?.Count);
 
         var i3dmData = generator.GenerateTile(mesh);
 
@@ -314,7 +326,7 @@ public class SlicingDataService
     /// <summary>
     /// 生成PNTS格式切片内容
     /// </summary>
-    private async Task<byte[]> GeneratePNTSAsync(Slice slice, MeshT mesh)
+    private async Task<byte[]> GeneratePNTSAsync(Slice slice, IMesh mesh)
     {
         var generator = _tileGeneratorFactory.CreatePntsGenerator();
         _logger.LogDebug("生成PNTS：切片{SliceId}, 面数={Count}", slice.Id, mesh.Faces.Count);
@@ -329,7 +341,7 @@ public class SlicingDataService
     /// <summary>
     /// 生成CMPT格式切片内容
     /// </summary>
-    private async Task<byte[]> GenerateCmptAsync(Slice slice, MeshT mesh)
+    private async Task<byte[]> GenerateCmptAsync(Slice slice, IMesh mesh)
     {
         var generator = _tileGeneratorFactory.CreateCmptGenerator();
         _logger.LogDebug("生成CMPT：切片{SliceId}, 面数={Count}", slice.Id, mesh.Faces.Count);

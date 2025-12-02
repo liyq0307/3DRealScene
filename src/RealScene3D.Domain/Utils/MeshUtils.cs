@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using RealScene3D.Domain.Materials;
 using RealScene3D.Domain.Geometry;
+using System.Text;
 
 namespace RealScene3D.Domain.Utils;
 
@@ -12,165 +13,290 @@ namespace RealScene3D.Domain.Utils;
 public class MeshUtils
 {
     /// <summary>
-    /// 从OBJ文件加载网格
+    /// 加载OBJ文件并构建索引化网格（IMesh）
     /// </summary>
-    /// <param name="fileName">OBJ文件名</param>
-    /// <returns>加载的网格</returns>
-    public static IMesh LoadMesh(string fileName)
+    /// <param name="fileName">OBJ文件路径</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>包含网格、依赖文件列表、法线列表的元组和模型包围盒</returns>
+    /// <exception cref="FileNotFoundException">文件未找到异常</exception>
+    /// <exception cref="NotSupportedException">不支持的OBJ元素异常</exception>
+    /// <exception cref="Exception">其他异常</exception>
+    /// <remarks>
+    /// 支持顶点(v)、法线(vn)、纹理坐标(vt)和面片(f)数据的解析
+    /// 支持MTL材质文件加载和材质关联
+    /// 直接构建索引化的MeshT网格，避免中间转换开销
+    /// </remarks>
+    public static async Task<(IMesh, string[], List<Vertex3>, Box3)> LoadMesh(
+        string fileName,
+        CancellationToken cancellationToken = default)
     {
-        return LoadMesh(fileName, out _);
-    }
-
-    /// <summary>
-    /// 从OBJ文件加载网格，并输出依赖项
-    /// </summary>
-    /// <param name="fileName">OBJ文件名</param>
-    /// <param name="dependencies">依赖项文件列表</param>
-    /// <returns>加载的网格</returns>
-    public static IMesh LoadMesh(string fileName, out string[] dependencies)
-    {
-        // 使用 StreamReader 读取 OBJ 文件
-        using var reader = new StreamReader(fileName);
-
         // 初始化用于存储几何数据的列表
-        var vertices = new List<Vertex3>(); // 顶点列表
-        var textureVertices = new List<Vertex2>(); // 纹理坐标列表
-        var facesT = new List<FaceT>(); // 带纹理的面列表
-        var faces = new List<Face>(); // 无纹理的面列表
-        var materials = new List<Material>(); // 材质列表
-        var materialsDict = new Dictionary<string, int>(); // 材质名称到索引的映射
-        var currentMaterial = string.Empty; // 当前材质
-        var deps = new List<string>(); // 依赖项列表
+        var vertices = new List<Vertex3>();                 // 顶点列表
+        var textureVertices = new List<Vertex2>();          // 纹理坐标列表
+        var faces = new List<Face>();                       // 带纹理的面列表或者无纹理的面列表
+        var materials = new List<Material>();               // 材质列表
+        var materialsDict = new Dictionary<string, int>();  // 材质名称到索引的映射
+        var currentMaterial = string.Empty;                 // 当前材质
+        var deps = new List<string>();                      // 依赖项列表
+        var normals = new List<Vertex3>();                  // 法线列表
+
+        // 初始化包围盒为极值
+        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
 
         // 逐行读取文件
-        while (true)
+        string? line;
+        int lineNumber = 0;
+        int vertexCount = 0;
+        int normalCount = 0;
+        int texCoordCount = 0;
+
+        using (var reader = new StreamReader(fileName, Encoding.UTF8))
         {
-            var line = reader.ReadLine();
-
-            if (line == null) break; // 文件结束
-
-            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
-                continue; // 跳过空行和注释
-
-            var segs = line.Split(' ', StringSplitOptions.RemoveEmptyEntries); // 按空格分割行
-
-            switch (segs[0])
+            while ((line = await reader.ReadLineAsync()) != null)
             {
-                case "v" when segs.Length >= 4:
-                    vertices.Add(new Vertex3(
-                        double.Parse(segs[1], CultureInfo.InvariantCulture),
-                        double.Parse(segs[2], CultureInfo.InvariantCulture),
-                        double.Parse(segs[3], CultureInfo.InvariantCulture)));
-                    break;
-                case "vt" when segs.Length >= 3:
+                cancellationToken.ThrowIfCancellationRequested();
+                lineNumber++;
 
-                    var vtx = new Vertex2(
-                        double.Parse(segs[1], CultureInfo.InvariantCulture),
-                        double.Parse(segs[2], CultureInfo.InvariantCulture));
-                    
-                    if (vtx.X < 0 || vtx.Y < 0)
-                        throw new Exception("Invalid texture coordinates: " + vtx);
-                    
-                    textureVertices.Add(vtx);
-                    break;
-                case "vn" when segs.Length == 3:
-                    // Skipping normals
-                    break;
-                case "usemtl" when segs.Length == 2:
+                // 跳过空行和注释
+                line = line.Trim();
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+                    continue;
+
+                try
                 {
-                    if (!materialsDict.ContainsKey(segs[1]))
-                        throw new Exception($"Material {segs[1]} not found");
+                    // 按空格分割行
+                    var segs = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-                    currentMaterial = segs[1];
-                    break;
+                    switch (segs[0])
+                    {
+                        case "v" when segs.Length >= 4: // 顶点定义
+                            {
+                                var vertex = ParseVertex(segs);
+                                vertices.Add(vertex);
+                                vertexCount++;
+
+                                // 更新包围盒
+                                minX = Math.Min(minX, vertex.X);
+                                minY = Math.Min(minY, vertex.Y);
+                                minZ = Math.Min(minZ, vertex.Z);
+                                maxX = Math.Max(maxX, vertex.X);
+                                maxY = Math.Max(maxY, vertex.Y);
+                                maxZ = Math.Max(maxZ, vertex.Z);
+
+                                break;
+                            }
+                        case "vt" when segs.Length >= 3: // 纹理坐标定义
+                            {
+                                var vtx = ParseTexCoord(segs);
+
+                                if (vtx.X < 0 || vtx.Y < 0)
+                                    throw new Exception("Invalid texture coordinates: " + vtx);
+
+                                texCoordCount++;
+                                textureVertices.Add(vtx);
+
+                                break;
+                            }
+                        case "vn" when segs.Length >= 4: // 法线定义
+                            {
+                                normals.Add(ParseNormal(segs));
+                                normalCount++;
+                                break;
+                            }
+                        case "usemtl" when segs.Length == 2: // 使用材质
+                            {
+                                if (!materialsDict.ContainsKey(segs[1]))
+                                    throw new Exception($"Material {segs[1]} not found");
+
+                                currentMaterial = segs[1];
+                                break;
+                            }
+                        case "f" when segs.Length >= 4: // 面定义(三角面片和多边形)
+                            {
+                                var face = ParseFace(
+                                    segs,
+                                    vertexCount,
+                                    texCoordCount,
+                                    normalCount,
+                                    currentMaterial != string.Empty ? materialsDict[currentMaterial] : 0);
+
+                                faces.AddRange(face);
+
+                                break;
+                            }
+                        case "mtllib" when segs.Length == 2: // 材质库文件
+                            {
+                                var mtlFileName = segs[1];
+                                var mtlFilePath = Path.Combine(Path.GetDirectoryName(fileName) ?? string.Empty, mtlFileName);
+
+                                var (mats, mtlDeps) = await Material.ReadMtlAsync(mtlFilePath);
+
+                                deps.AddRange(mtlDeps);
+                                deps.Add(mtlFilePath);
+
+                                foreach (var mat in mats)
+                                {
+                                    materials.Add(mat);
+                                    materialsDict.Add(mat.Name, materials.Count - 1);
+                                }
+
+                                break;
+                            }
+                        case "l" or "cstype" or "deg" or "bmat" or "step" or "curv" or "curv2" or "surf" or "parm" or "trim"
+                            or "end" or "hole" or "scrv" or "sp" or "con": // 不支持的OBJ元素
+
+                            throw new NotSupportedException("不支持的元素: '" + line + "'");
+                    }
                 }
-                case "f" when segs.Length == 4: // 面定义
+                catch (Exception ex)
                 {
-                    var first = segs[1].Split('/');
-                    var second = segs[2].Split('/');
-                    var third = segs[3].Split('/');
-
-                    // 检查是否包含纹理坐标
-                    var hasTexture = first.Length > 1 && first[1].Length > 0 && second.Length > 1 &&
-                                     second[1].Length > 0 && third.Length > 1 && third[1].Length > 0;
-
-                    // 忽略法线
-                    // var hasNormals = vertexIndices[0][2] != null && vertexIndices[1][2] != null && vertexIndices[2][2] != null;
-
-                    // 解析顶点索引（OBJ格式索引从1开始，需要减1）
-                    var v1 = int.Parse(first[0]);
-                    var v2 = int.Parse(second[0]);
-                    var v3 = int.Parse(third[0]);
-
-                    if (hasTexture)
-                    {
-                        // 解析纹理坐标索引
-                        var vt1 = int.Parse(first[1]);
-                        var vt2 = int.Parse(second[1]);
-                        var vt3 = int.Parse(third[1]);
-
-                        var materialIndex = 0;
-                        if (currentMaterial != string.Empty)
-                        {
-                            materialIndex = materialsDict[currentMaterial];
-                        }
-
-                        // 创建带纹理的面
-                        var faceT = new FaceT(
-                            v1 - 1,
-                            v2 - 1,
-                            v3 - 1,
-                            vt1 - 1,
-                            vt2 - 1,
-                            vt3 - 1,
-                            materialIndex);
-
-                        facesT.Add(faceT);
-                    }
-                    else
-                    {
-                        // 创建无纹理的面
-                        var face = new Face(
-                            v1 - 1,
-                            v2 - 1,
-                            v3 - 1);
-
-                        faces.Add(face);
-                    }
-
-                    break;
+                    throw new Exception($"解析OBJ文件时第{lineNumber}出错: {ex.Message}, 行内容: {line}");
                 }
-                case "mtllib" when segs.Length == 2:
-                {
-                    var mtlFileName = segs[1];
-                    var mtlFilePath = Path.Combine(Path.GetDirectoryName(fileName) ?? string.Empty, mtlFileName);
-                    
-                    var mats = Material.ReadMtl(mtlFilePath, out var mtlDeps);
-
-                    deps.AddRange(mtlDeps);
-                    deps.Add(mtlFilePath);
-                    
-                    foreach (var mat in mats)
-                    {
-                        materials.Add(mat);
-                        materialsDict.Add(mat.Name, materials.Count - 1);
-                    }
-
-                    break;
-                }
-                case "l" or "cstype" or "deg" or "bmat" or "step" or "curv" or "curv2" or "surf" or "parm" or "trim"
-                    or "end" or "hole" or "scrv" or "sp" or "con": // 不支持的OBJ元素
-
-                    throw new NotSupportedException("不支持的元素: '" + line + "'");
             }
         }
 
-        dependencies = deps.ToArray(); // 输出依赖项数组
+        // 构建包围盒
+        var boundingBox = new Box3(
+            minX != double.MaxValue ? minX : 0,
+            minY != double.MaxValue ? minY : 0,
+            minZ != double.MaxValue ? minZ : 0,
+            maxX != double.MinValue ? maxX : 0,
+            maxY != double.MinValue ? maxY : 0,
+            maxZ != double.MinValue ? maxZ : 0);
 
         // 根据是否有纹理坐标创建不同的网格类型
         return textureVertices.Count != 0
-            ? new MeshT(vertices, textureVertices, facesT, materials) // 带纹理的网格
-            : new Mesh(vertices, faces); // 无纹理的网格
+            ? (new MeshT(vertices, textureVertices, faces, materials), deps.ToArray(), normals, boundingBox) // 带纹理的网格
+            : (new Mesh(vertices, faces), deps.ToArray(), normals, boundingBox); // 无纹理的网格
+    }
+
+    /// <summary>
+    /// 解析顶点坐标行
+    /// 格式: v x y z [w]
+    /// </summary>
+    private static Vertex3 ParseVertex(string[] parts)
+    {
+        return new Vertex3(
+            double.Parse(parts[1], CultureInfo.InvariantCulture),
+            double.Parse(parts[2], CultureInfo.InvariantCulture),
+            double.Parse(parts[3], CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// 解析法线向量行
+    /// 格式: vn x y z
+    /// </summary>
+    private static Vertex3 ParseNormal(string[] parts)
+    {
+        return new Vertex3(
+            double.Parse(parts[1], CultureInfo.InvariantCulture),
+            double.Parse(parts[2], CultureInfo.InvariantCulture),
+            double.Parse(parts[3], CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// 解析纹理坐标行
+    /// 格式: vt u v [w]
+    /// </summary>
+    private static Vertex2 ParseTexCoord(string[] parts)
+    {
+        return new Vertex2(
+            double.Parse(parts[1], CultureInfo.InvariantCulture),
+            parts.Length > 2 ? double.Parse(parts[2], CultureInfo.InvariantCulture) : 0.0);
+    }
+
+    /// <summary>
+    /// 解析面片行并转换为三角形面
+    /// 格式: f v1[/vt1][/vn1] v2[/vt2][/vn2] v3[/vt3][/vn3] [v4[/vt4][/vn4] ...]
+    /// 支持多种格式:
+    /// - f v1 v2 v3 (仅顶点)
+    /// - f v1/vt1 v2/vt2 v3/vt3 (顶点和纹理)
+    /// - f v1//vn1 v2//vn2 v3//vn3 (顶点和法线)
+    /// - f v1/vt1/vn1 v2/vt2/vn2 v3/vt3/vn3 (完整)
+    /// 支持三角形和多边形(自动三角化)
+    /// </summary>
+    private static List<Face> ParseFace(
+        string[] parts,
+        int vertexCount,
+        int texCoordCount,
+        int normalCount,
+        int materialIndex)
+    {
+        var faces = new List<Face>();
+
+        var first = parts[1].Split('/');
+        var second = parts[2].Split('/');
+        var third = parts[3].Split('/');
+
+        // 检查是否包含纹理坐标
+        var hasTexture = first.Length > 1 && first[1].Length > 0 && second.Length > 1 &&
+                        second[1].Length > 0 && third.Length > 1 && third[1].Length > 0;
+
+        // 解析顶点索引
+        var faceVertices = new List<(int v, int vt)>();
+        for (int i = 1; i < parts.Length; i++)
+        {
+            var (vIdx, vtIdx, _) = ParseFaceVertex(parts[i], vertexCount, texCoordCount, normalCount);
+            faceVertices.Add((vIdx, vtIdx));
+        }
+
+        // 三角化:扇形三角化算法，对于n边形,生成(n-2)个三角形
+        if (faceVertices.Count >= 3)
+        {
+            for (int i = 1; i < faceVertices.Count - 1; i++)
+            {
+                var (v0, vt0) = faceVertices[0];
+                var (v1, vt1) = faceVertices[i];
+                var (v2, vt2) = faceVertices[i + 1];
+
+                if (hasTexture)
+                    faces.Add(new Face(v0, v1, v2, vt0, vt1, vt2, materialIndex));
+                else
+                    faces.Add(new Face(v0, v1, v2));
+            }
+        }
+
+        return faces;
+    }
+
+    /// <summary>
+    /// 解析单个面片顶点
+    /// 格式: v[/vt][/vn]
+    /// 返回: (顶点索引, 纹理坐标索引, 法线索引)
+    /// OBJ 索引从1开始，转换为从0开始
+    /// </summary>
+    private static (int vIdx, int vtIdx, int vnIdx) ParseFaceVertex(
+        string vertexStr,
+        int vertexCount,
+        int texCoordCount,
+        int normalCount)
+    {
+        var parts = vertexStr.Split('/');
+        int vIdx = 0, vtIdx = 0, vnIdx = 0;
+
+        // 解析顶点索引
+        if (parts.Length > 0 && !string.IsNullOrEmpty(parts[0]))
+        {
+            vIdx = int.Parse(parts[0]);
+            vIdx = vIdx < 0 ? vertexCount + vIdx : vIdx - 1; // 转换为从0开始
+        }
+
+        // 解析纹理坐标索引
+        if (parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) && texCoordCount > 0)
+        {
+            vtIdx = int.Parse(parts[1]);
+            vtIdx = vtIdx < 0 ? texCoordCount + vtIdx : vtIdx - 1;
+        }
+
+        // 解析法线索引
+        if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) && normalCount > 0)
+        {
+            vnIdx = int.Parse(parts[2]);
+            vnIdx = vnIdx < 0 ? normalCount + vnIdx : vnIdx - 1;
+        }
+
+        return (vIdx, vtIdx, vnIdx);
     }
 
     // 顶点工具类的静态实例，用于X、Y、Z轴上的分割操作

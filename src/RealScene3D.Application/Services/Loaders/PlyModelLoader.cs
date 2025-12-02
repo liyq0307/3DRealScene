@@ -21,9 +21,9 @@ public class PlyModelLoader : ModelLoader
     }
 
     /// <summary>
-    /// 加载PLY模型文件并构建索引网格（MeshT）
+    /// 加载PLY模型文件并构建索引网格（IMesh）
     /// </summary>
-    public override async Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
+    public override async Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -38,7 +38,7 @@ public class PlyModelLoader : ModelLoader
             // 解析PLY头部信息
             var (format, vertexCount, faceCount, properties) = await ParsePlyHeaderAsync(modelPath, cancellationToken);
 
-            MeshT mesh;
+            IMesh mesh;
             if (format == "ascii")
             {
                 _logger.LogDebug("检测到ASCII PLY格式, 顶点: {VertexCount}, 面: {FaceCount}", vertexCount, faceCount);
@@ -131,16 +131,14 @@ public class PlyModelLoader : ModelLoader
     /// <summary>
     /// 加载ASCII格式的PLY文件
     /// </summary>
-    private async Task<MeshT> LoadAsciiPlyAsync(
+    private async Task<Mesh> LoadAsciiPlyAsync(
         string filePath, int vertexCount, int faceCount,
         List<string> properties, CancellationToken cancellationToken)
     {
         // 临时存储顶点位置，用于后续创建面时引用
         var vertexPositions = new List<Vector3d>();
         var vertices = new List<Vertex3>();
-        var faces = new List<FaceT>();
-        var textureVertices = new List<Vertex2>();
-        var materials = new List<Material> { CreateDefaultMaterial() };
+        var faces = new List<Face>();
 
         using var reader = new StreamReader(filePath, Encoding.ASCII);
 
@@ -195,8 +193,8 @@ public class PlyModelLoader : ModelLoader
                         vertices.Add(new Vertex3(vertexPositions[i1].x, vertexPositions[i1].y, vertexPositions[i1].z));
                         vertices.Add(new Vertex3(vertexPositions[i2].x, vertexPositions[i2].y, vertexPositions[i2].z));
 
-                        // 创建面（使用默认材质索引0）
-                        faces.Add(new FaceT(v1Idx, v1Idx + 1, v1Idx + 2, 0, 0, 0, 0));
+                        // 创建无纹理的面 (YAGNI原则 - PLY通常不包含纹理)
+                        faces.Add(new Face(v1Idx, v1Idx + 1, v1Idx + 2));
                     }
                 }
                 else if (indexCount == 4 && parts.Length >= 5)
@@ -215,27 +213,27 @@ public class PlyModelLoader : ModelLoader
                         vertices.Add(new Vertex3(vertexPositions[i0].x, vertexPositions[i0].y, vertexPositions[i0].z));
                         vertices.Add(new Vertex3(vertexPositions[i1].x, vertexPositions[i1].y, vertexPositions[i1].z));
                         vertices.Add(new Vertex3(vertexPositions[i2].x, vertexPositions[i2].y, vertexPositions[i2].z));
-                        faces.Add(new FaceT(v1Idx, v1Idx + 1, v1Idx + 2, 0, 0, 0, 0));
+                        faces.Add(new Face(v1Idx, v1Idx + 1, v1Idx + 2));
 
                         // 第二个三角形 (v0, v2, v3)
                         var v2Idx = vertices.Count;
                         vertices.Add(new Vertex3(vertexPositions[i0].x, vertexPositions[i0].y, vertexPositions[i0].z));
                         vertices.Add(new Vertex3(vertexPositions[i2].x, vertexPositions[i2].y, vertexPositions[i2].z));
                         vertices.Add(new Vertex3(vertexPositions[i3].x, vertexPositions[i3].y, vertexPositions[i3].z));
-                        faces.Add(new FaceT(v2Idx, v2Idx + 1, v2Idx + 2, 0, 0, 0, 0));
+                        faces.Add(new Face(v2Idx, v2Idx + 1, v2Idx + 2));
                     }
                 }
             }
         }
 
-        return new MeshT(vertices, textureVertices, faces, materials);
+        return new Mesh(vertices, faces);
     }
 
     /// <summary>
     /// 加载二进制格式的PLY文件
     /// </summary>
 #pragma warning disable CS1998 // 异步方法缺少 await 运算符
-    private Task<MeshT> LoadBinaryPlyAsync(
+    private Task<Mesh> LoadBinaryPlyAsync(
         string filePath, int vertexCount, int faceCount,
         List<string> properties, string format, CancellationToken cancellationToken)
 #pragma warning restore CS1998
@@ -248,7 +246,7 @@ public class PlyModelLoader : ModelLoader
     /// <summary>
     /// 计算网格的包围盒
     /// </summary>
-    private static Box3 CalculateBoundingBox(MeshT mesh)
+    private static Box3 CalculateBoundingBox(IMesh mesh)
     {
         if (mesh.Vertices.Count == 0)
         {

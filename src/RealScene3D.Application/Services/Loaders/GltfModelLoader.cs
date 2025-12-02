@@ -45,12 +45,13 @@ public class GltfModelLoader : ModelLoader
     }
 
     /// <summary>
-    /// 加载 GLTF/GLB 模型并构建索引网格（MeshT）
+    /// 加载 GLTF/GLB 模型并构建索引网格（IMesh）
+    /// 根据是否有纹理坐标返回 Mesh 或 MeshT
     /// </summary>
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>MeshT 对象和包围盒</returns>
-    public override async Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
+    /// <returns>IMesh 对象和包围盒</returns>
+    public override async Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -80,20 +81,37 @@ public class GltfModelLoader : ModelLoader
             // 提取材质
             var materials = ExtractMaterials(model, basePath);
 
-            // 构建 MeshT
+            // 提取网格数据
             var (vertices, texCoords, faces, boundingBox) = ExtractMeshData(model, materials);
 
-            // 构建 MeshT
-            var mesh = new MeshT(vertices, texCoords, faces, materials)
-            {
-                Name = Path.GetFileNameWithoutExtension(modelPath)
-            };
+            // 根据是否有纹理数据决定返回 Mesh 还是 MeshT
+            IMesh mesh;
+            bool hasTexture = texCoords.Count > 0 && materials.Count > 0;
 
-            _logger.LogInformation("提取完成: {VertexCount} 个顶点, {FaceCount} 个面, 纹理坐标={TexCoordCount}, 材质={MaterialCount}",
-                vertices.Count,
-                faces.Count,
-                texCoords.Count,
-                materials.Count);
+            if (hasTexture)
+            {
+                // 有纹理: 返回 MeshT
+                mesh = new MeshT(vertices, texCoords, faces, materials)
+                {
+                    Name = Path.GetFileNameWithoutExtension(modelPath)
+                };
+
+                _logger.LogInformation("提取完成: 类型=MeshT, 顶点={VertexCount}, 面={FaceCount}, 纹理坐标={TexCoordCount}, 材质={MaterialCount}",
+                    vertices.Count, faces.Count, texCoords.Count, materials.Count);
+            }
+            else
+            {
+                // 无纹理: 返回 Mesh (YAGNI原则)
+                var simpleFaces = faces.Select(f => new Face(f.IndexA, f.IndexB, f.IndexC)).ToList();
+                mesh = new Domain.Geometry.Mesh(vertices, simpleFaces)
+                {
+                    Name = Path.GetFileNameWithoutExtension(modelPath)
+                };
+                
+                _logger.LogInformation("提取完成: 类型=Mesh, 顶点={VertexCount}, 面={FaceCount}",
+                    vertices.Count, faces.Count);
+            }
+
             _logger.LogInformation("包围盒: [{MinX:F2},{MinY:F2},{MinZ:F2}] - [{MaxX:F2},{MaxY:F2},{MaxZ:F2}]",
                 boundingBox.Min.X, boundingBox.Min.Y, boundingBox.Min.Z,
                 boundingBox.Max.X, boundingBox.Max.Y, boundingBox.Max.Z);
@@ -110,13 +128,13 @@ public class GltfModelLoader : ModelLoader
     /// <summary>
     /// 提取网格数据
     /// </summary>
-    private (List<Vertex3> vertices, List<Vertex2> texCoords, List<FaceT> faces, Box3 boundingBox) ExtractMeshData(
+    private (List<Vertex3> vertices, List<Vertex2> texCoords, List<Face> faces, Box3 boundingBox) ExtractMeshData(
         ModelRoot model,
         List<Material> materials)
     {
         var vertices = new List<Vertex3>();
         var texCoords = new List<Vertex2>();
-        var faces = new List<FaceT>();
+        var faces = new List<Face>();
 
         // 初始化包围盒
         double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
@@ -230,7 +248,7 @@ public class GltfModelLoader : ModelLoader
                     }
 
                     // 创建面（索引需要加上偏移）
-                    faces.Add(new FaceT(
+                    faces.Add(new Face(
                         vertexOffset + idx0,
                         vertexOffset + idx1,
                         vertexOffset + idx2,

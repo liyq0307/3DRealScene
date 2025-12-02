@@ -17,7 +17,7 @@ namespace RealScene3D.Application.Services.Slicing;
 ///
 /// 核心流程：简化-分割-生成
 /// 1. 简化（Simplification）：对原始网格进行 LOD 简化
-/// 2. 分割（Split）：使用 MeshT.Split 方法进行递归空间分割
+/// 2. 分割（Split）：使用 IMesh.Split 方法进行递归空间分割
 /// 3. 生成（Generate）：为每个分割后的网格生成切片文件
 ///
 /// 主要职责：
@@ -167,7 +167,7 @@ public class SlicingProcessor : ISlicingProcessor
             }
 
             _logger.LogInformation("模型加载完成：顶点数={VertexCount}, 面数={FaceCount}, 材质数={MaterialCount}",
-                originalMesh.Vertices.Count, originalMesh.Faces.Count, originalMesh.Materials.Count);
+                originalMesh.Vertices.Count, originalMesh.Faces.Count, originalMesh.Materials?.Count);
 
             // ========== Stage 1: 网格简化（进度：10%） ==========
             _logger.LogInformation("---------- Stage 1: 简化（Simplification） - LOD 生成 ----------");
@@ -209,7 +209,7 @@ public class SlicingProcessor : ISlicingProcessor
                     CurrentStage = $"处理 LOD {lodLevel}/{lodMeshes.Count - 1}"
                 });
 
-                // 空间分割 - 使用 MeshT.Split 方法
+                // 空间分割 - 使用 IMesh.Split 方法
                 var spatialCells = await QuadtreeSplitAsync(
                     lodMesh,
                     modelBounds,
@@ -323,14 +323,14 @@ public class SlicingProcessor : ISlicingProcessor
         public string QuadrantPath { get; set; } = "";  // 象限路径，如 "XL-YL-XR-YR"
         public int Depth { get; set; }
         public int LodLevel { get; set; }
-        public MeshT Mesh { get; set; } = null!;
+        public IMesh Mesh { get; set; } = null!;
         public Box3 Bounds { get; set; } = null!;
     }
 
     /// <summary>
     /// 加载模型数据 - 使用新架构
     /// </summary>
-    private async Task<(MeshT mesh, Box3 bounds)>
+    private async Task<(IMesh mesh, Box3 bounds)>
         LoadModelDataAsync(SlicingTask task, CancellationToken cancellationToken)
     {
         _logger.LogInformation("开始加载模型：{Path}", task.SourceModelPath);
@@ -339,9 +339,10 @@ public class SlicingProcessor : ISlicingProcessor
             task.SourceModelPath,
             cancellationToken);
 
-        if (mesh == null || mesh.Faces.Count == 0)
+        if (mesh == null || mesh.FacesCount == 0)
         {
             _logger.LogWarning("模型加载失败或没有面数据");
+ 
             return (new MeshT([], [], [], []), new Box3(0, 0, 0, 0, 0, 0));
         }
 
@@ -356,10 +357,11 @@ public class SlicingProcessor : ISlicingProcessor
     /// <summary>
     /// 生成LOD网格 - 简化阶段
     /// 策略：为每个 LOD 级别创建简化的网格
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
-    private List<MeshT> GenerateLODMeshes(MeshT originalMesh, SlicingConfig config)
+    private List<IMesh> GenerateLODMeshes(IMesh originalMesh, SlicingConfig config)
     {
-        var lodMeshes = new List<MeshT>();
+        var lodMeshes = new List<IMesh>();
 
         if (!config.EnableMeshDecimation || config.LodLevels <= 1)
         {
@@ -373,12 +375,12 @@ public class SlicingProcessor : ISlicingProcessor
 
         // LOD-0: 原始网格（100%）
         lodMeshes.Add(originalMesh);
-        _logger.LogInformation("LOD 0: {Count} 个面（原始网格）", originalMesh.Faces.Count);
+        _logger.LogInformation("LOD 0: {Count} 个面（原始网格）", originalMesh.FacesCount);
 
         // 计算每个 LOD 级别的质量参数
         var qualities = Enumerable.Range(0, config.LodLevels - 1).Select(i => 1.0f - ((i + 1) / (float)config.LodLevels)).ToArray();
 
-        // LOD-1 到 LOD-N: 简化网格 - 直接使用 MeshT,无需转换
+        // LOD-1 到 LOD-N: 简化网格 - 直接使用 IMesh 的 DecimateMesh
         for (int index = 0; index < qualities.Length; index++)
         {
             try
@@ -394,13 +396,13 @@ public class SlicingProcessor : ISlicingProcessor
                     PreserveBorders = true
                 };
 
-                var targetTriangleCount = (int)Math.Ceiling(originalMesh.Faces.Count * quality);
+                var targetTriangleCount = (int)Math.Ceiling(originalMesh.FacesCount * quality);
 
-                // 直接使用 MeshT 进行简化,无需转换
-                var lodMesh = MeshDecimation.DecimateMeshT(algorithm, originalMesh, targetTriangleCount);
+                // 使用 IMesh 版本的 DecimateMesh
+                var lodMesh = MeshDecimation.DecimateMesh(algorithm, originalMesh, targetTriangleCount);
                 lodMeshes.Add(lodMesh);
 
-                _logger.LogInformation("  LOD {Level}: {Count} 个面（简化后）", index + 1, lodMesh.Faces.Count);
+                _logger.LogInformation("  LOD {Level}: {Count} 个面（简化后）", index + 1, lodMesh.FacesCount);
             }
             catch (Exception ex)
             {
@@ -414,146 +416,55 @@ public class SlicingProcessor : ISlicingProcessor
 
     /// <summary>
     /// 对网格进行四叉树空间分割 - 分割阶段
-    /// 使用 MeshT.Split 方法进行递归分割
+    /// 使用 MeshUtils.RecurseSplitXY 方法进行递归分割
     /// </summary>
     private async Task<List<SpatialCell>> QuadtreeSplitAsync(
-        MeshT mesh,
+        IMesh mesh,
         Box3 modelBounds,
         int lodLevel,
         int maxDepth,
         CancellationToken cancellationToken)
     {
-        var cells = new List<SpatialCell>();
-
         _logger.LogInformation("开始LOD {Level}的四叉树分割：面数={Count}, 最大深度={MaxDepth}",
-            lodLevel, mesh.Faces.Count, maxDepth);
+            lodLevel, mesh.FacesCount, maxDepth);
 
-        await RecursiveQuadtreeSplitAsync(
-            mesh,
-            modelBounds,
-            lodLevel,
-            "",  // 初始象限路径为空
-            0,   // 初始深度
-            maxDepth,
-            cells,
-            cancellationToken);
+        var meshes = new System.Collections.Concurrent.ConcurrentBag<IMesh>();
 
-        _logger.LogInformation("LOD {Level}四叉树分割完成：生成 {Count} 个非空叶子节点", lodLevel, cells.Count);
+        // 使用 MeshUtils.RecurseSplitXY 进行分割
+        var splitCount = await MeshUtils.RecurseSplitXY(mesh, maxDepth, modelBounds, meshes);
+
+        _logger.LogInformation("LOD {Level}四叉树分割完成：分割操作={SplitCount}次, 生成 {Count} 个非空叶子节点",
+            lodLevel, splitCount, meshes.Count);
+
+        // 将分割后的网格转换为 SpatialCell
+        // 每个网格分配一个唯一的空间坐标，避免所有切片被分组到同一位置
+        var cells = new List<SpatialCell>();
+        int index = 0;
+
+        // 计算网格尺寸：使用 sqrt 估算行列数
+        int gridSize = (int)Math.Ceiling(Math.Sqrt(meshes.Count));
+
+        foreach (var splitMesh in meshes)
+        {
+            if (splitMesh.FacesCount > 0)
+            {
+                // 将索引转换为 (x, y) 坐标，确保每个切片有唯一的空间位置
+                int x = index % gridSize;
+                int y = index / gridSize;
+
+                cells.Add(new SpatialCell
+                {
+                    QuadrantPath = $"{x}-{y}",  // 使用坐标作为路径
+                    Depth = maxDepth,
+                    LodLevel = lodLevel,
+                    Mesh = splitMesh,
+                    Bounds = splitMesh.Bounds  // 使用网格自身的边界
+                });
+                index++;
+            }
+        }
 
         return cells;
-    }
-
-    /// <summary>
-    /// 递归四叉树分割 - 使用 MeshT.Split 方法
-    /// 每次同时沿 X 和 Y 轴分割，产生 4 个子节点
-    /// </summary>
-    private async Task RecursiveQuadtreeSplitAsync(
-        MeshT mesh,
-        Box3 bounds,
-        int lodLevel,
-        string quadrantPath,
-        int depth,
-        int maxDepth,
-        List<SpatialCell> cells,
-        CancellationToken cancellationToken)
-    {
-        await Task.Yield();
-
-        if (cancellationToken.IsCancellationRequested)
-            return;
-
-        // 终止条件：达到最大深度或网格为空
-        if (depth >= maxDepth || mesh.Faces.Count == 0)
-        {
-            if (mesh.Faces.Count > 0)
-            {
-                cells.Add(new SpatialCell
-                {
-                    QuadrantPath = quadrantPath,
-                    Depth = depth,
-                    LodLevel = lodLevel,
-                    Mesh = mesh,
-                    Bounds = bounds
-                });
-
-                _logger.LogDebug("叶子节点：LOD={Lod}, 深度={Depth}, 路径={Path}, 面数={Count}, 材质数={MatCount}",
-                    lodLevel, depth, quadrantPath, mesh.Faces.Count, mesh.Materials.Count);
-            }
-            return;
-        }
-
-        // 计算 X 和 Y 轴的分割点
-        double xMid = (bounds.Min.X + bounds.Max.X) / 2.0;
-        double yMid = (bounds.Min.Y + bounds.Max.Y) / 2.0;
-
-        _logger.LogDebug("四叉树分割：LOD={Lod}, 深度={Depth}, 路径={Path}, 面数={Count}, X中点={XMid:F3}, Y中点={YMid:F3}",
-            lodLevel, depth, string.IsNullOrEmpty(quadrantPath) ? "根节点" : quadrantPath, mesh.Faces.Count, xMid, yMid);
-
-        try
-        {
-            // 使用 MeshT.Split 方法进行网格切分
-            // 第一步：沿 X 轴分割成左右两部分
-            var xUtils = new VertexUtilsX();
-            mesh.Split(xUtils, xMid, out var leftMesh, out var rightMesh);
-
-            // 第二步：分别对左右两部分沿 Y 轴分割
-            var yUtils = new VertexUtilsY();
-
-            leftMesh.Split(yUtils, yMid, out var bottomLeftMesh, out var topLeftMesh);
-            rightMesh.Split(yUtils, yMid, out var bottomRightMesh, out var topRightMesh);
-
-            // 四个象限及其包围盒
-            var quadrants = new[]
-            {
-                ("XL-YL", bottomLeftMesh as MeshT, new Box3(bounds.Min.X, bounds.Min.Y, bounds.Min.Z, xMid, yMid, bounds.Max.Z)),  // 左下
-                ("XL-YR", topLeftMesh as MeshT, new Box3(bounds.Min.X, yMid, bounds.Min.Z, xMid, bounds.Max.Y, bounds.Max.Z)),        // 左上
-                ("XR-YL", bottomRightMesh as MeshT, new Box3(xMid, bounds.Min.Y, bounds.Min.Z, bounds.Max.X, yMid, bounds.Max.Z)), // 右下
-                ("XR-YR", topRightMesh as MeshT, new Box3(xMid, yMid, bounds.Min.Z, bounds.Max.X, bounds.Max.Y, bounds.Max.Z))        // 右上
-            };
-
-            var tasks = new List<Task>();
-
-            foreach (var (name, quadMesh, quadBounds) in quadrants)
-            {
-                if (quadMesh == null || quadMesh.Faces.Count == 0)
-                    continue;
-
-                _logger.LogDebug("  象限 {Name}: {Count} 个面", name, quadMesh.Faces.Count);
-
-                string newPath = string.IsNullOrEmpty(quadrantPath) ? name : $"{quadrantPath}-{name}";
-
-                var task = RecursiveQuadtreeSplitAsync(
-                    quadMesh,
-                    quadBounds,
-                    lodLevel,
-                    newPath,
-                    depth + 1,
-                    maxDepth,
-                    cells,
-                    cancellationToken);
-
-                tasks.Add(task);
-            }
-
-            await Task.WhenAll(tasks);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "分割失败：LOD={Lod}, 深度={Depth}, 路径={Path}", lodLevel, depth, quadrantPath);
-
-            // 分割失败时，将当前网格作为叶子节点
-            if (mesh.Faces.Count > 0)
-            {
-                cells.Add(new SpatialCell
-                {
-                    QuadrantPath = quadrantPath,
-                    Depth = depth,
-                    LodLevel = lodLevel,
-                    Mesh = mesh,
-                    Bounds = bounds
-                });
-            }
-        }
     }
 
     /// <summary>
@@ -658,8 +569,10 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 将象限路径转换为坐标（用于向后兼容）
-    /// 例如：XL-YL-XR-YR → (x, y, z)
+    /// 将象限路径转换为坐标
+    /// 支持两种格式：
+    /// 1. 新格式："x-y" → (x, y, 0)
+    /// 2. 旧格式："XL-YL-XR-YR" → 递归计算坐标
     /// </summary>
     private (int x, int y, int z) ParseQuadrantPathToCoords(string quadrantPath)
     {
@@ -667,8 +580,16 @@ public class SlicingProcessor : ISlicingProcessor
             return (0, 0, 0);
 
         var parts = quadrantPath.Split('-');
-        int x = 0, y = 0;
 
+        // 新格式：直接解析数字坐标 "x-y"
+        if (parts.Length == 2 && int.TryParse(parts[0], out int x) && int.TryParse(parts[1], out int y))
+        {
+            return (x, y, 0);
+        }
+
+        // 旧格式：XL-YL-XR-YR 递归坐标计算（向后兼容）
+        x = 0;
+        y = 0;
         for (int i = 0; i < parts.Length; i += 2)
         {
             if (i + 1 < parts.Length)

@@ -407,4 +407,24 @@ public class Mesh : IMesh
 
     public int FacesCount => _faces.Count;
     public int VertexCount => _vertices.Count;
+
+    /// <summary>
+    /// 是否包含纹理数据（对于无纹理网格，始终返回false）
+    /// </summary>
+    public bool HasTexture => false;
+
+    /// <summary>
+    /// 纹理顶点列表（对于无纹理网格，返回null）
+    /// </summary>
+    public IReadOnlyList<Vertex2>? TextureVertices => null;
+
+    /// <summary>
+    /// 材质列表（对于无纹理网格，返回null）
+    /// </summary>
+    public IReadOnlyList<Materials.Material>? Materials => null;
+
+    /// <summary>
+    /// 纹理处理策略（对于无纹理网格，此属性无实际作用）
+    /// </summary>
+    public TexturesStrategy TexturesStrategy { get; set; }
 }

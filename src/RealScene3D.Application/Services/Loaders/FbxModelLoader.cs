@@ -28,10 +28,10 @@ public class FbxModelLoader : ModelLoader
     }
 
     /// <summary>
-    /// 加载FBX模型文件并构建索引网格（MeshT）
+    /// 加载FBX模型文件并构建索引网格（IMesh）
     /// TODO: 需要集成第三方库实现完整功能
     /// </summary>
-    public override async Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
+    public override async Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {

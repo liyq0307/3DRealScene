@@ -29,7 +29,7 @@ public class PntsGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <returns>PNTS瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(MeshT mesh)
+    public override byte[] GenerateTile(IMesh mesh)
     {
         return GeneratePNTS(mesh, SamplingStrategy.VerticesOnly);
     }
@@ -39,7 +39,7 @@ public class PntsGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    public override async Task SaveTileAsync(IMesh mesh, string outputPath)
     {
         await SavePNTSFileAsync(mesh, outputPath, SamplingStrategy.VerticesOnly, 10);
     }
@@ -58,7 +58,7 @@ public class PntsGenerator : TileGenerator
     /// <param name="samplingDensity">采样密度（仅用于表面采样，每个三角形的采样点数）</param>
     /// <returns>PNTS文件的二进制数据</returns>
     public byte[] GeneratePNTS(
-        MeshT mesh,
+        IMesh mesh,
         SamplingStrategy strategy = SamplingStrategy.VerticesOnly,
         int samplingDensity = 10)
     {
@@ -139,7 +139,7 @@ public class PntsGenerator : TileGenerator
     /// <summary>
     /// 根据策略生成点云（包含法线）
     /// </summary>
-    private PointCloud GeneratePointCloud(MeshT mesh, SamplingStrategy strategy, int density)
+    private PointCloud GeneratePointCloud(IMesh mesh, SamplingStrategy strategy, int density)
     {
         return strategy switch
         {
@@ -154,7 +154,7 @@ public class PntsGenerator : TileGenerator
     /// 从网格顶点生成点云 - 最简单的策略
     /// 提取所有顶点及其法线
     /// </summary>
-    private PointCloud GeneratePointCloudFromVertices(MeshT mesh)
+    private PointCloud GeneratePointCloudFromVertices(IMesh mesh)
     {
         var points = new Vertex3[mesh.Vertices.Count];
         var normals = new Vertex3[mesh.Vertices.Count];
@@ -232,7 +232,7 @@ public class PntsGenerator : TileGenerator
     /// 均匀采样三角形表面生成点云
     /// 算法：重心坐标插值（位置和法线）
     /// </summary>
-    private PointCloud GeneratePointCloudUniformSampling(MeshT mesh, int samplesPerTriangle)
+    private PointCloud GeneratePointCloudUniformSampling(IMesh mesh, int samplesPerTriangle)
     {
         var points = new List<Vertex3>();
         var normals = new List<Vertex3>();
@@ -408,7 +408,7 @@ public class PntsGenerator : TileGenerator
     /// 保存PNTS文件到磁盘
     /// </summary>
     public async Task SavePNTSFileAsync(
-        MeshT mesh,
+        IMesh mesh,
         string outputPath,
         SamplingStrategy strategy = SamplingStrategy.VerticesOnly,
         int samplingDensity = 10)

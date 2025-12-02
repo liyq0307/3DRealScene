@@ -31,10 +31,11 @@ public class B3dmGenerator : TileGenerator
     /// <summary>
     /// 生成瓦片文件数据 - 实现抽象方法
     /// 调用B3DM格式的具体实现
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
-    /// <param name="mesh">网格数据（包含顶点、面、材质等）</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <returns>B3DM瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(MeshT mesh)
+    public override byte[] GenerateTile(IMesh mesh)
     {
         return GenerateB3DM(mesh);
     }
@@ -54,19 +55,23 @@ public class B3dmGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <returns>B3DM文件的二进制数据</returns>
-    public byte[] GenerateB3DM(MeshT mesh)
+    public byte[] GenerateB3DM(IMesh mesh)
     {
         ValidateInput(mesh);
 
-        _logger.LogDebug("开始生成B3DM: 三角形数={Count}", mesh.Faces.Count);
+        _logger.LogDebug("开始生成B3DM: 类型={MeshType}, 三角形数={Count}",
+            mesh.GetType().Name, mesh.FacesCount);
 
         try
         {
-            // 1. 生成GLB二进制数据
+            // 1. 生成GLB二进制数据（_gltfGenerator 已支持 IMesh）
             var glbData = GenerateGLB(mesh);
 
             // 2. 构建Feature Table (必需)
-            var batchCount = mesh.Materials.Count;
+            int batchCount = mesh.HasTexture && mesh is MeshT meshT
+                ? meshT.Materials.Count
+                : 1; // 无纹理使用默认材质(1个批次)
+
             var featureTableJson = GenerateFeatureTableJson(batchCount);
             var featureTableJsonBytes = Encoding.UTF8.GetBytes(featureTableJson);
 
@@ -138,11 +143,11 @@ public class B3dmGenerator : TileGenerator
     /// 支持POSITION, NORMAL, TEXCOORD_0属性
     /// 委托给 GltfGenerator 实现，确保材质支持的一致性
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <returns>GLB文件的二进制数据</returns>
-    private byte[] GenerateGLB(MeshT mesh)
+    private byte[] GenerateGLB(IMesh mesh)
     {
-        // 使用 GltfGenerator 生成 GLB，确保材质支持
+        // 使用 GltfGenerator 生成 GLB，确保材质支持（已支持 IMesh）
         return _gltfGenerator.GenerateGLB(mesh);
     }
 
@@ -163,24 +168,31 @@ public class B3dmGenerator : TileGenerator
     /// <summary>
     /// 生成Batch Table JSON
     /// 存储每个batch的材质ID和名称
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <returns>Batch Table JSON字符串</returns>
-    private string GenerateBatchTableJson(MeshT mesh)
+    private string GenerateBatchTableJson(IMesh mesh)
     {
-        if (mesh.Materials.Count == 0)
+        // 无纹理网格：返回默认批次表
+        if (!mesh.HasTexture || mesh is not MeshT meshT || meshT.Materials.Count == 0)
         {
-            return "{}";
+            var defaultBatchTable = new
+            {
+                MaterialID = new[] { 0 },
+                MaterialName = new[] { "DefaultMaterial" }
+            };
+            return JsonSerializer.Serialize(defaultBatchTable);
         }
 
-        // 创建材质名称到ID的映射
+        // 有纹理网格：创建材质名称到ID的映射
         var materialIds = new List<int>();
         var materialNames = new List<string>();
 
-        for (int i = 0; i < mesh.Materials.Count; i++)
+        for (int i = 0; i < meshT.Materials.Count; i++)
         {
             materialIds.Add(i);
-            materialNames.Add(mesh.Materials[i].Name ?? $"Material_{i}");
+            materialNames.Add(meshT.Materials[i].Name ?? $"Material_{i}");
         }
 
         var batchTable = new
@@ -203,7 +215,7 @@ public class B3dmGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    public override async Task SaveTileAsync(IMesh mesh, string outputPath)
     {
         await SaveB3DMFileAsync(mesh, outputPath);
     }
@@ -213,7 +225,7 @@ public class B3dmGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    public async Task SaveB3DMFileAsync(MeshT mesh, string outputPath)
+    public async Task SaveB3DMFileAsync(IMesh mesh, string outputPath)
     {
         _logger.LogInformation("保存B3DM文件: {Path}", outputPath);
 

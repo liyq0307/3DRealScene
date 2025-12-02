@@ -21,9 +21,9 @@ public class StlModelLoader : ModelLoader
     }
 
     /// <summary>
-    /// 加载STL模型文件并构建索引网格（MeshT）
+    /// 加载STL模型文件并构建索引网格（IMesh）
     /// </summary>
-    public override async Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
+    public override async Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {
@@ -38,7 +38,7 @@ public class StlModelLoader : ModelLoader
             // 检测是ASCII还是二进制格式
             var isAscii = await IsAsciiStlAsync(modelPath, cancellationToken);
 
-            MeshT mesh;
+            IMesh mesh;
             if (isAscii)
             {
                 _logger.LogDebug("检测到ASCII STL格式");
@@ -89,12 +89,10 @@ public class StlModelLoader : ModelLoader
     ///   endfacet
     /// endsolid name
     /// </summary>
-    private async Task<MeshT> LoadAsciiStlAsync(string filePath, CancellationToken cancellationToken)
+    private async Task<Mesh> LoadAsciiStlAsync(string filePath, CancellationToken cancellationToken)
     {
         var vertices = new List<Vertex3>();
-        var faces = new List<FaceT>();
-        var textureVertices = new List<Vertex2>();
-        var materials = new List<Material> { CreateDefaultMaterial() };
+        var faces = new List<Face>();
 
         using var reader = new StreamReader(filePath, Encoding.ASCII);
         string? line;
@@ -143,15 +141,15 @@ public class StlModelLoader : ModelLoader
                     vertices.Add(new Vertex3(tempVertices[1].x, tempVertices[1].y, tempVertices[1].z));
                     vertices.Add(new Vertex3(tempVertices[2].x, tempVertices[2].y, tempVertices[2].z));
 
-                    // 创建面（使用默认材质索引0）
-                    faces.Add(new FaceT(v1Idx, v1Idx + 1, v1Idx + 2, 0, 0, 0, 0));
+                    // 创建无纹理的面 (YAGNI原则 - STL不支持纹理)
+                    faces.Add(new Face(v1Idx, v1Idx + 1, v1Idx + 2));
                 }
                 tempVertices.Clear();
                 normal = null;
             }
         }
 
-        return new MeshT(vertices, textureVertices, faces, materials);
+        return new Mesh(vertices, faces);
     }
 
     /// <summary>
@@ -165,13 +163,11 @@ public class StlModelLoader : ModelLoader
     ///   - 2字节属性(uint16)
     /// </summary>
 #pragma warning disable CS1998 // 异步方法缺少 await 运算符
-    private Task<MeshT> LoadBinaryStlAsync(string filePath, CancellationToken cancellationToken)
+    private Task<Mesh> LoadBinaryStlAsync(string filePath, CancellationToken cancellationToken)
 #pragma warning restore CS1998
     {
         var vertices = new List<Vertex3>();
-        var faces = new List<FaceT>();
-        var textureVertices = new List<Vertex2>();
-        var materials = new List<Material> { CreateDefaultMaterial() };
+        var faces = new List<Face>();
 
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
         using var reader = new BinaryReader(stream);
@@ -205,17 +201,17 @@ public class StlModelLoader : ModelLoader
             // 跳过属性字节
             reader.ReadUInt16();
 
-            // 创建面（使用默认材质索引0）
-            faces.Add(new FaceT(v1Idx, v1Idx + 1, v1Idx + 2, 0, 0, 0, 0));
+            // 创建无纹理的面 (YAGNI原则 - STL不支持纹理)
+            faces.Add(new Face(v1Idx, v1Idx + 1, v1Idx + 2));
         }
 
-        return Task.FromResult(new MeshT(vertices, textureVertices, faces, materials));
+        return Task.FromResult(new Mesh(vertices, faces));
     }
 
     /// <summary>
     /// 计算网格的包围盒
     /// </summary>
-    private static Box3 CalculateBoundingBox(MeshT mesh)
+    private static Box3 CalculateBoundingBox(IMesh mesh)
     {
         if (mesh.Vertices.Count == 0)
         {

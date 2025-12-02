@@ -6,17 +6,18 @@ namespace RealScene3D.Application.Services.Loaders;
 /// <summary>
 /// 模型加载器抽象基类 - 用于加载和解析3D模型文件
 /// 所有具体的模型加载器都应继承此基类
-/// 支持多种3D模型格式的加载,直接构建索引网格（MeshT）用于切片处理
+/// 支持多种3D模型格式的加载,直接构建索引网格（IMesh）用于切片处理
+/// 根据模型是否包含纹理返回 Mesh 或 MeshT
 /// </summary>
 public abstract class ModelLoader
 {
     /// <summary>
-    /// 加载3D模型文件并构建索引网格（MeshT）
+    /// 加载3D模型文件并构建索引网格（IMesh）
     /// </summary>
     /// <param name="modelPath">模型文件路径</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>MeshT 对象（包含顶点、UV、面和材质）和模型包围盒</returns>
-    public abstract Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
+    /// <returns>IMesh 对象（Mesh或MeshT，取决于是否有纹理）和模型包围盒</returns>
+    public abstract Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default);
 

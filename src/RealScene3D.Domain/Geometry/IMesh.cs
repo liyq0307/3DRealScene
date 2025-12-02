@@ -1,3 +1,4 @@
+using RealScene3D.Domain.Materials;
 using RealScene3D.Domain.Utils;
 
 namespace RealScene3D.Domain.Geometry;
@@ -42,6 +43,31 @@ public interface IMesh
     void WriteObj(string path, bool removeUnused = true);
 
     /// <summary>
+    /// 顶点列表（只读）
+    /// </summary>
+    IReadOnlyList<Vertex3> Vertices { get; }
+
+    /// <summary>
+    /// 顶点列表（只读）
+    /// </summary>
+    IReadOnlyList<Face> Faces { get; }
+
+    /// <summary>
+    /// 纹理顶点列表（只读）
+    /// </summary>
+    IReadOnlyList<Vertex2>? TextureVertices { get; }
+
+    /// <summary>
+    /// 材质列表（只读）
+    /// </summary>
+    IReadOnlyList<Material>? Materials { get; }
+
+    /// <summary>
+    /// 纹理处理策略
+    /// </summary>
+    TexturesStrategy TexturesStrategy { get; set; }
+
+      /// <summary>
     /// 面的数量
     /// </summary>
     int FacesCount { get; }
@@ -50,4 +76,9 @@ public interface IMesh
     /// 顶点的数量
     /// </summary>
     int VertexCount { get; }
+
+    /// <summary>
+    /// 是否包含纹理数据
+    /// </summary>
+    bool HasTexture { get; }
 }

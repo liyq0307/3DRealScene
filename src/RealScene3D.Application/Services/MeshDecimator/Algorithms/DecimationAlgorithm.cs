@@ -100,15 +100,15 @@ public abstract class DecimationAlgorithm
     public abstract SimpleMesh ToMesh();
 
     /// <summary>
-    /// 使用原始 MeshT 网格初始化算法。
+    /// 使用原始网格初始化算法（支持有纹理和无纹理的网格）。
     /// </summary>
-    /// <param name="mesh">MeshT 网格。</param>
-    public abstract void Initialize(MeshT mesh);
+    /// <param name="mesh">网格对象（IMesh接口）。</param>
+    public abstract void Initialize(IMesh mesh);
 
     /// <summary>
-    /// 返回结果 MeshT 网格。
+    /// 返回结果网格（支持有纹理和无纹理的网格）。
     /// </summary>
-    /// <param name="originalMesh">原始 MeshT,用于保留材质信息。</param>
-    /// <returns>结果 MeshT 网格。</returns>
-    public abstract MeshT ToMeshT(MeshT? originalMesh = null);
+    /// <param name="originalMesh">原始网格,用于保留材质信息。</param>
+    /// <returns>结果网格。</returns>
+    public abstract IMesh ToIMesh(IMesh? originalMesh = null);
 }

@@ -17,7 +17,7 @@ public class OsgbModelLoader : ModelLoader
         _logger = logger;
     }
 
-    public override async Task<(MeshT Mesh, Box3 BoundingBox)> LoadModelAsync(
+    public override async Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string modelPath,
         CancellationToken cancellationToken = default)
     {

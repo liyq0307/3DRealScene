@@ -32,7 +32,7 @@ public class I3dmGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据（用于生成基础模型）</param>
     /// <returns>I3DM瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(MeshT mesh)
+    public override byte[] GenerateTile(IMesh mesh)
     {
         return GenerateI3DM(mesh, 1, null); // 默认1个实例
     }
@@ -42,7 +42,7 @@ public class I3dmGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    public override async Task SaveTileAsync(IMesh mesh, string outputPath)
     {
         await SaveI3DMFileAsync(mesh, outputPath, 1, null);
     }
@@ -60,7 +60,7 @@ public class I3dmGenerator : TileGenerator
     /// <param name="instanceCount">实例数量</param>
     /// <param name="positions">实例位置数组（可选，未提供则在包围盒内均匀分布）</param>
     /// <returns>I3DM文件的二进制数据</returns>
-    public byte[] GenerateI3DM(MeshT mesh, int instanceCount, Vertex3[]? positions = null)
+    public byte[] GenerateI3DM(IMesh mesh, int instanceCount, Vertex3[]? positions = null)
     {
         ValidateInput(mesh);
 
@@ -240,7 +240,7 @@ public class I3dmGenerator : TileGenerator
     /// <param name="instanceCount">实例数量（默认1）</param>
     /// <param name="positions">实例位置（可选）</param>
     public async Task SaveI3DMFileAsync(
-        MeshT mesh,
+        IMesh mesh,
         string outputPath,
         int instanceCount = 1,
         Vertex3[]? positions = null)

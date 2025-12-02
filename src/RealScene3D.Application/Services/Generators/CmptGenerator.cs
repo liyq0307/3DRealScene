@@ -58,7 +58,7 @@ public class CmptGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <returns>CMPT瓦片文件的二进制数据</returns>
-    public override byte[] GenerateTile(MeshT mesh)
+    public override byte[] GenerateTile(IMesh mesh)
     {
         if (_b3dmGenerator == null)
             throw new InvalidOperationException("B3dmGenerator未注入，无法使用默认实现");
@@ -82,7 +82,7 @@ public class CmptGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <param name="outputPath">输出文件路径</param>
-    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    public override async Task SaveTileAsync(IMesh mesh, string outputPath)
     {
         await SaveCMPTFileAsync(mesh, outputPath, true, false);
     }
@@ -167,7 +167,7 @@ public class CmptGenerator : TileGenerator
     /// <param name="includePnts">是否包含PNTS点云</param>
     /// <returns>CMPT文件的二进制数据</returns>
     public byte[] GenerateCMPTFromMesh(
-        MeshT mesh,
+        IMesh mesh,
         bool includeB3dm = true,
         bool includePnts = false)
     {
@@ -334,7 +334,7 @@ public class CmptGenerator : TileGenerator
     /// 保存CMPT文件 - 从网格数据
     /// </summary>
     public async Task SaveCMPTFileAsync(
-        MeshT mesh,
+        IMesh mesh,
         string outputPath,
         bool includeB3dm = true,
         bool includePnts = false)

@@ -30,20 +30,22 @@ public class GltfGenerator : TileGenerator
 
     /// <summary>
     /// 生成瓦片文件数据 - 实现抽象方法
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <returns>GLB文件的二进制数据</returns>
-    public override byte[] GenerateTile(MeshT mesh)
+    public override byte[] GenerateTile(IMesh mesh)
     {
         return GenerateGLB(mesh);
     }
 
     /// <summary>
     /// 保存瓦片文件到磁盘 - 实现抽象方法
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <param name="outputPath">输出文件路径</param>
-    public override async Task SaveTileAsync(MeshT mesh, string outputPath)
+    public override async Task SaveTileAsync(IMesh mesh, string outputPath)
     {
         await SaveGLBFileAsync(mesh, outputPath);
     }
@@ -60,14 +62,16 @@ public class GltfGenerator : TileGenerator
     /// <summary>
     /// 生成GLB (Binary glTF 2.0) 数据
     /// 使用SharpGLTF库生成，支持完整的PBR材质和纹理
+    /// 支持有纹理（MeshT）和无纹理（Mesh）两种网格
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <returns>GLB文件的二进制数据</returns>
-    public byte[] GenerateGLB(MeshT mesh)
+    public byte[] GenerateGLB(IMesh mesh)
     {
         ValidateInput(mesh);
 
-        _logger.LogDebug("开始生成GLB: 三角形数={Count}", mesh.Faces.Count);
+        _logger.LogDebug("开始生成GLB: 类型={MeshType}, 三角形数={Count}",
+            mesh.GetType().Name, mesh.FacesCount);
 
         try
         {
@@ -79,25 +83,20 @@ public class GltfGenerator : TileGenerator
             // 2. 计算法线（如果需要）
             var normals = CalculateNormals(mesh);
 
-            // 3. 按材质分组处理面
-            var facesByMaterial = GroupFacesByMaterial(mesh);
+            // 3. 根据是否有纹理，采用不同的处理策略
+            List<IMeshBuilder<MaterialBuilder>> allMeshBuilders;
 
-            // 4. 为每个材质创建网格
-            var allMeshBuilders = new List<IMeshBuilder<MaterialBuilder>>();
-            for (int matIdx = 0; matIdx < facesByMaterial.Count; matIdx++)
+            if (mesh.HasTexture && mesh is MeshT meshT)
             {
-                var faces = facesByMaterial[matIdx];
-                if (faces.Count == 0)
-                    continue;
-
-                var material = mesh.Materials[matIdx];
-
-                // 创建材质
-                var gltfMaterial = CreateMaterial(model, material);
-
-                // 创建网格
-                var meshBuilder = CreateMeshForMaterial(mesh, faces, normals, gltfMaterial);
-                allMeshBuilders.Add(meshBuilder);
+                // 有纹理：按材质分组处理
+                _logger.LogDebug("检测到纹理网格（MeshT），使用材质分组处理");
+                allMeshBuilders = CreateMeshBuildersWithTexture(model, meshT, normals);
+            }
+            else
+            {
+                // 无纹理：使用默认材质
+                _logger.LogDebug("检测到无纹理网格（Mesh），使用默认材质");
+                allMeshBuilders = CreateMeshBuildersWithoutTexture(model, mesh, normals);
             }
 
             // 将所有 MeshBuilder 添加到场景
@@ -106,14 +105,14 @@ public class GltfGenerator : TileGenerator
                 var sceneMesh = rootNode.WithMesh(model.CreateMeshes(allMeshBuilders.ToArray())[0]);
             }
 
-            // 5. 写入到内存流
+            // 4. 写入到内存流
             using var memoryStream = new MemoryStream();
             model.WriteGLB(memoryStream);
 
             var glbData = memoryStream.ToArray();
 
             _logger.LogDebug("GLB生成完成: 总大小={Size}字节", glbData.Length);
-            LogGenerationStats(mesh.Faces.Count, mesh.Vertices.Count, glbData.Length);
+            LogGenerationStats(mesh.FacesCount, mesh.VertexCount, glbData.Length);
 
             return glbData;
         }
@@ -128,9 +127,9 @@ public class GltfGenerator : TileGenerator
     /// 计算每个顶点的法线向量
     /// 使用面法线加权平均的方式计算顶点法线
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <returns>顶点法线数组</returns>
-    private SysVector3[] CalculateNormals(MeshT mesh)
+    private SysVector3[] CalculateNormals(IMesh mesh)
     {
         var normals = new SysVector3[mesh.Vertices.Count];
         var normalCounts = new int[mesh.Vertices.Count];
@@ -187,14 +186,14 @@ public class GltfGenerator : TileGenerator
     /// </summary>
     /// <param name="mesh">网格数据</param>
     /// <returns>每个材质对应的面列表</returns>
-    private List<List<FaceT>> GroupFacesByMaterial(MeshT mesh)
+    private List<List<Face>> GroupFacesByMaterial(MeshT mesh)
     {
-        var result = new List<List<FaceT>>();
+        var result = new List<List<Face>>();
 
         // 初始化每个材质的面列表
         for (int i = 0; i < mesh.Materials.Count; i++)
         {
-            result.Add(new List<FaceT>());
+            result.Add(new List<Face>());
         }
 
         // 分组
@@ -338,7 +337,7 @@ public class GltfGenerator : TileGenerator
     /// <returns>网格构建器</returns>
     private IMeshBuilder<MaterialBuilder> CreateMeshForMaterial(
         MeshT mesh,
-        List<FaceT> faces,
+        List<Face> faces,
         SysVector3[] normals,
         MaterialBuilder material)
     {
@@ -405,9 +404,9 @@ public class GltfGenerator : TileGenerator
     /// <summary>
     /// 保存GLB文件到磁盘
     /// </summary>
-    /// <param name="mesh">网格数据</param>
+    /// <param name="mesh">网格数据（IMesh接口）</param>
     /// <param name="outputPath">输出文件路径</param>
-    public async Task SaveGLBFileAsync(MeshT mesh, string outputPath)
+    public async Task SaveGLBFileAsync(IMesh mesh, string outputPath)
     {
         _logger.LogInformation("保存GLB文件: {Path}", outputPath);
 
@@ -432,5 +431,87 @@ public class GltfGenerator : TileGenerator
             _logger.LogError(ex, "保存GLB文件失败: {Path}", outputPath);
             throw;
         }
+    }
+
+    /// <summary>
+    /// 创建有纹理的网格构建器列表（MeshT）
+    /// 按材质分组处理，SOLID原则：单一职责
+    /// </summary>
+    private List<IMeshBuilder<MaterialBuilder>> CreateMeshBuildersWithTexture(
+        ModelRoot model,
+        MeshT mesh,
+        SysVector3[] normals)
+    {
+        var allMeshBuilders = new List<IMeshBuilder<MaterialBuilder>>();
+        var facesByMaterial = GroupFacesByMaterial(mesh);
+
+        for (int matIdx = 0; matIdx < facesByMaterial.Count; matIdx++)
+        {
+            var faces = facesByMaterial[matIdx];
+            if (faces.Count == 0)
+                continue;
+
+            var material = mesh.Materials[matIdx];
+            var gltfMaterial = CreateMaterial(model, material);
+            var meshBuilder = CreateMeshForMaterial(mesh, faces, normals, gltfMaterial);
+            allMeshBuilders.Add(meshBuilder);
+        }
+
+        return allMeshBuilders;
+    }
+
+    /// <summary>
+    /// 创建无纹理的网格构建器列表（Mesh）
+    /// 使用默认材质和UV坐标，YAGNI原则：只生成必需的数据
+    /// </summary>
+    private List<IMeshBuilder<MaterialBuilder>> CreateMeshBuildersWithoutTexture(
+        ModelRoot model,
+        IMesh mesh,
+        SysVector3[] normals)
+    {
+        var allMeshBuilders = new List<IMeshBuilder<MaterialBuilder>>();
+
+        // 创建默认材质（灰色）
+        var defaultMaterial = new MaterialBuilder("DefaultMaterial")
+            .WithMetallicRoughnessShader()
+            .WithBaseColor(new SysVector4(0.7f, 0.7f, 0.7f, 1.0f))
+            .WithMetallicRoughness(0.0f, 0.8f);
+
+        // 创建网格构建器
+        var meshBuilder = new MeshBuilder<VertexPosition, VertexTexture1, VertexEmpty>(mesh.Name ?? "Mesh");
+        var primitive = meshBuilder.UsePrimitive(defaultMaterial);
+
+        // 添加所有三角形（使用默认UV坐标）
+        foreach (var face in mesh.Faces)
+        {
+            var v0 = mesh.Vertices[face.IndexA];
+            var v1 = mesh.Vertices[face.IndexB];
+            var v2 = mesh.Vertices[face.IndexC];
+
+            var n0 = normals[face.IndexA];
+            var n1 = normals[face.IndexB];
+            var n2 = normals[face.IndexC];
+
+            // 默认UV坐标 (KISS原则：简单就好)
+            var defaultUV = new SysVector2(0f, 0f);
+
+            // 创建顶点
+            var vertexBuilder0 = new VertexBuilder<VertexPosition, VertexTexture1, VertexEmpty>(
+                new VertexPosition(new SysVector3((float)v0.X, (float)v0.Y, (float)v0.Z)),
+                new VertexTexture1(defaultUV));
+
+            var vertexBuilder1 = new VertexBuilder<VertexPosition, VertexTexture1, VertexEmpty>(
+                new VertexPosition(new SysVector3((float)v1.X, (float)v1.Y, (float)v1.Z)),
+                new VertexTexture1(defaultUV));
+
+            var vertexBuilder2 = new VertexBuilder<VertexPosition, VertexTexture1, VertexEmpty>(
+                new VertexPosition(new SysVector3((float)v2.X, (float)v2.Y, (float)v2.Z)),
+                new VertexTexture1(defaultUV));
+
+            primitive.AddTriangle(vertexBuilder0, vertexBuilder1, vertexBuilder2);
+        }
+
+        allMeshBuilders.Add(meshBuilder);
+        return allMeshBuilders;
     }
 }

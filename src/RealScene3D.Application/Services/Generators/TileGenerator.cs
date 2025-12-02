@@ -31,23 +31,23 @@ public abstract class TileGenerator
     /// 生成瓦片文件数据 - 核心抽象方法
     /// 子类必须实现此方法以生成特定格式的瓦片文件
     /// </summary>
-    /// <param name="mesh">网格数据（包含顶点、面、材质等完整信息）</param>
+    /// <param name="mesh">网格数据（IMesh接口：Mesh或MeshT，支持有纹理和无纹理）</param>
     /// <returns>瓦片文件的二进制数据</returns>
     /// <exception cref="ArgumentException">当输入参数无效时抛出</exception>
     /// <exception cref="InvalidOperationException">当生成过程失败时抛出</exception>
-    public abstract byte[] GenerateTile(MeshT mesh);
+    public abstract byte[] GenerateTile(IMesh mesh);
 
     /// <summary>
     /// 保存瓦片文件到磁盘 - 抽象方法
     /// 子类必须实现此方法以将生成的瓦片数据保存到指定路径
     /// 此方法应包含目录创建、文件写入、错误处理等通用逻辑
     /// </summary>
-    /// <param name="mesh">网格数据（包含顶点、面、材质等完整信息）</param>
+    /// <param name="mesh">网格数据（IMesh接口：Mesh或MeshT，支持有纹理和无纹理）</param>
     /// <param name="outputPath">输出文件的完整路径</param>
     /// <returns>异步任务</returns>
     /// <exception cref="ArgumentException">当输入参数无效时抛出</exception>
     /// <exception cref="IOException">当文件写入失败时抛出</exception>
-    public abstract Task SaveTileAsync(MeshT mesh, string outputPath);
+    public abstract Task SaveTileAsync(IMesh mesh, string outputPath);
 
     /// <summary>
     /// 验证输入参数的有效性 - 通用验证逻辑
@@ -56,7 +56,7 @@ public abstract class TileGenerator
     /// <param name="mesh">网格数据</param>
     /// <exception cref="ArgumentNullException">当参数为null时抛出</exception>
     /// <exception cref="ArgumentException">当网格数据无效时抛出</exception>
-    protected virtual void ValidateInput(MeshT mesh)
+    protected virtual void ValidateInput(IMesh mesh)
     {
         if (mesh == null)
         {
