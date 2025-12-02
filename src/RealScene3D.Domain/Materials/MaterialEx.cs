@@ -414,6 +414,9 @@ public class MaterialEx : Material
             }
         }
 
+        // 关键修复：清理文件名前后的空格和引号
+        fileName = fileName.Trim().Trim('"').Trim('\'').Trim();
+
         // 规范化路径：统一使用正斜杠
         fileName = fileName.Replace('\\', '/');
 

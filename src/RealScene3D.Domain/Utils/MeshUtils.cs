@@ -224,6 +224,14 @@ public class MeshUtils
         return count + tasks.Sum(t => t.Result); // 返回总分割计数
     }
 
+    /// <summary>
+    /// 递归分割网格为XY平面内的四个象限，使用自定义分割点函数
+    /// </summary>
+    /// <param name="mesh">要分割的网格</param>
+    /// <param name="depth">递归深度</param>
+    /// <param name="getSplitPoint">获取分割点的函数</param>
+    /// <param name="meshes">分割后的网格集合</param>
+    /// <returns>分割操作的计数</returns>
     public static async Task<int> RecurseSplitXY(IMesh mesh, int depth, Func<IMesh, Vertex3> getSplitPoint,
         ConcurrentBag<IMesh> meshes)
     {

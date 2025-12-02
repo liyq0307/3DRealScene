@@ -71,6 +71,15 @@ public class SlicingAppService : ISlicingAppService
             if (string.IsNullOrWhiteSpace(request.ModelType))
                 throw new ArgumentException("模型类型不能为空", nameof(request.ModelType));
 
+            // 规范化路径：清理前后空格
+            // 这是关键修复：确保路径前后没有空格，避免文件检查和后续处理失败
+            request.SourceModelPath = request.SourceModelPath.Trim();
+            if (!string.IsNullOrEmpty(request.OutputPath))
+            {
+                request.OutputPath = request.OutputPath.Trim();
+            }
+            request.Name = request.Name.Trim();
+
             // 边界情况检查：验证切片配置参数的合理性
             if (request.SlicingConfig.Divisions < 0 || request.SlicingConfig.Divisions > 20)
                 throw new ArgumentException("LOD级别数量必须在0-20之间", nameof(request.SlicingConfig.Divisions));
@@ -123,7 +132,7 @@ public class SlicingAppService : ISlicingAppService
                 // 生成确定性的输出路径用于查找
                 var expectedOutputPath = string.IsNullOrEmpty(request.OutputPath)
                     ? GenerateOutputPathFromSource(request.SourceModelPath)
-                    : request.OutputPath.Trim();
+                    : request.OutputPath; // 已在开头Trim，无需重复
 
                 // 查找具有相同输出路径的现有任务
                 var allTasks = await _slicingTaskRepository.GetAllAsync();
@@ -138,7 +147,7 @@ public class SlicingAppService : ISlicingAppService
 
                     // 更新现有任务
                     task = existingTask;
-                    task.Name = request.Name.Trim(); // 更新名称
+                    task.Name = request.Name; // 已在开头Trim，无需重复
                     // 注意：这里先不序列化配置，等存储位置判断完成后再序列化
                     // task.SlicingConfig 将在后面根据 OutputPath 重新设置
                     task.Status = SlicingTaskStatus.Created; // 重置状态
@@ -168,13 +177,13 @@ public class SlicingAppService : ISlicingAppService
                 // 创建切片任务实体 - 领域对象构建
                 task = new SlicingTask
                 {
-                    Name = request.Name.Trim(), // 清理前后空格
+                    Name = request.Name, // 已在开头Trim，无需重复
                     SourceModelPath = request.SourceModelPath,
                     ModelType = request.ModelType,
                     SlicingConfig = System.Text.Json.JsonSerializer.Serialize(initialDomainConfig),
                     OutputPath = string.IsNullOrEmpty(request.OutputPath)
                         ? GenerateOutputPathFromSource(request.SourceModelPath) // 基于源模型生成确定性路径
-                        : request.OutputPath.Trim(),
+                        : request.OutputPath, // 已在开头Trim，无需重复
                     CreatedBy = userId,
                     Status = SlicingTaskStatus.Created,
                     SceneObjectId = request.SceneObjectId

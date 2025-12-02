@@ -44,7 +44,7 @@ public class SlicingDataService
     #region 模型加载
 
     /// <summary>
-    /// 从源模型文件加载模型数据（MeshT）
+    /// 从源模型文件加载模型数据
     /// 支持本地文件和MinIO对象存储
     /// </summary>
     /// <param name="modelPath">模型文件路径</param>
@@ -385,7 +385,7 @@ public class SlicingDataService
 
         try
         {
-            // ⭐ 设置网格的纹理处理策略
+            // 设置网格的纹理处理策略
             // MeshT.WriteObj() 会根据此策略自动调用 TrimTextures()
             mesh.TexturesStrategy = config.TextureStrategy switch
             {
@@ -395,19 +395,19 @@ public class SlicingDataService
                 _ => TexturesStrategy.Repack
             };
 
-            // ⭐ 创建临时目录用于保存打包后的纹理
+            // 创建临时目录用于保存打包后的纹理
             var tempFolder = Path.Combine(Path.GetTempPath(), "RealScene3D_TexturePacking", Guid.NewGuid().ToString());
             Directory.CreateDirectory(tempFolder);
 
             try
             {
-                // ⭐ 调用 WriteObj 触发纹理打包
+                // 调用 WriteObj 触发纹理打包
                 // 这会调用 MeshT 内部的 TrimTextures() 方法
                 // 生成优化的纹理图集并更新 UV 坐标
                 var tempObjPath = Path.Combine(tempFolder, "temp.obj");
                 mesh.WriteObj(tempObjPath, removeUnused: false);
 
-                // ⭐ 重要：将打包后的纹理加载到内存中（而不是保存文件路径）
+                // 重要：将打包后的纹理加载到内存中（而不是保存文件路径）
                 // TrimTextures() 将纹理保存到 tempFolder，文件名已更新到 Material.Texture
                 foreach (var material in mesh.Materials)
                 {
@@ -422,7 +422,7 @@ public class SlicingDataService
                         {
                             try
                             {
-                                // ⭐ 加载到内存
+                                // 加载到内存
                                 material.TextureImage = await SixLabors.ImageSharp.Image.LoadAsync<SixLabors.ImageSharp.PixelFormats.Rgba32>(texturePath);
                                 _logger.LogDebug("材质 {MaterialName} 纹理已加载到内存：{W}x{H}",
                                     material.Name, material.TextureImage.Width, material.TextureImage.Height);
@@ -432,7 +432,7 @@ public class SlicingDataService
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogWarning(ex, "加载纹理到��存失败：{Path}", texturePath);
+                                _logger.LogWarning(ex, "加载纹理到内存失败：{Path}", texturePath);
                             }
                         }
                     }
