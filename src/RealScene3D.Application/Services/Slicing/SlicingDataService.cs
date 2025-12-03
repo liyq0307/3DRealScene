@@ -215,7 +215,7 @@ public class SlicingDataService
             return false;
         }
 
-        // ⭐ 纹理处理 - 仅对有纹理的 MeshT 进行纹理处理
+        // 纹理处理 - 仅对有纹理的 MeshT 进行纹理处理
         IMesh processedMesh;
         if (mesh.HasTexture && mesh is MeshT meshT)
         {
@@ -411,6 +411,12 @@ public class SlicingDataService
 
             try
             {
+                // 关键修复：设置纹理策略，确保 TrimTextures() 被调用
+                mesh.TexturesStrategy = config.TextureStrategy;
+
+                _logger.LogDebug("切片({Level},{X},{Y},{Z})开始纹理打包：策略={Strategy}",
+                    slice.Level, slice.X, slice.Y, slice.Z, config.TextureStrategy);
+
                 // 调用 WriteObj 触发纹理打包
                 // 这会调用 MeshT 内部的 TrimTextures() 方法
                 // 生成优化的纹理图集并更新 UV 坐标
@@ -419,6 +425,12 @@ public class SlicingDataService
 
                 // 重要：将打包后的纹理加载到内存中（而不是保存文件路径）
                 // TrimTextures() 将纹理保存到 tempFolder，文件名已更新到 Material.Texture
+                _logger.LogDebug("开始加载打包后的纹理到内存，材质数={Count}", mesh.Materials.Count);
+
+                int loadedCount = 0;
+                int skippedCount = 0;
+                int errorCount = 0;
+
                 foreach (var material in mesh.Materials)
                 {
                     if (!string.IsNullOrEmpty(material.Texture))
@@ -428,23 +440,38 @@ public class SlicingDataService
                             ? material.Texture
                             : Path.Combine(tempFolder, material.Texture);
 
+                        _logger.LogDebug("材质 {MaterialName}: Texture={Texture}, 完整路径={FullPath}",
+                            material.Name, material.Texture, texturePath);
+
                         if (File.Exists(texturePath))
                         {
                             try
                             {
                                 // 加载到内存
                                 material.TextureImage = await SixLabors.ImageSharp.Image.LoadAsync<SixLabors.ImageSharp.PixelFormats.Rgba32>(texturePath);
-                                _logger.LogDebug("材质 {MaterialName} 纹理已加载到内存：{W}x{H}",
+                                _logger.LogDebug("✓ 材质 {MaterialName} 纹理已加载到内存：{W}x{H}",
                                     material.Name, material.TextureImage.Width, material.TextureImage.Height);
 
                                 // 清空文件路径，强制使用内存数据
                                 material.Texture = null;
+                                loadedCount++;
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogWarning(ex, "加载纹理到内存失败：{Path}", texturePath);
+                                _logger.LogWarning(ex, "✗ 材质 {MaterialName} 加载纹理失败：{Path}", material.Name, texturePath);
+                                errorCount++;
                             }
                         }
+                        else
+                        {
+                            _logger.LogWarning("✗ 材质 {MaterialName} 纹理文件不存在：{Path}", material.Name, texturePath);
+                            skippedCount++;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug("- 材质 {MaterialName} 没有纹理路径", material.Name);
+                        skippedCount++;
                     }
 
                     if (!string.IsNullOrEmpty(material.NormalMap))
@@ -470,6 +497,9 @@ public class SlicingDataService
                         }
                     }
                 }
+
+                _logger.LogInformation("切片({Level},{X},{Y},{Z})纹理加载完成：成功={Loaded}, 跳过={Skipped}, 失败={Error}",
+                    slice.Level, slice.X, slice.Y, slice.Z, loadedCount, skippedCount, errorCount);
 
                 _logger.LogInformation("切片({Level},{X},{Y},{Z})纹理打包完成：策略={Strategy}, 材质数={MaterialCount}",
                     slice.Level, slice.X, slice.Y, slice.Z, config.TextureStrategy, mesh.Materials.Count);

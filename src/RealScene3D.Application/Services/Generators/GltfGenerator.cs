@@ -239,7 +239,7 @@ public class GltfGenerator : TileGenerator
         // 应用纹理（如果存在）
         if (material.TextureImage != null)
         {
-            // ⭐ 优先使用内存中的纹理数据（纹理打包后的结果）
+            // 优先使用内存中的纹理数据（纹理打包后的结果）
             try
             {
                 using var ms = new MemoryStream();
@@ -265,7 +265,7 @@ public class GltfGenerator : TileGenerator
         }
         else if (!string.IsNullOrEmpty(material.Texture) && File.Exists(material.Texture))
         {
-            // ⭐ 从文件加载纹理（原始流程）
+            // 从文件加载纹理（原始流程）
             try
             {
                 // 读取纹理图像
@@ -445,18 +445,29 @@ public class GltfGenerator : TileGenerator
         var allMeshBuilders = new List<IMeshBuilder<MaterialBuilder>>();
         var facesByMaterial = GroupFacesByMaterial(mesh);
 
+        _logger.LogDebug("开始按材质创建网格：材质数={MaterialCount}", mesh.Materials.Count);
+
         for (int matIdx = 0; matIdx < facesByMaterial.Count; matIdx++)
         {
             var faces = facesByMaterial[matIdx];
             if (faces.Count == 0)
+            {
+                _logger.LogDebug("材质索引 {MatIdx} 没有关联的面，跳过", matIdx);
                 continue;
+            }
 
             var material = mesh.Materials[matIdx];
+
+            _logger.LogDebug("处理材质 {MatIdx}/{Total}: Name={Name}, Faces={FaceCount}, HasTextureImage={HasImage}, HasTexturePath={HasPath}",
+                matIdx, mesh.Materials.Count - 1, material.Name, faces.Count,
+                material.TextureImage != null, !string.IsNullOrEmpty(material.Texture));
+
             var gltfMaterial = CreateMaterial(model, material);
             var meshBuilder = CreateMeshForMaterial(mesh, faces, normals, gltfMaterial);
             allMeshBuilders.Add(meshBuilder);
         }
 
+        _logger.LogDebug("网格构建器创建完成：共 {Count} 个有效材质", allMeshBuilders.Count);
         return allMeshBuilders;
     }
 
