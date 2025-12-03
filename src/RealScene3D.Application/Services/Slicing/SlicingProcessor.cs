@@ -7,7 +7,6 @@ using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Interfaces;
-using RealScene3D.Domain.Materials;
 using RealScene3D.Domain.Utils;
 
 namespace RealScene3D.Application.Services.Slicing;
@@ -134,7 +133,7 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 执行切片处理 - 新架构：简化-分割-生成
+    /// 执行切片处理：简化-分割-生成
     /// </summary>
     private async Task PerformSlicingAsync(SlicingTask task, CancellationToken cancellationToken)
     {
@@ -158,7 +157,7 @@ public class SlicingProcessor : ISlicingProcessor
                 CurrentStage = "加载模型数据"
             });
 
-            var (originalMesh, modelBounds) = await LoadModelDataAsync(task, cancellationToken);
+            var (originalMesh, modelBounds) = await LoadModelAsync(task, cancellationToken);
 
             if (originalMesh.Faces.Count == 0)
             {
@@ -209,18 +208,21 @@ public class SlicingProcessor : ISlicingProcessor
                     CurrentStage = $"处理 LOD {lodLevel}/{lodMeshes.Count - 1}"
                 });
 
-                // 空间分割 - 使用 IMesh.Split 方法
-                var spatialCells = await QuadtreeSplitAsync(
+                // 空间分割 
+                var spatialCells = await SplitAsync(
                     lodMesh,
                     modelBounds,
                     lodLevel,
                     config.Divisions,
+                    false,
+                    config.TextureStrategy,
+                    SplitPointStrategy.VertexBaricenter,
                     cancellationToken);
 
                 _logger.LogInformation("LOD {Level} 分割完成：{Count} 个空间单元", lodLevel, spatialCells.Count);
 
                 // 生成切片
-                var lodSlices = await GenerateTilesForCellsAsync(
+                var lodSlices = await GenerateTilesAsync(
                     spatialCells,
                     task,
                     config,
@@ -243,13 +245,13 @@ public class SlicingProcessor : ISlicingProcessor
                     CurrentStage = "生成 tileset.json"
                 });
 
-                await GenerateTilesetJsonAsync(allSlices, modelBounds, config, task, cancellationToken);
+                await GenerateTilesetAsync(allSlices, modelBounds, config, task, cancellationToken);
             }
 
             // 保存切片到数据库
             await SaveSlicesToDatabaseAsync(allSlices, task, config, cancellationToken);
 
-            // 生成增量更新索引（如果需要）
+            // 生成增量更新索引
             if (config.EnableIncrementalUpdates)
             {
                 _logger.LogInformation("生成增量更新索引：任务{TaskId}", task.Id);
@@ -328,10 +330,10 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 加载模型数据 - 使用新架构
+    /// 加载模型数据
     /// </summary>
     private async Task<(IMesh mesh, Box3 bounds)>
-        LoadModelDataAsync(SlicingTask task, CancellationToken cancellationToken)
+        LoadModelAsync(SlicingTask task, CancellationToken cancellationToken)
     {
         _logger.LogInformation("开始加载模型：{Path}", task.SourceModelPath);
 
@@ -342,7 +344,7 @@ public class SlicingProcessor : ISlicingProcessor
         if (mesh == null || mesh.FacesCount == 0)
         {
             _logger.LogWarning("模型加载失败或没有面数据");
- 
+
             return (new MeshT([], [], [], []), new Box3(0, 0, 0, 0, 0, 0));
         }
 
@@ -415,53 +417,81 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 对网格进行四叉树空间分割 - 分割阶段
-    /// 使用 MeshUtils.RecurseSplitXY 方法进行递归分割
+    /// 异步分割网格 - 执行四叉树空间分割
+    /// 将输入的网格按照指定的分割策略和深度进行递归分割，
+    /// 生成多个空间单元（SpatialCell），每个单元包含分割后的网格和空间信息
     /// </summary>
-    private async Task<List<SpatialCell>> QuadtreeSplitAsync(
+    /// <param name="mesh">要分割的输入网格</param>
+    /// <param name="modelBounds">模型的边界框，用于确定分割边界</param>
+    /// <param name="lodLevel">LOD级别，用于日志记录</param>
+    /// <param name="divisions">分割深度（递归次数）</param>
+    /// <param name="zSplit">是否进行Z轴分割（三维分割）</param>
+    /// <param name="splitPointStrategy">分割点策略（绝对中心或顶点重心）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>分割后的空间单元列表</returns>
+    private async Task<List<SpatialCell>> SplitAsync(
         IMesh mesh,
         Box3 modelBounds,
         int lodLevel,
-        int maxDepth,
-        CancellationToken cancellationToken)
+        int divisions,
+        bool zSplit = false,
+        TexturesStrategy textureStrategy = TexturesStrategy.Repack,
+        SplitPointStrategy splitPointStrategy = SplitPointStrategy.VertexBaricenter,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("开始LOD {Level}的四叉树分割：面数={Count}, 最大深度={MaxDepth}",
-            lodLevel, mesh.FacesCount, maxDepth);
+            lodLevel, mesh.FacesCount, divisions);
 
         var meshes = new System.Collections.Concurrent.ConcurrentBag<IMesh>();
+        int splitCount = 0;
 
-        // 使用 MeshUtils.RecurseSplitXY 进行分割
-        var splitCount = await MeshUtils.RecurseSplitXY(mesh, maxDepth, modelBounds, meshes);
+        // 根据是否有有效的模型边界选择不同的分割策略
+        if (null != modelBounds && modelBounds.IsValid())
+        {
+            _logger.LogInformation("LOD {Level}采用边界作为分割依据", lodLevel);
+
+            // 使用模型边界作为分割依据
+            splitCount = zSplit
+                ? await MeshUtils.RecurseSplitXYZ(mesh, divisions, modelBounds, meshes)  
+                : await MeshUtils.RecurseSplitXY(mesh, divisions, modelBounds, meshes); 
+        }
+        else
+        {
+            _logger.LogInformation("LOD {Level}采用使用动态计算的分割点策略", lodLevel);
+
+            // 使用动态计算的分割点策略
+            Func<IMesh, Vertex3> getSplitPoint = splitPointStrategy switch
+            {
+                SplitPointStrategy.AbsoluteCenter => m => m.Bounds.Center,           
+                SplitPointStrategy.VertexBaricenter => m => m.GetVertexBaricenter(), 
+                _ => throw new ArgumentOutOfRangeException(nameof(splitPointStrategy))
+            };
+
+            splitCount = zSplit
+                ? await MeshUtils.RecurseSplitXYZ(mesh, divisions, getSplitPoint, meshes)  
+                : await MeshUtils.RecurseSplitXY(mesh, divisions, getSplitPoint, meshes); 
+        }
 
         _logger.LogInformation("LOD {Level}四叉树分割完成：分割操作={SplitCount}次, 生成 {Count} 个非空叶子节点",
             lodLevel, splitCount, meshes.Count);
 
-        // 将分割后的网格转换为 SpatialCell
-        // 每个网格分配一个唯一的空间坐标，避免所有切片被分组到同一位置
+        var ms = meshes.ToArray();
         var cells = new List<SpatialCell>();
-        int index = 0;
-
-        // 计算网格尺寸：使用 sqrt 估算行列数
-        int gridSize = (int)Math.Ceiling(Math.Sqrt(meshes.Count));
-
-        foreach (var splitMesh in meshes)
+        foreach (var m in ms)
         {
-            if (splitMesh.FacesCount > 0)
-            {
-                // 将索引转换为 (x, y) 坐标，确保每个切片有唯一的空间位置
-                int x = index % gridSize;
-                int y = index / gridSize;
+            if (m is MeshT t)
+                t.TexturesStrategy = textureStrategy;
 
-                cells.Add(new SpatialCell
-                {
-                    QuadrantPath = $"{x}-{y}",  // 使用坐标作为路径
-                    Depth = maxDepth,
-                    LodLevel = lodLevel,
-                    Mesh = splitMesh,
-                    Bounds = splitMesh.Bounds  // 使用网格自身的边界
-                });
-                index++;
-            }
+            //m.WriteObj(Path.Combine(destPath, $"{m.Name}.obj"));
+
+            cells.Add(new SpatialCell
+            {
+                QuadrantPath = m.Name,  // 使用坐标作为象限路径标识符
+                Depth = divisions,      // 分割深度
+                LodLevel = lodLevel,    // LOD级别
+                Mesh = m,               // 分割后的网格
+                Bounds = m.Bounds       // 使用网格自身的边界框
+            });
         }
 
         return cells;
@@ -470,7 +500,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// <summary>
     /// 为空间单元生成切片 - 生成阶段
     /// </summary>
-    private async Task<List<Slice>> GenerateTilesForCellsAsync(
+    private async Task<List<Slice>> GenerateTilesAsync(
         List<SpatialCell> cells,
         SlicingTask task,
         SlicingConfig config,
@@ -544,7 +574,6 @@ public class SlicingProcessor : ISlicingProcessor
                 CreatedAt = DateTime.UtcNow
             };
 
-            // 使用新架构：直接传递 MeshT
             var generated = await _dataService.GenerateSliceFileAsync(
                 slice,
                 config,
@@ -569,27 +598,17 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
-    /// 将象限路径转换为坐标
-    /// 支持两种格式：
-    /// 1. 新格式："x-y" → (x, y, 0)
-    /// 2. 旧格式："XL-YL-XR-YR" → 递归计算坐标
+    /// 将象限路径转换为坐标（用于向后兼容）
+    /// 例如：XL-YL-XR-YR → (x, y, z)
     /// </summary>
-    private (int x, int y, int z) ParseQuadrantPathToCoords(string quadrantPath)
+    private (int x, int y, int z) ParseQuadrantPathToCoords(string quadrantPath, bool zSplit = false)
     {
         if (string.IsNullOrEmpty(quadrantPath))
             return (0, 0, 0);
 
         var parts = quadrantPath.Split('-');
+        int x = 0, y = 0, z = 0;
 
-        // 新格式：直接解析数字坐标 "x-y"
-        if (parts.Length == 2 && int.TryParse(parts[0], out int x) && int.TryParse(parts[1], out int y))
-        {
-            return (x, y, 0);
-        }
-
-        // 旧格式：XL-YL-XR-YR 递归坐标计算（向后兼容）
-        x = 0;
-        y = 0;
         for (int i = 0; i < parts.Length; i += 2)
         {
             if (i + 1 < parts.Length)
@@ -602,13 +621,13 @@ public class SlicingProcessor : ISlicingProcessor
             }
         }
 
-        return (x, y, 0);
+        return (x, y, z);
     }
 
     /// <summary>
     /// 生成 tileset.json 文件
     /// </summary>
-    private async Task GenerateTilesetJsonAsync(
+    private async Task GenerateTilesetAsync(
         List<Slice> slices,
         Box3 modelBounds,
         SlicingConfig config,
@@ -617,7 +636,7 @@ public class SlicingProcessor : ISlicingProcessor
     {
         try
         {
-            await _dataService.GenerateTilesetJsonAsync(
+            await _dataService.GenerateTilesetAsync(
                 slices,
                 config,
                 modelBounds,

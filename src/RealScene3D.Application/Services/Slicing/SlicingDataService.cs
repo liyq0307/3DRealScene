@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using System.IO.Compression;
+using System.Text;
 using RealScene3D.Application.Interfaces;
 using RealScene3D.Application.Services.Generators;
 using RealScene3D.Domain.Entities;
@@ -6,9 +8,7 @@ using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.MinIO;
-using System.IO.Compression;
-using System.Text;
-using System.Text.Json;
+
 
 namespace RealScene3D.Application.Services.Slicing;
 
@@ -369,7 +369,7 @@ public class SlicingDataService
         CancellationToken cancellationToken)
     {
         // KeepOriginal 策略：直接返回原始网格
-        if (config.TextureStrategy == TextureStrategy.KeepOriginal)
+        if (config.TextureStrategy == TexturesStrategy.KeepOriginal)
         {
             _logger.LogDebug("切片({Level},{X},{Y},{Z})使用 KeepOriginal 策略，跳过纹理处理",
                 slice.Level, slice.X, slice.Y, slice.Z);
@@ -397,16 +397,6 @@ public class SlicingDataService
 
         try
         {
-            // 设置网格的纹理处理策略
-            // MeshT.WriteObj() 会根据此策略自动调用 TrimTextures()
-            mesh.TexturesStrategy = config.TextureStrategy switch
-            {
-                TextureStrategy.Repack => TexturesStrategy.Repack,
-                TextureStrategy.RepackCompressed => TexturesStrategy.RepackCompressed,
-                TextureStrategy.KeepOriginal => TexturesStrategy.KeepOriginal,
-                _ => TexturesStrategy.Repack
-            };
-
             // 创建临时目录用于保存打包后的纹理
             var tempFolder = Path.Combine(Path.GetTempPath(), "RealScene3D_TexturePacking", Guid.NewGuid().ToString());
             Directory.CreateDirectory(tempFolder);
@@ -523,7 +513,7 @@ public class SlicingDataService
     /// <summary>
     /// 生成 tileset.json 文件
     /// </summary>
-    public async Task<bool> GenerateTilesetJsonAsync(
+    public async Task<bool> GenerateTilesetAsync(
         List<Slice> taskSlices,
         SlicingConfig config,
         Box3 modelBounds,
@@ -557,7 +547,7 @@ public class SlicingDataService
             // 生成 tileset.json - 使用工厂模式获取TilesetGenerator
             var tilesetPath = Path.Combine(outputDirectory, "tileset.json");
             var tilesetGenerator = _tileGeneratorFactory.CreateTilesetGenerator();
-            await tilesetGenerator.GenerateTilesetJsonAsync(taskSlices, config, modelBounds, tilesetPath);
+            await tilesetGenerator.GenerateTilesetAsync(taskSlices, config, modelBounds, tilesetPath);
 
             // 如果是 MinIO 存储，上传 tileset.json
             if (storageLocation == StorageLocationType.MinIO)

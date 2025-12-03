@@ -8,6 +8,7 @@ using Path = System.IO.Path;
 using RealScene3D.Domain.Algorithms;
 using RealScene3D.Domain.Materials;
 using RealScene3D.Domain.Utils;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Geometry;
 
@@ -1439,30 +1440,4 @@ public class MeshT : IMesh
 
     public int FacesCount => _faces.Count;
     public int VertexCount => _vertices.Count;
-}
-
-/// <summary>
-/// 纹理处理策略
-/// </summary>
-public enum TexturesStrategy
-{
-    /// <summary>
-    /// 保持原样，不进行任何处理。
-    /// </summary>
-    KeepOriginal,
-
-    /// <summary>
-    /// 压缩纹理以减小文件大小，但保持其原始分辨率。
-    /// </summary>
-    Compress,
-
-    /// <summary>
-    /// 重新打包纹理以优化空间利用率，但保持其原始分辨率。
-    /// </summary>
-    Repack,
-
-    /// <summary>
-    /// 重新打包并压缩纹理以优化空间利用率和文件大小。
-    /// </summary>
-    RepackCompressed
 }

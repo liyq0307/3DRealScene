@@ -14,32 +14,45 @@ public enum SlicingTaskStatus
 }
 
 /// <summary>
-/// 纹理处理策略枚举
-/// 控制切片时纹理的处理方式
+/// 纹理处理策略
 /// </summary>
-public enum TextureStrategy
+public enum TexturesStrategy
 {
     /// <summary>
-    /// 重新打包纹理（默认，推荐）
-    /// 为每个切片生成专属的纹理图集，只包含该切片实际使用的纹理区域
-    /// 优点：大幅减少纹理文件大小，优化加载性能
-    /// 缺点：处理时间稍长
+    /// 保持原样，不进行任何处理。
     /// </summary>
-    Repack = 0,
+    KeepOriginal,
 
     /// <summary>
-    /// 保留原始纹理（不推荐）
-    /// 直接复制原始纹理文件，不进行重打包
-    /// 优点：处理速度快
-    /// 缺点：纹理文件较大，可能包含大量未使用的纹理区域
+    /// 压缩纹理以减小文件大小，但保持其原始分辨率。
     /// </summary>
-    KeepOriginal = 1,
+    Compress,
 
     /// <summary>
-    /// 重新打包并压缩纹理
-    /// 在重打包基础上对纹理进行压缩（JPEG质量75）
-    /// 优点：文件体积最小
-    /// 缺点：有一定质量损失
+    /// 重新打包纹理以优化空间利用率，但保持其原始分辨率。
     /// </summary>
-    RepackCompressed = 2
+    Repack,
+
+    /// <summary>
+    /// 重新打包并压缩纹理以优化空间利用率和文件大小。
+    /// </summary>
+    RepackCompressed
+}
+
+/// <summary>
+/// 自定义拆分策略
+/// </summary>
+public enum SplitPointStrategy
+{
+    /// <summary>
+    /// 绝对中心
+    /// 使用网格边界框的中心点作为拆分点
+    /// </summary>
+    AbsoluteCenter,
+
+    /// <summary>
+    /// 顶点重心
+    /// 使用网格顶点的重心作为拆分点
+    /// </summary>
+    VertexBaricenter
 }

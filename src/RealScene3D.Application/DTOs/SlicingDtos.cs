@@ -118,7 +118,7 @@ public class SlicingDtos
         /// KeepOriginal = 1 - 保留原始纹理，直接复制（不推荐）
         /// RepackCompressed = 2 - 重新打包并压缩纹理
         /// </summary>
-        public TextureStrategy TextureStrategy { get; set; } = TextureStrategy.Repack;
+        public TexturesStrategy TextureStrategy { get; set; } = TexturesStrategy.Repack;
 
         /// <summary>
         /// 存储位置

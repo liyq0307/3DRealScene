@@ -1,6 +1,7 @@
 using SixLabors.ImageSharp;
 using System.Globalization;
 using RealScene3D.Domain.Utils;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Geometry;
 

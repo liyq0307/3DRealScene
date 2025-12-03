@@ -1,5 +1,6 @@
 using RealScene3D.Domain.Materials;
 using RealScene3D.Domain.Utils;
+using RealScene3D.Domain.Enums;
 
 namespace RealScene3D.Domain.Geometry;
 

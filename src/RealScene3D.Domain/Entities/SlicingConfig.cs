@@ -46,7 +46,7 @@ public class SlicingConfig
     /// <summary>
     /// 纹理处理策略
     /// </summary>
-    public TextureStrategy TextureStrategy { get; set; } = TextureStrategy.Repack;
+    public TexturesStrategy TextureStrategy { get; set; } = TexturesStrategy.Repack;
 
     /// <summary>
     /// 几何误差阈值

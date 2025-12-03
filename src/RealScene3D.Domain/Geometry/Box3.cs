@@ -37,7 +37,6 @@ public class Box3
         return $"{Min:0.00} - {Max:0.00} ({Width:0.00}x{Height:0.00}x{Depth:0.00}) c: {Center:0.00}";
     }
 
-    // Override equals operator
     public override bool Equals(object? obj)
     {
         if (obj is Box3 box)
@@ -60,12 +59,18 @@ public class Box3
         return Min.GetHashCode() ^ Max.GetHashCode();
     }
 
-    public static bool operator ==(Box3 left, Box3 right)
+    public static bool operator ==(Box3? left, Box3? right)
     {
+        // 处理 null 比较
+        if (ReferenceEquals(left, null))
+            return ReferenceEquals(right, null);
+        if (ReferenceEquals(right, null))
+            return false;
+
         return left.Equals(right);
     }
 
-    public static bool operator !=(Box3 left, Box3 right)
+    public static bool operator !=(Box3? left, Box3? right)
     {
         return !(left == right);
     }
