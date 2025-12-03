@@ -89,14 +89,18 @@ public static class SlicingUtilities
                     return;
                 }
 
-                var deleted = await minioService.DeleteFileAsync("slices", filePath);
+                // 修复：MinIO要求使用正斜杠作为路径分隔符，需要将Windows的反斜杠转换为正斜杠
+                var minioPath = filePath.Replace('\\', '/');
+                logger.LogDebug("准备删除MinIO切片文件：{MinioPath}", minioPath);
+
+                var deleted = await minioService.DeleteFileAsync("slices", minioPath);
                 if (deleted)
                 {
-                    logger.LogInformation("✓ 成功删除MinIO切片文件: {FilePath}", filePath);
+                    logger.LogInformation("✓ 成功删除MinIO切片文件: {FilePath}", minioPath);
                 }
                 else
                 {
-                    logger.LogWarning("✗ MinIO切片文件删除失败或文件不存在: {FilePath}", filePath);
+                    logger.LogWarning("✗ MinIO切片文件删除失败或文件不存在: {FilePath}", minioPath);
                 }
             }
         }
@@ -185,11 +189,18 @@ public static class SlicingUtilities
                     return;
                 }
 
-                await minioService.DeleteFileAsync("slices", $"{filePath}/tileset.json");
-                await minioService.DeleteFileAsync("slices", $"{filePath}/index.json");
+                // 修复：MinIO要求使用正斜杠作为路径分隔符，需要将Windows的反斜杠转换为正斜杠
+                var minioBasePath = filePath.Replace('\\', '/');
+
+                logger.LogDebug("准备删除MinIO索引和tileset文件：{BasePath}", minioBasePath);
+
+                await minioService.DeleteFileAsync("slices", $"{minioBasePath}/tileset.json");
+                await minioService.DeleteFileAsync("slices", $"{minioBasePath}/index.json");
 
                 // 删除增量更新索引文件
-                await minioService.DeleteFileAsync("slices", $"{filePath}/incremental_index.json");
+                await minioService.DeleteFileAsync("slices", $"{minioBasePath}/incremental_index.json");
+
+                logger.LogInformation("✓ MinIO索引和tileset文件删除完成：{BasePath}", minioBasePath);
             }
         }
     }

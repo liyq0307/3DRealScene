@@ -257,16 +257,24 @@ public class SlicingDataService
         }
         else // MinIO
         {
+            // 修复：MinIO要求使用正斜杠作为路径分隔符，需要将Windows的反斜杠转换为正斜杠
+            var minioPath = slice.FilePath.Replace('\\', '/');
+
             _logger.LogInformation("准备上传切片到MinIO: bucket=slices, path={FilePath}, size={Size}",
-                slice.FilePath, fileContent.Length);
+                minioPath, fileContent.Length);
 
             using (var stream = new MemoryStream(fileContent, false))
             {
                 var contentType = GetContentType(config.OutputFormat);
-                await _minioService.UploadFileAsync("slices", slice.FilePath, stream, contentType, cancellationToken);
+                await _minioService.UploadFileAsync("slices", minioPath, stream, contentType, cancellationToken);
             }
+
+            // 关键修复：更新切片的FilePath为MinIO兼容的路径（正斜杠），
+            // 这样保存到数据库后，后续的下载、删除操作都能直接使用，无需再次转换
+            slice.FilePath = minioPath;
+
             _logger.LogInformation("切片文件已上传到MinIO：{FilePath}, 大小：{FileSize}",
-                slice.FilePath, fileContent.Length);
+                minioPath, fileContent.Length);
 
             fileContent = null; // 释放引用，帮助GC回收
         }
@@ -554,8 +562,16 @@ public class SlicingDataService
             {
                 var tilesetContent = await File.ReadAllBytesAsync(tilesetPath, cancellationToken);
                 using var tilesetStream = new MemoryStream(tilesetContent);
+
+                // 修复：MinIO上传时需要包含完整的路径前缀，并使用正斜杠
+                var minioTilesetPath = string.IsNullOrEmpty(outputPath)
+                    ? "tileset.json"
+                    : $"{outputPath.Replace('\\', '/')}/tileset.json";
+
                 await _minioService.UploadFileAsync(
-                    "slices", "tileset.json", tilesetStream, "application/json", cancellationToken);
+                    "slices", minioTilesetPath, tilesetStream, "application/json", cancellationToken);
+
+                _logger.LogInformation("tileset.json已上传到MinIO：{Path}", minioTilesetPath);
 
                 // 清理临时文件
                 if (Directory.Exists(outputDirectory))

@@ -110,8 +110,6 @@ public class IncrementalUpdateService
             WriteIndented = true
         });
 
-        var indexPath = $"{task.OutputPath}/incremental_index.json";
-
         if (config.StorageLocation == StorageLocationType.LocalFileSystem)
         {
             var fullPath = Path.Combine(task.OutputPath!, "incremental_index.json");
@@ -125,6 +123,9 @@ public class IncrementalUpdateService
         }
         else
         {
+            // 修复：MinIO路径需要使用正斜杠
+            var indexPath = $"{task.OutputPath!.Replace('\\', '/')}/incremental_index.json";
+
             using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(indexContent)))
             {
                 await _minioService.UploadFileAsync("slices", indexPath, stream, "application/json", cancellationToken);
@@ -132,7 +133,7 @@ public class IncrementalUpdateService
             _logger.LogInformation("增量更新索引文件已上传到MinIO：{FilePath}", indexPath);
         }
 
-        _logger.LogInformation("增量更新索引已生成：{IndexPath}", indexPath);
+        _logger.LogInformation("增量更新索引已生成：任务{TaskId}", task.Id);
     }
 
     /// <summary>

@@ -833,8 +833,8 @@ public class SlicingAppService : ISlicingAppService
                 return null;
             }
 
-            // 构造索引文件路径
-            var indexPath = $"{task.OutputPath}/incremental_index.json";
+            // 构造索引文件路径 - 修复：确保路径使用MinIO兼容的正斜杠格式
+            var indexPath = $"{task.OutputPath!.Replace('\\', '/')}/incremental_index.json";
 
             // 检查文件是否存在
             var fileExists = await _minioService.FileExistsAsync("slices", indexPath);
