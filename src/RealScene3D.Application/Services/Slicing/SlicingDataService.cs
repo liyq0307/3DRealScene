@@ -7,6 +7,7 @@ using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Interfaces;
+using RealScene3D.Domain.Materials;
 using RealScene3D.Infrastructure.MinIO;
 
 
@@ -156,7 +157,7 @@ public class SlicingDataService
 
             _logger.LogInformation("从MinIO加载完成：{VertexCount} 个顶点, {FaceCount} 个面",
                 result.Mesh.Vertices.Count, result.Mesh.Faces.Count);
-                
+
             return result;
         }
         finally
@@ -201,7 +202,7 @@ public class SlicingDataService
     /// 支持纹理重打包策略
     /// 支持有纹理（MeshT）和无纹理（Mesh）两种情况
     /// </summary>
-    public async Task<bool> GenerateSliceFileAsync(
+    public async Task<bool> GenerateTileAsync(
         Slice slice,
         SlicingConfig config,
         IMesh mesh,
@@ -215,33 +216,16 @@ public class SlicingDataService
             return false;
         }
 
-        // 纹理处理 - 仅对有纹理的 MeshT 进行纹理处理
-        IMesh processedMesh;
-        if (mesh.HasTexture && mesh is MeshT meshT)
-        {
-            processedMesh = await ProcessTexturesAsync(meshT, slice, config, cancellationToken);
-        }
-        else
-        {
-            // 无纹理网格直接使用
-            processedMesh = mesh;
-        }
-
         // 根据输出格式生成文件内容
         byte[]? fileContent = config.OutputFormat.ToLower() switch
         {
-            "b3dm" => await GenerateB3DMAsync(slice, processedMesh),
-            "gltf" => await GenerateGLTFAsync(slice, processedMesh),
-            "i3dm" => await GenerateI3DMAsync(slice, processedMesh),
-            "pnts" => await GeneratePNTSAsync(slice, processedMesh),
-            "cmpt" => await GenerateCmptAsync(slice, processedMesh),
-            _ => await GenerateB3DMAsync(slice, processedMesh)
+            "b3dm" => await GenerateB3DMAsync(slice, mesh),
+            "gltf" => await GenerateGLTFAsync(slice, mesh),
+            "i3dm" => await GenerateI3DMAsync(slice, mesh),
+            "pnts" => await GeneratePNTSAsync(slice, mesh),
+            "cmpt" => await GenerateCmptAsync(slice, mesh),
+            _ => await GenerateB3DMAsync(slice, mesh)
         };
-
-        // 注意：不要对 3D Tiles 格式文件进行 Gzip 压缩
-        // 3D Tiles 格式（B3DM、GLTF、I3DM、PNTS、CMPT）已经包含了压缩的几何数据
-        // HTTP 服务器应该在传输时处理压缩（Content-Encoding: gzip），而不是文件存储时
-        // 如果对文件本身进行 Gzip 压缩，会导致 3DTilesViewer 无法识别文件格式
 
         // 根据存储位置类型保存文件
         if (config.StorageLocation == StorageLocationType.LocalFileSystem)
@@ -257,7 +241,7 @@ public class SlicingDataService
         }
         else // MinIO
         {
-            // 修复：MinIO要求使用正斜杠作为路径分隔符，需要将Windows的反斜杠转换为正斜杠
+            // MinIO要求使用正斜杠作为路径分隔符，需要将Windows的反斜杠转换为正斜杠
             var minioPath = slice.FilePath.Replace('\\', '/');
 
             _logger.LogInformation("准备上传切片到MinIO: bucket=slices, path={FilePath}, size={Size}",
@@ -269,7 +253,7 @@ public class SlicingDataService
                 await _minioService.UploadFileAsync("slices", minioPath, stream, contentType, cancellationToken);
             }
 
-            // 关键修复：更新切片的FilePath为MinIO兼容的路径（正斜杠），
+            // 更新切片的FilePath为MinIO兼容的路径（正斜杠），
             // 这样保存到数据库后，后续的下载、删除操作都能直接使用，无需再次转换
             slice.FilePath = minioPath;
 
@@ -361,189 +345,6 @@ public class SlicingDataService
         return await Task.FromResult(cmptData);
     }
 
-    /// <summary>
-    /// 纹理处理 - 根据配置的纹理策略处理网格材质和纹理
-    /// 策略：
-    /// - KeepOriginal：保持原始纹理不变
-    /// - Repack：重新打包纹理，只包含切片使用的纹理区域
-    /// - RepackCompressed：重新打包并压缩纹理（JPEG质量75）
-    ///
-    /// 实现：通过调用 MeshT.WriteObj() 触发内置的纹理打包逻辑
-    /// </summary>
-    private async Task<MeshT> ProcessTexturesAsync(
-        MeshT mesh,
-        Slice slice,
-        SlicingConfig config,
-        CancellationToken cancellationToken)
-    {
-        // KeepOriginal 策略：直接返回原始网格
-        if (config.TextureStrategy == TexturesStrategy.KeepOriginal)
-        {
-            _logger.LogDebug("切片({Level},{X},{Y},{Z})使用 KeepOriginal 策略，跳过纹理处理",
-                slice.Level, slice.X, slice.Y, slice.Z);
-            return mesh;
-        }
-
-        // 检查是否有材质和纹理需要处理
-        if (mesh.Materials.Count == 0 || mesh.TextureVertices.Count == 0)
-        {
-            _logger.LogDebug("切片({Level},{X},{Y},{Z})没有材质或纹理坐标，跳过纹理处理",
-                slice.Level, slice.X, slice.Y, slice.Z);
-            return mesh;
-        }
-
-        // 检查是否有实际的纹理文件
-        bool hasTextures = mesh.Materials.Any(m =>
-            !string.IsNullOrEmpty(m.Texture) && File.Exists(m.Texture));
-
-        if (!hasTextures)
-        {
-            _logger.LogDebug("切片({Level},{X},{Y},{Z})没有有效的纹理文件，跳过纹理处理",
-                slice.Level, slice.X, slice.Y, slice.Z);
-            return mesh;
-        }
-
-        try
-        {
-            // 创建临时目录用于保存打包后的纹理
-            var tempFolder = Path.Combine(Path.GetTempPath(), "RealScene3D_TexturePacking", Guid.NewGuid().ToString());
-            Directory.CreateDirectory(tempFolder);
-
-            try
-            {
-                // 关键修复：设置纹理策略，确保 TrimTextures() 被调用
-                mesh.TexturesStrategy = config.TextureStrategy;
-
-                _logger.LogDebug("切片({Level},{X},{Y},{Z})开始纹理打包：策略={Strategy}",
-                    slice.Level, slice.X, slice.Y, slice.Z, config.TextureStrategy);
-
-                // 调用 WriteObj 触发纹理打包
-                // 这会调用 MeshT 内部的 TrimTextures() 方法
-                // 生成优化的纹理图集并更新 UV 坐标
-                var tempObjPath = Path.Combine(tempFolder, "temp.obj");
-                mesh.WriteObj(tempObjPath, removeUnused: false);
-
-                // 重要：将打包后的纹理加载到内存中（而不是保存文件路径）
-                // TrimTextures() 将纹理保存到 tempFolder，文件名已更新到 Material.Texture
-                _logger.LogDebug("开始加载打包后的纹理到内存，材质数={Count}", mesh.Materials.Count);
-
-                int loadedCount = 0;
-                int skippedCount = 0;
-                int errorCount = 0;
-
-                foreach (var material in mesh.Materials)
-                {
-                    if (!string.IsNullOrEmpty(material.Texture))
-                    {
-                        // 构建完整路径
-                        var texturePath = Path.IsPathRooted(material.Texture)
-                            ? material.Texture
-                            : Path.Combine(tempFolder, material.Texture);
-
-                        _logger.LogDebug("材质 {MaterialName}: Texture={Texture}, 完整路径={FullPath}",
-                            material.Name, material.Texture, texturePath);
-
-                        if (File.Exists(texturePath))
-                        {
-                            try
-                            {
-                                // 加载到内存
-                                material.TextureImage = await SixLabors.ImageSharp.Image.LoadAsync<SixLabors.ImageSharp.PixelFormats.Rgba32>(texturePath);
-                                _logger.LogDebug("✓ 材质 {MaterialName} 纹理已加载到内存：{W}x{H}",
-                                    material.Name, material.TextureImage.Width, material.TextureImage.Height);
-
-                                // 清空文件路径，强制使用内存数据
-                                material.Texture = null;
-                                loadedCount++;
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "✗ 材质 {MaterialName} 加载纹理失败：{Path}", material.Name, texturePath);
-                                errorCount++;
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogWarning("✗ 材质 {MaterialName} 纹理文件不存在：{Path}", material.Name, texturePath);
-                            skippedCount++;
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogDebug("- 材质 {MaterialName} 没有纹理路径", material.Name);
-                        skippedCount++;
-                    }
-
-                    if (!string.IsNullOrEmpty(material.NormalMap))
-                    {
-                        var normalMapPath = Path.IsPathRooted(material.NormalMap)
-                            ? material.NormalMap
-                            : Path.Combine(tempFolder, material.NormalMap);
-
-                        if (File.Exists(normalMapPath))
-                        {
-                            try
-                            {
-                                material.NormalMapImage = await SixLabors.ImageSharp.Image.LoadAsync<SixLabors.ImageSharp.PixelFormats.Rgba32>(normalMapPath);
-                                _logger.LogDebug("材质 {MaterialName} 法线贴图已加载到内存：{W}x{H}",
-                                    material.Name, material.NormalMapImage.Width, material.NormalMapImage.Height);
-
-                                material.NormalMap = null;
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "加载法线贴图到内存失败：{Path}", normalMapPath);
-                            }
-                        }
-                    }
-                }
-
-                _logger.LogInformation("切片({Level},{X},{Y},{Z})纹理加载完成：成功={Loaded}, 跳过={Skipped}, 失败={Error}",
-                    slice.Level, slice.X, slice.Y, slice.Z, loadedCount, skippedCount, errorCount);
-
-                _logger.LogInformation("切片({Level},{X},{Y},{Z})纹理打包完成：策略={Strategy}, 材质数={MaterialCount}",
-                    slice.Level, slice.X, slice.Y, slice.Z, config.TextureStrategy, mesh.Materials.Count);
-
-                // 删除整个临时目录（包括 OBJ/MTL/纹理文件）
-                try
-                {
-                    Directory.Delete(tempFolder, recursive: true);
-                    _logger.LogDebug("临时纹理目录已清理：{TempFolder}", tempFolder);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "清理临时目录失败：{TempFolder}", tempFolder);
-                }
-
-                // 返回处理后的网格
-                return await Task.FromResult(mesh);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "切片({Level},{X},{Y},{Z})纹理打包失败，使用原始材质",
-                    slice.Level, slice.X, slice.Y, slice.Z);
-
-                // 清理临时目录
-                try
-                {
-                    if (Directory.Exists(tempFolder))
-                    {
-                        Directory.Delete(tempFolder, recursive: true);
-                    }
-                }
-                catch { }
-            }
-
-            return await Task.FromResult(mesh);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "切片({Level},{X},{Y},{Z})纹理处理失败，使用原始材质",
-                slice.Level, slice.X, slice.Y, slice.Z);
-            return mesh;
-        }
-    }
-
     #endregion
 
     #region Tileset 生成
@@ -593,7 +394,7 @@ public class SlicingDataService
                 var tilesetContent = await File.ReadAllBytesAsync(tilesetPath, cancellationToken);
                 using var tilesetStream = new MemoryStream(tilesetContent);
 
-                // 修复：MinIO上传时需要包含完整的路径前缀，并使用正斜杠
+                // MinIO上传时需要包含完整的路径前缀，并使用正斜杠
                 var minioTilesetPath = string.IsNullOrEmpty(outputPath)
                     ? "tileset.json"
                     : $"{outputPath.Replace('\\', '/')}/tileset.json";
@@ -638,40 +439,6 @@ public class SlicingDataService
                 await gzipStream.WriteAsync(content, 0, content.Length);
             }
             return compressedStream.ToArray();
-        }
-    }
-
-    /// <summary>
-    /// 计算几何误差
-    /// </summary>
-    private double CalculateGeometricError(int level, SlicingConfig config)
-    {
-        var baseError = config.GeometricErrorThreshold;
-        var errorFactor = Math.Pow(2.0, config.Divisions - level);
-        return baseError * errorFactor;
-    }
-
-    /// <summary>
-    /// 计算渲染优先级
-    /// </summary>
-    private int CalculateRenderingPriority(int level, dynamic center)
-    {
-        var levelPriority = level * 1000;
-        var distanceToOrigin = Math.Sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
-        var distancePriority = (int)(distanceToOrigin / 10.0);
-        return levelPriority + distancePriority;
-    }
-
-    /// <summary>
-    /// 计算元数据校验和
-    /// </summary>
-    private string CalculateMetadataChecksum(Slice slice)
-    {
-        var checksumInput = $"{slice.Id}|{slice.Level}|{slice.X}|{slice.Y}|{slice.Z}|{slice.FileSize}|{slice.BoundingBox}";
-        using (var sha256 = System.Security.Cryptography.SHA256.Create())
-        {
-            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(checksumInput));
-            return Convert.ToHexString(hashBytes).ToLower().Substring(0, 16);
         }
     }
 

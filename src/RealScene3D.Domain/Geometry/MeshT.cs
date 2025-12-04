@@ -1440,4 +1440,414 @@ public class MeshT : IMesh
 
     public int FacesCount => _faces.Count;
     public int VertexCount => _vertices.Count;
+
+    /// <summary>
+    /// 打包材质：移除未使用的顶点和UV，并重新打包纹理
+    /// 此方法会就地修改当前 mesh，避免文件I/O开销
+    /// </summary>
+    /// <param name="removeUnused">是否移除未使用的顶点</param>
+    /// <returns>返回当前 mesh 实例</returns>
+    public IMesh PackMaterials(bool removeUnused = true)
+    {
+        bool bHasTexture = _materials.Count > 0 && _textureVertices.Count > 0;
+
+        // 移除未使用的顶点、UV和材质
+        if (removeUnused)
+        {
+            if (bHasTexture)
+                RemoveUnusedVerticesAndUvs();
+            else
+                RemoveUnusedVertices();
+        }
+
+        // 如果有纹理和材质，根据策略处理纹理
+        if (bHasTexture)
+        {
+            switch (TexturesStrategy)
+            {
+                case TexturesStrategy.KeepOriginal:
+                    // 将原始纹理加载到内存
+                    LoadTexturesToMemory();
+                    break;
+
+                case TexturesStrategy.Compress:
+                    // 将纹理加载到内存并压缩
+                    LoadAndCompressTexturesToMemory();
+                    break;
+
+                case TexturesStrategy.Repack:
+                case TexturesStrategy.RepackCompressed:
+                    // 在内存中重新打包纹理
+                    TrimTexturesInMemory();
+                    break;
+            }
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// 将原始纹理加载到内存中，不进行任何处理
+    /// </summary>
+    private void LoadTexturesToMemory()
+    {
+        Debug.WriteLine($"加载 {Name} 的纹理到内存（保持原样）");
+
+        foreach (var material in _materials)
+        {
+            // 加载漫反射纹理
+            if (!string.IsNullOrEmpty(material.Texture) && File.Exists(material.Texture))
+            {
+                try
+                {
+                    material.TextureImage = Image.Load<Rgba32>(material.Texture);
+                    Debug.WriteLine($"已加载纹理到内存: {material.Texture}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"加载纹理失败 {material.Texture}: {ex.Message}");
+                }
+            }
+
+            // 加载法线贴图
+            if (!string.IsNullOrEmpty(material.NormalMap) && File.Exists(material.NormalMap))
+            {
+                try
+                {
+                    material.NormalMapImage = Image.Load<Rgba32>(material.NormalMap);
+                    Debug.WriteLine($"已加载法线贴图到内存: {material.NormalMap}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"加载法线贴图失败 {material.NormalMap}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 将纹理加载到内存并压缩（JPEG质量75%）
+    /// </summary>
+    private void LoadAndCompressTexturesToMemory()
+    {
+        Debug.WriteLine($"加载并压缩 {Name} 的纹理到内存");
+
+        foreach (var material in _materials)
+        {
+            // 处理漫反射纹理
+            if (!string.IsNullOrEmpty(material.Texture) && File.Exists(material.Texture))
+            {
+                try
+                {
+                    using var originalImage = Image.Load<Rgba32>(material.Texture);
+
+                    // 压缩到内存流
+                    using var memoryStream = new MemoryStream();
+                    originalImage.SaveAsJpeg(memoryStream, encoder);
+                    memoryStream.Position = 0;
+
+                    // 从压缩后的流重新加载
+                    material.TextureImage = Image.Load<Rgba32>(memoryStream);
+
+                    // 更新文件扩展名为 .jpg
+                    material.Texture = Path.ChangeExtension(material.Texture, ".jpg");
+
+                    Debug.WriteLine($"已压缩纹理到内存: {material.Texture}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"压缩纹理失败 {material.Texture}: {ex.Message}");
+                }
+            }
+
+            // 处理法线贴图
+            if (!string.IsNullOrEmpty(material.NormalMap) && File.Exists(material.NormalMap))
+            {
+                try
+                {
+                    using var originalImage = Image.Load<Rgba32>(material.NormalMap);
+
+                    // 压缩到内存流
+                    using var memoryStream = new MemoryStream();
+                    originalImage.SaveAsJpeg(memoryStream, encoder);
+                    memoryStream.Position = 0;
+
+                    // 从压缩后的流重新加载
+                    material.NormalMapImage = Image.Load<Rgba32>(memoryStream);
+
+                    // 更新文件扩展名为 .jpg
+                    material.NormalMap = Path.ChangeExtension(material.NormalMap, ".jpg");
+
+                    Debug.WriteLine($"已压缩法线贴图到内存: {material.NormalMap}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"压缩法线贴图失败 {material.NormalMap}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 在内存中修剪和打包纹理，不写入文件
+    /// 打包后的纹理数据保存在 Material.TextureImage 和 Material.NormalMapImage 中
+    /// </summary>
+    private void TrimTexturesInMemory()
+    {
+        Debug.WriteLine("在内存中修剪 " + Name + " 的纹理");
+
+        LoadTexturesCache();
+
+        var facesByMaterial = GetFacesByMaterial();
+        var newTextureVertices = new Dictionary<Vertex2, int>(_textureVertices.Count);
+
+        for (var m = 0; m < facesByMaterial.Count; m++)
+        {
+            var material = _materials[m];
+            var facesIndexes = facesByMaterial[m];
+
+            if (facesIndexes.Count == 0)
+            {
+                Debug.WriteLine("此材质没有面");
+                continue;
+            }
+
+            Debug.WriteLine($"处理材质 {m} -> {material.Name}");
+
+            var edgesMapper = GetEdgesMapper(facesIndexes);
+            var facesMapper = GetFacesMapper(edgesMapper);
+            var clusters = GetFacesClusters(facesIndexes, facesMapper);
+            clusters.Sort((a, b) => b.Count.CompareTo(a.Count));
+
+            Debug.WriteLine($"材质 {material.Name} 有 {clusters.Count} 个簇");
+
+            BinPackTexturesInMemory(m, clusters, newTextureVertices);
+        }
+
+        _textureVertices = newTextureVertices.OrderBy(item => item.Value).Select(item => item.Key).ToList();
+    }
+
+    /// <summary>
+    /// 在内存中二进制打包纹理，不写入文件
+    /// </summary>
+    private void BinPackTexturesInMemory(int materialIndex, IReadOnlyList<List<int>> clusters,
+        IDictionary<Vertex2, int> newTextureVertices)
+    {
+        const int PADDING = 2;
+
+        var material = _materials[materialIndex];
+
+        if (material.Texture == null && material.NormalMap == null) return;
+
+        var texture = material.Texture != null ? TexturesCache.GetTexture(material.Texture) : null;
+        var normalMap = material.NormalMap != null ? TexturesCache.GetTexture(material.NormalMap) : null;
+
+        int textureWidth = material.Texture != null ? texture!.Width : normalMap!.Width;
+        int textureHeight = material.Texture != null ? texture!.Height : normalMap!.Height;
+
+        var clustersRects = clusters.Select(GetClusterRect).ToArray();
+
+        CalculateMaxMinAreaRect(clustersRects, textureWidth, textureHeight, PADDING, out var maxWidth, out var maxHeight,
+            out var textureArea);
+
+        var edgeLength = Math.Max(Common.NextPowerOfTwo((int)Math.Sqrt(textureArea)), 32);
+
+        if (edgeLength < maxWidth)
+            edgeLength = Common.NextPowerOfTwo((int)maxWidth);
+
+        if (edgeLength < maxHeight)
+            edgeLength = Common.NextPowerOfTwo((int)maxHeight);
+
+        var binPack = new MaxRectanglesBinPack(edgeLength, edgeLength, false);
+
+        var newTexture = material.Texture != null ? new Image<Rgba32>(edgeLength, edgeLength) : null;
+        var newNormalMap = material.NormalMap != null ? new Image<Rgba32>(edgeLength, edgeLength) : null;
+
+        int count = 0;
+
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            var cluster = clusters[i];
+            var clusterBoundary = clustersRects[i];
+
+            double u0 = clusterBoundary.Left;
+            double v0 = clusterBoundary.Top;
+            double u1 = u0 + clusterBoundary.Width;
+            double v1 = v0 + clusterBoundary.Height;
+
+            int tileU = (int)Math.Floor(u0 + 1e-4);
+            int tileV = (int)Math.Floor(v0 + 1e-4);
+
+            double u0f = Math.Clamp(u0 - tileU, 0.0, 1.0);
+            double v0f = Math.Clamp(v0 - tileV, 0.0, 1.0);
+            double u1f = Math.Clamp(u1 - tileU, 0.0, 1.0);
+            double v1f = Math.Clamp(v1 - tileV, 0.0, 1.0);
+
+            int sx = Math.Clamp((int)Math.Floor(u0f * textureWidth + 0.5), 0, textureWidth - 1);
+            int ex = Math.Clamp((int)Math.Ceiling(u1f * textureWidth - 0.5), 1, textureWidth);
+            int sb = Math.Clamp((int)Math.Floor(v0f * textureHeight + 0.5), 0, textureHeight - 1);
+            int eb = Math.Clamp((int)Math.Ceiling(v1f * textureHeight - 0.5), 1, textureHeight);
+
+            int sw = Math.Max(1, ex - sx);
+            int sh = Math.Max(1, eb - sb);
+
+            int syTL = Math.Clamp(textureHeight - eb, 0, textureHeight - sh);
+            var srcRect = new Rectangle(sx, syTL, sw, sh);
+
+            var packRect = binPack.Insert(sw + 2 * PADDING, sh + 2 * PADDING,
+                                          FreeRectangleChoiceHeuristic.RectangleBestAreaFit);
+
+            if (packRect.Width == 0)
+            {
+                // 保存当前atlas到内存（根据策略决定是否压缩）
+                if (material.Texture != null)
+                {
+                    material.TextureImage = CompressImageIfNeeded(newTexture!);
+                    material.Texture = TexturesStrategy == TexturesStrategy.RepackCompressed
+                        ? $"{Name}-texture-diffuse-{material.Name}.jpg"
+                        : $"{Name}-texture-diffuse-{material.Name}{GetOriginalTextureExtension(material.Texture)}";
+                }
+
+                if (material.NormalMap != null)
+                {
+                    material.NormalMapImage = CompressImageIfNeeded(newNormalMap!);
+                    material.NormalMap = TexturesStrategy == TexturesStrategy.RepackCompressed
+                        ? $"{Name}-texture-normal-{material.Name}.jpg"
+                        : $"{Name}-texture-normal-{material.Name}{GetOriginalTextureExtension(material.NormalMap)}";
+                }
+
+                // 创建新atlas
+                newTexture = material.Texture != null ? new Image<Rgba32>(edgeLength, edgeLength) : null;
+                newNormalMap = material.NormalMap != null ? new Image<Rgba32>(edgeLength, edgeLength) : null;
+                binPack = new MaxRectanglesBinPack(edgeLength, edgeLength, false);
+
+                // 克隆材质
+                count++;
+                var textureExt = TexturesStrategy == TexturesStrategy.RepackCompressed ? ".jpg" : GetOriginalTextureExtension(material.Texture ?? "");
+                var normalExt = TexturesStrategy == TexturesStrategy.RepackCompressed ? ".jpg" : GetOriginalTextureExtension(material.NormalMap ?? "");
+
+                material = new Material(material.Name + "-" + count,
+                    material.Texture != null ? $"{Name}-texture-diffuse-{material.Name}-{count}{textureExt}" : null,
+                    material.NormalMap != null ? $"{Name}-texture-normal-{material.Name}-{count}{normalExt}" : null,
+                    material.AmbientColor, material.DiffuseColor, material.SpecularColor,
+                    material.SpecularExponent, material.Dissolve, material.IlluminationModel);
+                _materials.Add(material);
+                materialIndex = _materials.Count - 1;
+
+                packRect = binPack.Insert(sw + 2 * PADDING, sh + 2 * PADDING,
+                                          FreeRectangleChoiceHeuristic.RectangleBestAreaFit);
+                if (packRect.Width == 0)
+                    throw new Exception($"Packing failed for {sw}x{sh} into {edgeLength}x{edgeLength}");
+            }
+
+            int destInnerX = packRect.X + PADDING;
+            int destInnerY = packRect.Y + PADDING;
+            int destOuterX = destInnerX - PADDING;
+            int destOuterY = destInnerY - PADDING;
+
+            if (material.Texture != null)
+            {
+                using var block = BuildPaddedBlock(texture!, srcRect, PADDING);
+                newTexture!.Mutate(c => c.DrawImage(block, new Point(destOuterX, destOuterY), 1f));
+            }
+            if (material.NormalMap != null)
+            {
+                using var blockN = BuildPaddedBlock(normalMap!, srcRect, PADDING);
+                newNormalMap!.Mutate(c => c.DrawImage(blockN, new Point(destOuterX, destOuterY), 1f));
+            }
+
+            double innerWpx = sw;
+            double innerHpx = sh;
+
+            double atlasU0 = destInnerX / (double)edgeLength;
+            double atlasV0 = (edgeLength - (destInnerY + sh)) / (double)edgeLength;
+            double innerUw = sw / (double)edgeLength;
+            double innerVh = sh / (double)edgeLength;
+
+            Vertex2 MapUV(double rx, double ry) =>
+                new((float)Math.Clamp(atlasU0 + rx * innerUw, 0, 1),
+                    (float)Math.Clamp(atlasV0 + ry * innerVh, 0, 1));
+
+            for (int idx = 0; idx < cluster.Count; idx++)
+            {
+                var faceIndex = cluster[idx];
+                var face = _faces[faceIndex];
+
+                var vtA = _textureVertices[face.TextureIndexA];
+                var vtB = _textureVertices[face.TextureIndexB];
+                var vtC = _textureVertices[face.TextureIndexC];
+
+                double rxA = (vtA.X - u0) / Math.Max(u1 - u0, double.Epsilon);
+                double ryA = (vtA.Y - v0) / Math.Max(v1 - v0, double.Epsilon);
+                double rxB = (vtB.X - u0) / Math.Max(u1 - u0, double.Epsilon);
+                double ryB = (vtB.Y - v0) / Math.Max(v1 - v0, double.Epsilon);
+                double rxC = (vtC.X - u0) / Math.Max(u1 - u0, double.Epsilon);
+                double ryC = (vtC.Y - v0) / Math.Max(v1 - v0, double.Epsilon);
+
+                var newVtA = MapUV(rxA, ryA);
+                var newVtB = MapUV(rxB, ryB);
+                var newVtC = MapUV(rxC, ryC);
+
+                var newIndexVtA = newTextureVertices.AddIndex(newVtA);
+                var newIndexVtB = newTextureVertices.AddIndex(newVtB);
+                var newIndexVtC = newTextureVertices.AddIndex(newVtC);
+
+                face.TextureIndexA = newIndexVtA;
+                face.TextureIndexB = newIndexVtB;
+                face.TextureIndexC = newIndexVtC;
+                face.MaterialIndex = materialIndex;
+            }
+        }
+
+        // 保存最终的atlas到内存（根据策略决定是否压缩）
+        if (material.Texture != null)
+        {
+            material.TextureImage = CompressImageIfNeeded(newTexture!);
+            material.Texture = TexturesStrategy == TexturesStrategy.RepackCompressed
+                ? $"{Name}-texture-diffuse-{material.Name}.jpg"
+                : $"{Name}-texture-diffuse-{material.Name}{GetOriginalTextureExtension(material.Texture)}";
+        }
+
+        if (material.NormalMap != null)
+        {
+            material.NormalMapImage = CompressImageIfNeeded(newNormalMap!);
+            material.NormalMap = TexturesStrategy == TexturesStrategy.RepackCompressed
+                ? $"{Name}-texture-normal-{material.Name}.jpg"
+                : $"{Name}-texture-normal-{material.Name}{GetOriginalTextureExtension(material.NormalMap)}";
+        }
+
+        Debug.WriteLine($"纹理已打包到内存中：{material.Name}，压缩={TexturesStrategy == TexturesStrategy.RepackCompressed}");
+    }
+
+    /// <summary>
+    /// 根据纹理策略决定是否压缩图像
+    /// </summary>
+    private Image<Rgba32> CompressImageIfNeeded(Image<Rgba32> image)
+    {
+        if (TexturesStrategy == TexturesStrategy.RepackCompressed)
+        {
+            // 压缩为JPEG（质量75%）
+            using var memoryStream = new MemoryStream();
+            image.SaveAsJpeg(memoryStream, encoder);
+            memoryStream.Position = 0;
+
+            // 释放原始图像
+            image.Dispose();
+
+            // 从压缩流重新加载
+            return Image.Load<Rgba32>(memoryStream);
+        }
+
+        // 不压缩，直接返回原图像
+        return image;
+    }
+
+    /// <summary>
+    /// 获取原始纹理的文件扩展名
+    /// </summary>
+    private static string GetOriginalTextureExtension(string texturePath)
+    {
+        var ext = Path.GetExtension(texturePath);
+        return string.IsNullOrEmpty(ext) ? ".png" : ext;
+    }
 }

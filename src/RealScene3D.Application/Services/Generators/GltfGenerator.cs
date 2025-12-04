@@ -360,6 +360,7 @@ public class GltfGenerator : TileGenerator
             var n2 = normals[face.IndexC];
 
             // 获取纹理坐标
+            // 注意：需要翻转 V 坐标，因为 OBJ 使用左下角原点（V 向上），而 glTF 使用左上角原点（V 向下）
             SysVector2 t0, t1, t2;
             if (face.TextureIndexA < mesh.TextureVertices.Count &&
                 face.TextureIndexB < mesh.TextureVertices.Count &&
@@ -369,9 +370,10 @@ public class GltfGenerator : TileGenerator
                 var tv1 = mesh.TextureVertices[face.TextureIndexB];
                 var tv2 = mesh.TextureVertices[face.TextureIndexC];
 
-                t0 = new SysVector2((float)tv0.X, (float)tv0.Y);
-                t1 = new SysVector2((float)tv1.X, (float)tv1.Y);
-                t2 = new SysVector2((float)tv2.X, (float)tv2.Y);
+                // 翻转 V 坐标以适配 glTF 坐标系统
+                t0 = new SysVector2((float)tv0.X, 1.0f - (float)tv0.Y);
+                t1 = new SysVector2((float)tv1.X, 1.0f - (float)tv1.Y);
+                t2 = new SysVector2((float)tv2.X, 1.0f - (float)tv2.Y);
             }
             else
             {

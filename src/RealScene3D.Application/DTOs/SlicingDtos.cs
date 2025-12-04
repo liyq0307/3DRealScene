@@ -114,9 +114,10 @@ public class SlicingDtos
 
         /// <summary>
         /// 纹理处理策略
-        /// Repack = 0 - 重新打包纹理，为每个切片生成专属纹理图集（默认，推荐）
-        /// KeepOriginal = 1 - 保留原始纹理，直接复制（不推荐）
-        /// RepackCompressed = 2 - 重新打包并压缩纹理
+        /// KeepOriginal = 0 - 保持原样，不进行任何处理
+        /// Compress = 1 - 压缩纹理以减小文件大小，但保持其原始分辨率
+        /// Repack = 2 - 重新打包纹理以优化空间利用率，为每个切片生成专属纹理图集（默认，推荐）
+        /// RepackCompressed = 3 - 重新打包并压缩纹理以优化空间利用率和文件大小
         /// </summary>
         public TexturesStrategy TextureStrategy { get; set; } = TexturesStrategy.Repack;
 

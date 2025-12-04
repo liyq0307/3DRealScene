@@ -428,4 +428,17 @@ public class Mesh : IMesh
     /// 纹理处理策略（对于无纹理网格，此属性无实际作用）
     /// </summary>
     public TexturesStrategy TexturesStrategy { get; set; }
+
+    /// <summary>
+    /// 打包材质：移除未使用的顶点和UV，并重新打包纹理
+    /// 此方法会就地修改当前 mesh，避免文件I/O开销
+    /// </summary>
+    /// <param name="removeUnused"是否移除未使用的顶点</param>
+    /// <returns>返回当前 mesh 实例</returns>
+    public IMesh PackMaterials(bool removeUnused = true)
+    {
+        // 无纹理网格仅移除未使用的顶点
+        RemoveUnusedVertices();
+        return this;
+    }
 }

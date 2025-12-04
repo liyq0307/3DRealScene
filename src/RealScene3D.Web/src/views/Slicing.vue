@@ -317,9 +317,10 @@
           <div class="form-group">
             <label>纹理策略 *</label>
             <select v-model.number="taskForm.textureStrategy" class="form-select">
-              <option :value="0">Repack - 仅打包（PNG格式）</option>
-              <option :value="2">RepackCompressed - 打包+压缩（JPEG质量75，推荐）✨</option>
-              <option :value="1">KeepOriginal - 保留原始（不推荐）</option>
+              <option :value="2">Repack - 重新打包纹理（PNG格式，推荐）✨</option>
+              <option :value="3">RepackCompressed - 打包+压缩（JPEG质量75）</option>
+              <option :value="1">Compress - 压缩纹理（保持原始分辨率）</option>
+              <option :value="0">KeepOriginal - 保持原样（不推荐）</option>
             </select>
           </div>
 
@@ -595,7 +596,7 @@ const taskForm = ref({
   outputPath: '',
   slicingStrategy: 0,  // TileGenerationPipeline
   outputFormat: 'b3dm',  // 输出格式，默认b3dm
-  textureStrategy: 2,  // RepackCompressed - JPEG压缩（默认推荐）
+  textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
   lodLevels: 3,
   divisions: 2,  // 空间分割递归深度
   enableCompression: true,
@@ -683,22 +684,24 @@ const getStatusVariant = (status: string): 'primary' | 'warning' | 'success' | '
 }
 
 const getTextureStrategyName = (strategy: number | string | undefined) => {
-  // 如果是字符串
+  // 如果是字符串（枚举名称）
   if (typeof strategy === 'string') {
     const nameMap: Record<string, string> = {
-      'Repack': 'Repack - 仅打包（PNG格式）',
-      'KeepOriginal': 'KeepOriginal - 保留原始',
-      'RepackCompressed': 'RepackCompressed - 打包+压缩（JPEG质量75）'
+      'KeepOriginal': 'KeepOriginal - 保持原样',
+      'Compress': 'Compress - 压缩纹理',
+      'Repack': 'Repack - 重新打包（推荐）',
+      'RepackCompressed': 'RepackCompressed - 打包+压缩'
     }
     return nameMap[strategy] || strategy
   }
 
-  // 如果是数字
+  // 如果是数字（枚举值）
   if (typeof strategy === 'number') {
     const strategyMap: Record<number, string> = {
-      0: 'Repack - 仅打包（PNG格式）',
-      1: 'KeepOriginal - 保留原始',
-      2: 'RepackCompressed - 打包+压缩（JPEG质量75）'
+      0: 'KeepOriginal - 保持原样',
+      1: 'Compress - 压缩纹理',
+      2: 'Repack - 重新打包（推荐）',
+      3: 'RepackCompressed - 打包+压缩'
     }
     return strategyMap[strategy] || '未知纹理策略'
   }
@@ -815,7 +818,7 @@ const openCreateTaskDialog = () => {
     outputPath: '',
     slicingStrategy: 0,  // TileGenerationPipeline
     outputFormat: 'b3dm',  // 输出格式，默认b3dm
-    textureStrategy: 2,  // RepackCompressed - JPEG压缩（默认推荐）
+    textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
     lodLevels: 3,
     divisions: 2,
     enableCompression: true,

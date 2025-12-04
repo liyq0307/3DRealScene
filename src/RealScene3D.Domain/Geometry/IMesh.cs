@@ -82,4 +82,12 @@ public interface IMesh
     /// 是否包含纹理数据
     /// </summary>
     bool HasTexture { get; }
+
+    /// <summary>
+    /// 打包材质：移除未使用的顶点和UV，并重新打包纹理
+    /// 此方法会就地修改当前 mesh，避免文件I/O开销
+    /// </summary>
+    /// <param name="removeUnused"是否移除未使用的顶点</param>
+    /// <returns>返回当前 mesh 实例</returns>
+    IMesh PackMaterials(bool removeUnused = true);
 }

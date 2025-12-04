@@ -479,17 +479,21 @@ public class SlicingProcessor : ISlicingProcessor
         var cells = new List<SpatialCell>();
         foreach (var m in ms)
         {
-            if (m is MeshT t)
-                t.TexturesStrategy = textureStrategy;
+            // 设置纹理策略并执行材质打包
+            if (m is MeshT mt)
+            {
+                mt.TexturesStrategy = textureStrategy;
 
-            //m.WriteObj(Path.Combine(destPath, $"{m.Name}.obj"));
+                // 直接在内存中打包材质，避免文件I/O
+                mt.PackMaterials();
+            }
 
             cells.Add(new SpatialCell
             {
                 QuadrantPath = m.Name,  // 使用坐标作为象限路径标识符
                 Depth = divisions,      // 分割深度
                 LodLevel = lodLevel,    // LOD级别
-                Mesh = m,               // 分割后的网格
+                Mesh = m,               // 使用打包后的网格
                 Bounds = m.Bounds       // 使用网格自身的边界框
             });
         }
@@ -513,7 +517,7 @@ public class SlicingProcessor : ISlicingProcessor
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            var slice = await GenerateSliceForCellAsync(task, cell, config, cancellationToken);
+            var slice = await GenerateTileForCellAsync(task, cell, config, cancellationToken);
 
             if (slice != null)
             {
@@ -527,7 +531,7 @@ public class SlicingProcessor : ISlicingProcessor
     /// <summary>
     /// 为单个空间单元生成切片
     /// </summary>
-    private async Task<Slice?> GenerateSliceForCellAsync(
+    private async Task<Slice?> GenerateTileForCellAsync(
         SlicingTask task,
         SpatialCell cell,
         SlicingConfig config,
@@ -574,7 +578,7 @@ public class SlicingProcessor : ISlicingProcessor
                 CreatedAt = DateTime.UtcNow
             };
 
-            var generated = await _dataService.GenerateSliceFileAsync(
+            var generated = await _dataService.GenerateTileAsync(
                 slice,
                 config,
                 cell.Mesh,
