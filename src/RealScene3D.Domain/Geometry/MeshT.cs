@@ -1548,6 +1548,7 @@ public class MeshT : IMesh
 
                     // 从压缩后的流重新加载
                     material.TextureImage = Image.Load<Rgba32>(memoryStream);
+                    material.IsTextureCompressed = true;
 
                     // 更新文件扩展名为 .jpg
                     material.Texture = Path.ChangeExtension(material.Texture, ".jpg");
@@ -1703,6 +1704,7 @@ public class MeshT : IMesh
                 if (material.Texture != null)
                 {
                     material.TextureImage = CompressImageIfNeeded(newTexture!);
+                    material.IsTextureCompressed = TexturesStrategy == TexturesStrategy.RepackCompressed;
                     material.Texture = TexturesStrategy == TexturesStrategy.RepackCompressed
                         ? $"{Name}-texture-diffuse-{material.Name}.jpg"
                         : $"{Name}-texture-diffuse-{material.Name}{GetOriginalTextureExtension(material.Texture)}";
@@ -1803,6 +1805,7 @@ public class MeshT : IMesh
         if (material.Texture != null)
         {
             material.TextureImage = CompressImageIfNeeded(newTexture!);
+            material.IsTextureCompressed = TexturesStrategy == TexturesStrategy.RepackCompressed;
             material.Texture = TexturesStrategy == TexturesStrategy.RepackCompressed
                 ? $"{Name}-texture-diffuse-{material.Name}.jpg"
                 : $"{Name}-texture-diffuse-{material.Name}{GetOriginalTextureExtension(material.Texture)}";
@@ -1811,6 +1814,7 @@ public class MeshT : IMesh
         if (material.NormalMap != null)
         {
             material.NormalMapImage = CompressImageIfNeeded(newNormalMap!);
+            // 法线贴图使用与纹理相同的压缩策略
             material.NormalMap = TexturesStrategy == TexturesStrategy.RepackCompressed
                 ? $"{Name}-texture-normal-{material.Name}.jpg"
                 : $"{Name}-texture-normal-{material.Name}{GetOriginalTextureExtension(material.NormalMap)}";
@@ -1834,7 +1838,7 @@ public class MeshT : IMesh
             // 释放原始图像
             image.Dispose();
 
-            // 从压缩流重新加载
+            // 从压缩流重新加载（用于后续处理，但已标记为压缩）
             return Image.Load<Rgba32>(memoryStream);
         }
 

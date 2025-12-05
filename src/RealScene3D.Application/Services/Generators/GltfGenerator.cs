@@ -9,6 +9,10 @@ using SysVector2 = System.Numerics.Vector2;
 using SysVector3 = System.Numerics.Vector3;
 using SysVector4 = System.Numerics.Vector4;
 using SixLaborsImage = SixLabors.ImageSharp.Image;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
 using GltfAlphaMode = SharpGLTF.Materials.AlphaMode;
 
 namespace RealScene3D.Application.Services.Generators;
@@ -243,17 +247,34 @@ public class GltfGenerator : TileGenerator
             try
             {
                 using var ms = new MemoryStream();
-                material.TextureImage.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
-                var imageBytes = ms.ToArray();
 
-                var imageBuilder = ImageBuilder.From(imageBytes, $"{material.Name}_packed.png");
+                // 根据材质压缩标志选择正确的编码器
+                if (material.IsTextureCompressed)
+                {
+                    // 使用JPEG编码器（质量75，与打包时保持一致）
+                    material.TextureImage.SaveAsJpeg(ms, new JpegEncoder { Quality = 75 });
+                    var imageBytes = ms.ToArray();
+                    var imageBuilder = ImageBuilder.From(imageBytes, $"{material.Name}_packed.jpg");
 
-                matBuilder
-                    .WithMetallicRoughnessShader()
-                    .WithBaseColor(imageBuilder, baseColor);
+                    matBuilder
+                        .WithMetallicRoughnessShader()
+                        .WithBaseColor(imageBuilder, baseColor);
 
-                _logger.LogDebug("材质 {MaterialName} 使用内存中的打包纹理",
-                    material.Name);
+                    _logger.LogDebug("材质 {MaterialName} 使用JPEG压缩纹理（内存）", material.Name);
+                }
+                else
+                {
+                    // 使用PNG编码器（无损压缩）
+                    material.TextureImage.Save(ms, new PngEncoder());
+                    var imageBytes = ms.ToArray();
+                    var imageBuilder = ImageBuilder.From(imageBytes, $"{material.Name}_packed.png");
+
+                    matBuilder
+                        .WithMetallicRoughnessShader()
+                        .WithBaseColor(imageBuilder, baseColor);
+
+                    _logger.LogDebug("材质 {MaterialName} 使用PNG纹理（内存）", material.Name);
+                }
             }
             catch (Exception ex)
             {

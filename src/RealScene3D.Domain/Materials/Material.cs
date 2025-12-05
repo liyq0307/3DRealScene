@@ -39,6 +39,12 @@ public class Material : ICloneable
     public Image<Rgba32>? NormalMapImage;
 
     /// <summary>
+    /// 纹理是否已经过JPEG压缩
+    /// true = JPEG压缩，false = PNG或原始格式
+    /// </summary>
+    public bool IsTextureCompressed { get; set; }
+
+    /// <summary>
     /// Ka - 环境光颜色
     /// </summary>
     public readonly RGB? AmbientColor;
