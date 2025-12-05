@@ -22,6 +22,7 @@ class Program
 
         // 注册Loader和Generator
         services.AddTransient<ObjModelLoader>();
+        services.AddTransient<OsgbModelLoader>();
         services.AddTransient<GltfGenerator>();
 
         var serviceProvider = services.BuildServiceProvider();
@@ -31,8 +32,10 @@ class Program
 
         // 定义测试文件路径（请根据实际情况修改）
         string objFilePath = @"E:\Data\3D\odm_texturing\odm_textured_model_geo.obj";
+        string osgbFilePath = @"F:\Data\3D\Tile_+005_+006\Tile_+005_+006.osgb";
         string glbOutputPath1 = @"E:\Data\3D\test_output_loader.glb";
         string glbOutputPath2 = @"E:\Data\3D\test_output_meshutils.glb";
+        string glbOutputPath3 = @"F:\Data\3D\Tile_+005_+006.glb";
 
         try
         {
@@ -44,6 +47,12 @@ class Program
 
             // 测试2: 使用 MeshUtils.LoadMesh
             await TestWithMeshUtils(logger, serviceProvider, objFilePath, glbOutputPath2);
+
+            logger.LogInformation("");
+            logger.LogInformation("");
+
+            // 测试3: 使用 OsgbModelLoader
+            await TestWithOsgbModelLoader(logger, serviceProvider, osgbFilePath, glbOutputPath3);
 
             logger.LogInformation("");
             logger.LogInformation("========================================");
@@ -139,6 +148,52 @@ class Program
             }
         }
 
+        logger.LogInformation("  - 包围盒: [{MinX:F3}, {MinY:F3}, {MinZ:F3}] - [{MaxX:F3}, {MaxY:F3}, {MaxZ:F3}]",
+            boundingBox.Min.X, boundingBox.Min.Y, boundingBox.Min.Z,
+            boundingBox.Max.X, boundingBox.Max.Y, boundingBox.Max.Z);
+
+        // 步骤2: 使用GltfGenerator生成GLB文件
+        logger.LogInformation("");
+        logger.LogInformation("步骤2: 使用 GltfGenerator 生成GLB文件...");
+        var gltfGenerator = serviceProvider.GetRequiredService<GltfGenerator>();
+        await gltfGenerator.SaveTileAsync(mesh, glbOutputPath);
+
+        logger.LogInformation("GLB生成成功!");
+        logger.LogInformation("  - 输出路径: {Path}", glbOutputPath);
+
+        if (File.Exists(glbOutputPath))
+        {
+            var fileInfo = new FileInfo(glbOutputPath);
+            logger.LogInformation("  - 文件大小: {Size:N0} 字节 ({SizeKB:F2} KB)",
+                fileInfo.Length, fileInfo.Length / 1024.0);
+        }
+    }
+
+    /// <summary>
+    /// 测试3: 使用 OsgbModelLoader 加载 OSGB 文件，然后用 GltfGenerator 生成 GLB
+    /// </summary>
+    static async Task TestWithOsgbModelLoader(
+        ILogger<Program> logger,
+        ServiceProvider serviceProvider,
+        string osgbFilePath,
+        string glbOutputPath)
+    {
+        logger.LogInformation("========================================");
+        logger.LogInformation("测试3：使用 OsgbModelLoader 加载 -> GLB生成");
+        logger.LogInformation("========================================");
+        logger.LogInformation("输入文件: {OsgbPath}", osgbFilePath);
+        logger.LogInformation("输出文件: {GlbPath}", glbOutputPath);
+        logger.LogInformation("========================================");
+
+        // 步骤1: 使用OsgbModelLoader加载OSGB文件
+        logger.LogInformation("步骤1: 使用 OsgbModelLoader 加载OSGB文件...");
+        var osgbLoader = serviceProvider.GetRequiredService<OsgbModelLoader>();
+        var (mesh, boundingBox) = await osgbLoader.LoadModelAsync(osgbFilePath);
+
+        logger.LogInformation("OSGB加载成功!");
+        logger.LogInformation("  - 网格类型: {MeshType}", mesh.GetType().Name);
+        logger.LogInformation("  - 顶点数: {VertexCount}", mesh.VertexCount);
+        logger.LogInformation("  - 面片数: {FaceCount}", mesh.FacesCount);
         logger.LogInformation("  - 包围盒: [{MinX:F3}, {MinY:F3}, {MinZ:F3}] - [{MaxX:F3}, {MaxY:F3}, {MaxZ:F3}]",
             boundingBox.Min.X, boundingBox.Min.Y, boundingBox.Min.Z,
             boundingBox.Max.X, boundingBox.Max.Y, boundingBox.Max.Z);

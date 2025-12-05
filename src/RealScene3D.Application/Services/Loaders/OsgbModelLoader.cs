@@ -217,17 +217,43 @@ public class OsgbNativeReader
 
         // 构建面列表
         var faces = new List<Face>();
+        bool hasTexCoords = texCoords != null && texCoords.Count > 0;
+
+        // 验证共享索引模式：顶点数量应该等于纹理坐标数量
+        if (hasTexCoords && texCoords != null && vertices.Count != texCoords.Count)
+        {
+            _logger.LogWarning(
+                "OSGB 模型纹理坐标数量({TexCount})与顶点数量({VertCount})不匹配，禁用纹理",
+                texCoords.Count, vertices.Count);
+            hasTexCoords = false;
+            texCoords = null;
+        }
+
         for (int i = 0; i < managedData.Indices.Length; i += 3)
         {
-            faces.Add(new Face(
-                (int)managedData.Indices[i],
-                (int)managedData.Indices[i + 1],
-                (int)managedData.Indices[i + 2]
-            ));
+            int idxA = (int)managedData.Indices[i];
+            int idxB = (int)managedData.Indices[i + 1];
+            int idxC = (int)managedData.Indices[i + 2];
+
+            if (hasTexCoords)
+            {
+                // OSGB 使用共享索引模式：顶点索引和纹理索引相同
+                // 使用带纹理索引的构造函数，材质索引默认为 0
+                faces.Add(new Face(
+                    idxA, idxB, idxC,
+                    idxA, idxB, idxC,
+                    0  // materialIndex
+                ));
+            }
+            else
+            {
+                // 无纹理时使用简单构造函数
+                faces.Add(new Face(idxA, idxB, idxC));
+            }
         }
 
         // 处理材质和纹理
-        var materials = new List<MaterialEx>();
+        var materials = new List<Material>();
         if (managedData.Textures.Count > 0)
         {
             for (int i = 0; i < managedData.Textures.Count; i++)
@@ -238,22 +264,33 @@ public class OsgbNativeReader
                 var texturePath = Path.Combine(directory, $"texture_{i}.jpg");
                 SaveTexture(texture, texturePath);
 
-                // 创建材质
-                var material = new MaterialEx
-                {
-                    Name = $"material_{i}",
-                    DiffuseTexturePath = texturePath
-                };
+                // 获取材质数据
+                RGB? diffuseColor = null;
+                RGB? specularColor = null;
+                double? shininess = null;
+                string materialName = $"material_{i}";
 
-                // 如果有对应的材质数据，使用它
                 if (i < managedData.Materials.Count)
                 {
                     var matData = managedData.Materials[i];
-                    material.Name = matData.Name;
-                    material.Diffuse = new RGB(matData.DiffuseR, matData.DiffuseG, matData.DiffuseB);
-                    material.Specular = new RGB(matData.SpecularR, matData.SpecularG, matData.SpecularB);
-                    material.Shininess = matData.Shininess;
+                    materialName = matData.Name;
+                    diffuseColor = new RGB(matData.DiffuseR, matData.DiffuseG, matData.DiffuseB);
+                    specularColor = new RGB(matData.SpecularR, matData.SpecularG, matData.SpecularB);
+                    shininess = matData.Shininess;
                 }
+
+                // 创建材质（使用构造函数）
+                var material = new Material(
+                    name: materialName,
+                    texture: texturePath,
+                    normalMap: null,
+                    ambientColor: null,
+                    diffuseColor: diffuseColor,
+                    specularColor: specularColor,
+                    specularExponent: shininess,
+                    dissolve: null,
+                    illuminationModel: null
+                );
 
                 materials.Add(material);
             }
@@ -261,15 +298,15 @@ public class OsgbNativeReader
 
         // 创建网格
         IMesh mesh;
-        if (texCoords != null && texCoords.Count > 0)
+        if (texCoords != null && texCoords.Count > 0 && materials.Count > 0)
         {
             // 创建 MeshT（带纹理）
-            mesh = new MeshT(vertices, normals, texCoords, faces, materials.Count > 0 ? materials : null);
+            mesh = new MeshT(vertices, texCoords, faces, materials);
         }
         else
         {
             // 创建 Mesh（无纹理）
-            mesh = new Mesh(vertices, normals, faces, materials.Count > 0 ? materials : null);
+            mesh = new Mesh(vertices, faces);
         }
 
         // 构建包围盒

@@ -10,7 +10,6 @@ using SysVector3 = System.Numerics.Vector3;
 using SysVector4 = System.Numerics.Vector4;
 using SixLaborsImage = SixLabors.ImageSharp.Image;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using GltfAlphaMode = SharpGLTF.Materials.AlphaMode;
