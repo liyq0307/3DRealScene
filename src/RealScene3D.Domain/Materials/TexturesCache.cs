@@ -18,17 +18,30 @@ public static class TexturesCache
     /// 获取或加载纹理图像
     /// </summary>
     /// <param name="textureName">纹理文件的路径或名称</param>
-    /// <returns>纹理图像</returns>
-    public static Image<Rgba32> GetTexture(string textureName)
+    /// <returns>纹理图像，如果文件不存在或加载失败则返回 null</returns>
+    public static Image<Rgba32>? GetTexture(string textureName)
     {
         if (Textures.TryGetValue(textureName, out var txout))
             return txout;
 
-        var texture = Image.Load<Rgba32>(textureName);
-        Textures.TryAdd(textureName, texture);
+        // 检查文件是否存在
+        if (!File.Exists(textureName))
+        {
+            System.Diagnostics.Debug.WriteLine($"纹理文件不存在: {textureName}");
+            return null;
+        }
 
-        return texture;
-
+        try
+        {
+            var texture = Image.Load<Rgba32>(textureName);
+            Textures.TryAdd(textureName, texture);
+            return texture;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"加载纹理失败 {textureName}: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>

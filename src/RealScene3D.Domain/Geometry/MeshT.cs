@@ -514,10 +514,17 @@ public class MeshT : IMesh
     {
         Parallel.ForEach(_materials, material =>
         {
-            if (!string.IsNullOrEmpty(material.Texture))
-                TexturesCache.GetTexture(material.Texture);
-            if (!string.IsNullOrEmpty(material.NormalMap))
-                TexturesCache.GetTexture(material.NormalMap);
+            try
+            {
+                if (!string.IsNullOrEmpty(material.Texture))
+                    TexturesCache.GetTexture(material.Texture);
+                if (!string.IsNullOrEmpty(material.NormalMap))
+                    TexturesCache.GetTexture(material.NormalMap);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"加载材质纹理失败 {material.Name}: {ex.Message}");
+            }
         });
     }
 
@@ -547,8 +554,15 @@ public class MeshT : IMesh
         var texture = material.Texture != null ? TexturesCache.GetTexture(material.Texture) : null;
         var normalMap = material.NormalMap != null ? TexturesCache.GetTexture(material.NormalMap) : null;
 
-        int textureWidth = material.Texture != null ? texture!.Width : normalMap!.Width;
-        int textureHeight = material.Texture != null ? texture!.Height : normalMap!.Height;
+        // 如果纹理和法线贴图都加载失败，则跳过该材质
+        if (texture == null && normalMap == null)
+        {
+            Debug.WriteLine($"材质 {material.Name} 的纹理加载失败，跳过处理");
+            return;
+        }
+
+        int textureWidth = texture != null ? texture.Width : normalMap!.Width;
+        int textureHeight = texture != null ? texture.Height : normalMap!.Height;
 
         var clustersRects = clusters.Select(GetClusterRect).ToArray();
 
@@ -1643,8 +1657,15 @@ public class MeshT : IMesh
         var texture = material.Texture != null ? TexturesCache.GetTexture(material.Texture) : null;
         var normalMap = material.NormalMap != null ? TexturesCache.GetTexture(material.NormalMap) : null;
 
-        int textureWidth = material.Texture != null ? texture!.Width : normalMap!.Width;
-        int textureHeight = material.Texture != null ? texture!.Height : normalMap!.Height;
+        // 如果纹理和法线贴图都加载失败，则跳过该材质
+        if (texture == null && normalMap == null)
+        {
+            Debug.WriteLine($"材质 {material.Name} 的纹理加载失败，跳过处理");
+            return;
+        }
+
+        int textureWidth = texture != null ? texture.Width : normalMap!.Width;
+        int textureHeight = texture != null ? texture.Height : normalMap!.Height;
 
         var clustersRects = clusters.Select(GetClusterRect).ToArray();
 
