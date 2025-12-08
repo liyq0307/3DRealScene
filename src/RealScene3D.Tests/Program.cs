@@ -32,24 +32,24 @@ class Program
 
         // 定义测试文件路径（请根据实际情况修改）
         string objFilePath = @"E:\Data\3D\odm_texturing\odm_textured_model_geo.obj";
-        string osgbFilePath = @"F:\Data\3D\Tile_+005_+006\Tile_+005_+006.osgb";
+        string osgbFilePath = @"E:\Data\3D\Tile_+005_+006\Tile_+005_+006.osgb";
         string glbOutputPath1 = @"E:\Data\3D\test_output_loader.glb";
         string glbOutputPath2 = @"E:\Data\3D\test_output_meshutils.glb";
-        string glbOutputPath3 = @"F:\Data\3D\Tile_+005_+006.glb";
+        string glbOutputPath3 = @"E:\Data\3D\Tile_+005_+006.glb";
 
         try
         {
             // 测试1: 使用 ObjModelLoader
-            await TestWithObjModelLoader(logger, serviceProvider, objFilePath, glbOutputPath1);
+            //await TestWithObjModelLoader(logger, serviceProvider, objFilePath, glbOutputPath1);
 
-            logger.LogInformation("");
-            logger.LogInformation("");
+            //logger.LogInformation("");
+            //logger.LogInformation("");
 
             // 测试2: 使用 MeshUtils.LoadMesh
-            await TestWithMeshUtils(logger, serviceProvider, objFilePath, glbOutputPath2);
+            //await TestWithMeshUtils(logger, serviceProvider, objFilePath, glbOutputPath2);
 
-            logger.LogInformation("");
-            logger.LogInformation("");
+            //logger.LogInformation("");
+            //logger.LogInformation("");
 
             // 测试3: 使用 OsgbModelLoader
             await TestWithOsgbModelLoader(logger, serviceProvider, osgbFilePath, glbOutputPath3);

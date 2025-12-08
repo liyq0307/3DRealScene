@@ -79,90 +79,6 @@
       :total="filteredScenes.length"
     />
 
-    <!-- 场景详情对话框 -->
-    <div v-if="showDetailDialog" class="modal-overlay" @click.self="closeDetailDialog">
-      <div class="modal-content large">
-        <div class="modal-header">
-          <h3>场景详情</h3>
-          <button @click="closeDetailDialog" class="modal-close-btn" aria-label="关闭">
-            ✕
-          </button>
-        </div>
-
-        <div class="modal-body">
-          <div v-if="currentScene" class="scene-detail">
-            <div class="detail-section">
-              <h4>基本信息</h4>
-              <div class="detail-grid">
-                <div class="detail-item">
-                  <span class="label">场景名称:</span>
-                  <span class="value">{{ currentScene.name }}</span>
-                </div>
-                <div class="detail-item">
-                  <span class="label">场景描述:</span>
-                  <span class="value">{{ currentScene.description || '无' }}</span>
-                </div>
-                <div class="detail-item">
-                  <span class="label">创建时间:</span>
-                  <span class="value">{{ formatDateTime(currentScene.createdAt) }}</span>
-                </div>
-                <div class="detail-item">
-                  <span class="label">更新时间:</span>
-                  <span class="value">{{ formatDateTime(currentScene.updatedAt) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="detail-section" v-if="currentScene.boundaryGeoJson">
-              <h4>地理信息</h4>
-              <div class="detail-grid">
-                <div class="detail-item full-width">
-                  <span class="label">边界GeoJSON:</span>
-                  <span class="value">{{ currentScene.boundaryGeoJson }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 3D查看器 -->
-            <div class="detail-section">
-              <h4>Cesium 3D地球</h4>
-
-              <!-- 格式兼容性提示 -->
-              <div v-if="hasUnsupportedModels" class="format-notice">
-                <div class="notice-icon">⚠️</div>
-                <div class="notice-content">
-                  <strong>模型格式提示</strong>
-                  <p>
-                    本场景包含需要转换才能显示的模型格式（如 OBJ、FBX、DAE 等）。
-                    <br>
-                    Cesium 原生支持 glTF/GLB 和 3D Tiles 格式。
-                    <br>
-                    其他格式需要通过切片服务转换为 3D Tiles 才能在地球上显示。
-                  </p>
-                  <button class="btn btn-primary btn-sm" @click="convertModelsToTiles">
-                    转换为 3D Tiles
-                  </button>
-                </div>
-              </div>
-
-              <div class="scene-viewer-wrapper">
-                <CesiumViewer
-                  v-if="showDetailDialog"
-                  :show-info="true"
-                  :scene-objects="sceneObjects"
-                  @ready="onCesiumReady"
-                  @error="onCesiumError"
-                />
-              </div>
-            </div>
-          </div>
-          <div v-else class="loading-state">
-            <p>加载场景详情中...</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 创建/编辑场景对话框 -->
     <div v-if="showCreateDialog" class="modal-overlay" @click="closeCreateDialog">
       <div class="modal-content" @click.stop>
@@ -184,6 +100,35 @@
             placeholder="输入场景描述"
           ></textarea>
         </div>
+
+        <div class="form-group">
+          <label>渲染引擎 *</label>
+          <select v-model="sceneForm.renderEngine" class="form-input">
+            <option value="Cesium">Cesium (3D地球,适合地理空间数据)</option>
+            <option value="ThreeJS">Three.js (通用3D,支持更多模型格式)</option>
+          </select>
+          <div class="field-hint">
+            <div v-if="sceneForm.renderEngine === 'Cesium'">
+              <strong>Cesium特点:</strong>
+              <ul>
+                <li>✓ 支持地理坐标系统和地球可视化</li>
+                <li>✓ 原生支持 3D Tiles, glTF/GLB</li>
+                <li>✓ 适合大规模地理空间数据展示</li>
+                <li>✗ 其他格式需要转换为 3D Tiles</li>
+              </ul>
+            </div>
+            <div v-else-if="sceneForm.renderEngine === 'ThreeJS'">
+              <strong>Three.js特点:</strong>
+              <ul>
+                <li>✓ 支持更多格式: OBJ, FBX, GLTF, GLB, STL, PLY, DAE, 3DS</li>
+                <li>✓ 无需格式转换,直接加载</li>
+                <li>✓ 适合产品展示、室内场景、工业模型</li>
+                <li>✗ 不支持地理坐标系统</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label>边界GeoJSON (可选)</label>
           <input
@@ -191,7 +136,11 @@
             type="text"
             class="form-input"
             placeholder="输入地理边界框 (GeoJSON格式)"
+            :disabled="sceneForm.renderEngine === 'ThreeJS'"
           />
+          <div v-if="sceneForm.renderEngine === 'ThreeJS'" class="field-hint warning">
+            Three.js模式不支持地理坐标系统
+          </div>
         </div>
 
         <div class="form-group">
@@ -238,30 +187,28 @@
  */
 
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { sceneService } from '../services/api'
 import authStore from '@/stores/auth'
 import { useMessage } from '@/composables/useMessage'
-import CesiumViewer from '@/components/CesiumViewer.vue'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Pagination from '@/components/Pagination.vue'
 import FileUpload from '@/components/FileUpload.vue'
 
 const { success: showSuccess, error: showError } = useMessage()
+const router = useRouter()
 
 // ==================== 响应式数据 ====================
 
 /**
  * 场景列表响应式数据
  * 使用any[]类型临时处理，实际项目中应定义具体的Scene接口
- * TODO: 定义Scene接口类型，提供更好的类型安全
+ * TODO: 定义Scene接口类型,提供更好的类型安全
  */
 const scenes = ref<any[]>([])
-const currentScene = ref<any>(null)
-const sceneObjects = ref<any[]>([]) // 新增：存储当前场景的场景对象
 const editingScene = ref<string | null>(null)
 
 // 对话框状态
-const showDetailDialog = ref(false)
 const showCreateDialog = ref(false)
 
 // 场景文件上传状态
@@ -271,6 +218,7 @@ const sceneFile = ref<File | null>(null)
 const sceneForm = ref({
   name: '',
   description: '',
+  renderEngine: 'Cesium', // 默认使用Cesium
   boundaryGeoJson: ''
 })
 
@@ -300,27 +248,6 @@ const paginatedScenes = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
   return filteredScenes.value.slice(start, end)
-})
-
-// 检查是否有不支持的模型格式
-const hasUnsupportedModels = computed(() => {
-  if (!sceneObjects.value || sceneObjects.value.length === 0) return false
-
-  const nativelySupportedFormats = ['gltf', 'glb', 'json']
-  const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
-
-  return sceneObjects.value.some(obj => {
-    if (!obj.displayPath) return false
-
-    const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
-
-    // 如果是可转换格式，并且没有完成的切片任务，则认为是不支持的
-    if (convertibleFormats.includes(fileExt || '')) {
-      return !obj.slicingTaskId || obj.slicingTaskStatus !== 'Completed'
-    }
-
-    return false
-  })
 })
 
 // ==================== 业务逻辑方法 ====================
@@ -356,51 +283,12 @@ const formatDateTime = (dateStr: string) => {
  * @param id 场景唯一标识符
  *
  * 功能描述：
- * - 加载场景详情数据并显示在对话框中
+ * - 跳转到独立的场景预览页面
  */
-const viewScene = async (id: string) => {
+const viewScene = (id: string) => {
   console.log('[Scenes] viewScene() called with id:', id)
-  try {
-    console.log('[Scenes] Fetching scene details...')
-    currentScene.value = await sceneService.getScene(id)
-
-    // 检查API返回的数据结构
-    console.log('[Scenes] Full scene data:', JSON.stringify(currentScene.value, null, 2))
-    console.log('[Scenes] Scene keys:', Object.keys(currentScene.value))
-
-    // 使用正确的属性名 sceneObjects（后端返回camelCase）
-    if (currentScene.value.sceneObjects && currentScene.value.sceneObjects.length > 0) {
-      sceneObjects.value = currentScene.value.sceneObjects
-      console.log('[Scenes] Using sceneObjects (camelCase):', sceneObjects.value.length, 'objects')
-    } else {
-      sceneObjects.value = []
-      console.warn('[Scenes] No scene objects found in response!')
-    }
-
-    console.log('[Scenes] Scene details loaded:', currentScene.value)
-    console.log('[Scenes] Scene objects count:', sceneObjects.value?.length || 0)
-    console.log('[Scenes] Scene objects data:', JSON.stringify(sceneObjects.value, null, 2))
-
-    // 等待下一个tick，确保所有响应式数据更新完成
-    await new Promise(resolve => setTimeout(resolve, 100))
-
-    showDetailDialog.value = true
-    console.log('[Scenes] Dialog shown, sceneObjects ready for CesiumViewer')
-  } catch (error) {
-    console.error('[Scenes] 加载场景详情失败:', error)
-    showError('加载场景详情失败')
-  }
-}
-
-/**
- * 关闭详情对话框
- */
-const closeDetailDialog = () => {
-  console.log('[Scenes] closeDetailDialog() called')
-  showDetailDialog.value = false
-  currentScene.value = null
-  sceneObjects.value = [] // 清空场景对象
-  console.log('[Scenes] Dialog closed, showDetailDialog:', showDetailDialog.value)
+  // 跳转到场景预览页面
+  router.push({ name: 'ScenePreview', params: { id } })
 }
 
 /**
@@ -411,6 +299,7 @@ const openCreateDialog = () => {
   sceneForm.value = {
     name: '',
     description: '',
+    renderEngine: 'Cesium',
     boundaryGeoJson: ''
   }
   sceneFile.value = null
@@ -441,22 +330,6 @@ const handleSceneFileUpload = async (file: File) => {
     console.error('场景文件处理失败:', error)
     showError('场景文件处理失败')
   }
-}
-
-/**
- * Cesium就绪回调
- */
-const onCesiumReady = (viewer: any) => {
-  console.log('Cesium地球初始化成功', viewer)
-  showSuccess('Cesium 3D地球加载成功')
-}
-
-/**
- * Cesium错误回调
- */
-const onCesiumError = (error: Error) => {
-  console.error('Cesium初始化失败:', error)
-  showError('Cesium地球加载失败: ' + error.message)
 }
 
 /**
@@ -541,71 +414,6 @@ const deleteScene = async (id: string) => {
     } catch (error) {
       console.error('删除场景失败:', error)
       showError('删除场景失败，请稍后重试')
-    }
-  }
-}
-
-/**
- * 转换不支持的模型为3D Tiles格式
- */
-const convertModelsToTiles = async () => {
-  if (!sceneObjects.value || sceneObjects.value.length === 0) {
-    showError('没有可转换的模型')
-    return
-  }
-
-  const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
-
-  // 找出需要转换的模型
-  const modelsToConvert = sceneObjects.value.filter(obj => {
-    if (!obj.displayPath) return false
-    const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
-    return convertibleFormats.includes(fileExt || '') &&
-           (!obj.slicingTaskId || obj.slicingTaskStatus !== 'Completed')
-  })
-
-  if (modelsToConvert.length === 0) {
-    showError('没有需要转换的模型')
-    return
-  }
-
-  if (confirm(`确定要为 ${modelsToConvert.length} 个模型创建切片任务吗？`)) {
-    try {
-      let successCount = 0
-      let failCount = 0
-
-      for (const obj of modelsToConvert) {
-        try {
-          // TODO: 调用切片服务API创建切片任务
-          // const response = await slicingService.createSlicingTask({
-          //   sceneObjectId: obj.id,
-          //   granularity: 'Medium',
-          //   maxLevel: 5,
-          //   parallelProcessingCount: 4
-          // })
-
-          console.log(`为模型 ${obj.name} 创建切片任务`)
-          successCount++
-        } catch (error) {
-          console.error(`为模型 ${obj.name} 创建切片任务失败:`, error)
-          failCount++
-        }
-      }
-
-      if (successCount > 0) {
-        showSuccess(`成功为 ${successCount} 个模型创建切片任务`)
-        // 重新加载场景详情以获取最新的切片状态
-        if (currentScene.value) {
-          await viewScene(currentScene.value.id)
-        }
-      }
-
-      if (failCount > 0) {
-        showError(`${failCount} 个模型创建切片任务失败`)
-      }
-    } catch (error) {
-      console.error('批量创建切片任务失败:', error)
-      showError('创建切片任务失败')
     }
   }
 }

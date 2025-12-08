@@ -48,6 +48,32 @@ const routes = [
   },
 
   /**
+   * 场景预览页面路由
+   * 路径：/scenes/:id/preview
+   * 组件：ScenePreview.vue（场景预览组件）
+   * 用途：全屏预览单个3D场景及其对象
+   */
+  {
+    path: '/scenes/:id/preview',
+    name: 'ScenePreview',
+    component: () => import('../views/ScenePreview.vue'),
+    meta: { requiresAuth: true, title: '场景预览' }
+  },
+
+  /**
+   * 场景对象预览页面路由
+   * 路径：/scenes/:sceneId/objects/:objectId/preview
+   * 组件：SceneObjectPreview.vue（场景对象预览组件）
+   * 用途：全屏预览单个场景对象的3D模型
+   */
+  {
+    path: '/scenes/:sceneId/objects/:objectId/preview',
+    name: 'SceneObjectPreview',
+    component: () => import('../views/SceneObjectPreview.vue'),
+    meta: { requiresAuth: true, title: '对象预览' }
+  },
+
+  /**
    * 工作流设计器路由
    * 路径：/workflow-designer
    * 组件：WorkflowDesigner.vue（工作流设计器组件）

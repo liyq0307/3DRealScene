@@ -107,6 +107,9 @@
             </div>
           </div>
           <div class="object-actions" @click.stop>
+            <button @click="previewObject(obj)" class="btn-icon" title="预览">
+              <span>👁️</span>
+            </button>
             <button @click="editObject(obj)" class="btn-icon" title="编辑">
               <span>✏️</span>
             </button>
@@ -164,6 +167,7 @@
               <td>{{ formatDateTime(obj.createdAt) }}</td>
               <td>
                 <div class="table-actions" @click.stop>
+                  <button @click="previewObject(obj)" class="btn-sm">预览</button>
                   <button @click="editObject(obj)" class="btn-sm">编辑</button>
                   <button @click="duplicateObject(obj)" class="btn-sm">复制</button>
                   <button @click="startSlicing(obj)" class="btn-sm">切片</button>
@@ -503,6 +507,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { sceneService, sceneObjectService, fileService, slicingService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import Modal from '@/components/Modal.vue'
@@ -511,6 +516,7 @@ import { FileHandleStore } from '@/services/fileHandleStore'
 import authStore from '@/stores/auth'
 
 const { success: showSuccess, error: showError } = useMessage()
+const router = useRouter()
 
 // 创建FileHandleStore实例
 const fileHandleStore = new FileHandleStore()
@@ -694,6 +700,28 @@ const closeCreateDialog = () => {
     URL.revokeObjectURL(localPreviewUrl.value)
     localPreviewUrl.value = ''
   }
+}
+
+/**
+ * 预览场景对象
+ * 跳转到场景对象预览页面,在独立的全屏3D环境中查看对象
+ */
+const previewObject = (obj: any) => {
+  if (!selectedSceneId.value) {
+    showError('未选择场景')
+    return
+  }
+
+  console.log('[SceneObjects] 预览对象:', obj.id, '场景:', selectedSceneId.value)
+
+  // 跳转到场景对象预览页面
+  router.push({
+    name: 'SceneObjectPreview',
+    params: {
+      sceneId: selectedSceneId.value,
+      objectId: obj.id
+    }
+  })
 }
 
 const editObject = async (obj: any) => {
