@@ -25,18 +25,21 @@
       </div>
     </div>
 
-    <!-- 格式兼容性提示 -->
-    <div v-if="hasUnsupportedModels && showFormatNotice" class="format-notice">
-      <div class="notice-icon">⚠️</div>
+    <!-- 渲染引擎提示 -->
+    <div v-if="showFormatNotice && sceneRenderEngine" class="format-notice" :class="sceneRenderEngine === 'threejs' ? 'info' : ''">
+      <div class="notice-icon">{{ sceneRenderEngine === 'threejs' ? 'ℹ️' : '🌍' }}</div>
       <div class="notice-content">
-        <strong>模型格式提示</strong>
-        <p>
-          本场景包含需要转换才能显示的模型格式。
-          Cesium原生支持 glTF/GLB 和 3D Tiles 格式。
-          其他格式需要通过切片服务转换为 3D Tiles 才能在地球上显示。
+        <strong>{{ sceneRenderEngine === 'threejs' ? 'Three.js 渲染器' : 'Cesium 地球渲染器' }}</strong>
+        <p v-if="sceneRenderEngine === 'threejs'">
+          此场景使用 Three.js 渲染器显示，支持 OBJ、FBX、GLTF、GLB 等多种格式。
+          适合产品展示、室内场景、工业模型等通用3D场景。
+        </p>
+        <p v-else>
+          此场景使用 Cesium 地球渲染器显示，支持地理坐标系统和 3D Tiles 格式。
+          适合大规模地理空间数据展示。
         </p>
         <div class="notice-actions">
-          <button class="btn btn-primary btn-sm" @click="convertModelsToTiles">
+          <button v-if="hasUnsupportedModels" class="btn btn-primary btn-sm" @click="convertModelsToTiles">
             转换为 3D Tiles
           </button>
           <button class="btn btn-secondary btn-sm" @click="showFormatNotice = false">
@@ -46,10 +49,22 @@
       </div>
     </div>
 
-    <!-- Cesium 3D地球查看器 -->
+    <!-- 动态渲染器容器 -->
     <div class="viewer-container">
+      <!-- Three.js 查看器 (用于通用3D模型) -->
+      <SceneViewer
+        v-if="!loading && sceneObjects.length > 0 && sceneRenderEngine === 'threejs'"
+        :models="sceneObjectsForThreeJS"
+        mode="enhanced"
+        :show-lighting-panel="true"
+        :show-model-loader="false"
+        @ready="onThreeJSReady"
+        @error="onThreeJSError"
+      />
+
+      <!-- Cesium 3D地球查看器 (用于地理空间数据) -->
       <CesiumViewer
-        v-if="!loading && currentScene"
+        v-else-if="!loading && sceneObjects.length > 0 && sceneRenderEngine === 'cesium'"
         :show-info="true"
         :scene-objects="sceneObjects"
         @ready="onCesiumReady"
@@ -99,6 +114,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
 import CesiumViewer from '@/components/CesiumViewer.vue'
+import SceneViewer from '@/components/SceneViewer.vue'
 
 // ==================== 组合式API ====================
 
@@ -118,21 +134,89 @@ const isFullscreen = ref(false)
 // ==================== 计算属性 ====================
 
 /**
+ * 使用场景指定的渲染引擎
+ * 优先使用场景的renderEngine字段，如果没有则回退到自动检测
+ */
+const sceneRenderEngine = computed(() => {
+  // 优先使用场景指定的渲染引擎
+  if (currentScene.value && currentScene.value.renderEngine) {
+    const engine = currentScene.value.renderEngine
+    return engine === 'ThreeJS' ? 'threejs' : 'cesium'
+  }
+
+  // 如果场景没有指定，回退到根据对象格式自动检测
+  if (!sceneObjects.value || sceneObjects.value.length === 0) return 'cesium'
+
+  // Three.js优先处理的格式
+  const threeJSFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply']
+
+  // Cesium专属格式
+  const cesiumOnlyFormats = ['json', 'tiles', 'osgb', 'las', 'laz', 'e57']
+
+  let hasThreeJSFormat = false
+  let hasCesiumOnlyFormat = false
+
+  for (const obj of sceneObjects.value) {
+    if (!obj.displayPath) continue
+
+    const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
+
+    if (threeJSFormats.includes(fileExt || '')) {
+      hasThreeJSFormat = true
+    }
+
+    if (cesiumOnlyFormats.includes(fileExt || '')) {
+      hasCesiumOnlyFormat = true
+    }
+
+    // 如果有完成的切片任务,优先使用Cesium
+    if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed') {
+      hasCesiumOnlyFormat = true
+    }
+  }
+
+  // 如果只有Three.js格式,使用Three.js
+  if (hasThreeJSFormat && !hasCesiumOnlyFormat) {
+    return 'threejs'
+  }
+
+  // 其他情况使用Cesium
+  return 'cesium'
+})
+
+/**
+ * 为Three.js准备的场景对象列表
+ * 转换为SceneViewer所需的格式
+ */
+const sceneObjectsForThreeJS = computed(() => {
+  return sceneObjects.value.map(obj => ({
+    url: obj.displayPath,
+    name: obj.name,
+    type: obj.displayPath?.split('.').pop()?.toLowerCase() || 'gltf'
+  }))
+})
+
+/**
  * 检查是否有不支持的模型格式
  */
 const hasUnsupportedModels = computed(() => {
   if (!sceneObjects.value || sceneObjects.value.length === 0) return false
 
-  const nativelySupportedFormats = ['gltf', 'glb', 'json']
-  const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
+  // 如果使用Three.js渲染,大部分格式都支持
+  if (sceneRenderEngine.value === 'threejs') {
+    return false
+  }
+
+  // Cesium场景下,检查需要切片的格式
+  const needsSlicingFormats = ['osgb', 'las', 'laz', 'e57']
 
   return sceneObjects.value.some(obj => {
     if (!obj.displayPath) return false
 
     const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
 
-    // 如果是可转换格式，并且没有完成的切片任务，则认为是不支持的
-    if (convertibleFormats.includes(fileExt || '')) {
+    // 如果是需要切片的格式，并且没有完成的切片任务，则认为是不支持的
+    if (needsSlicingFormats.includes(fileExt || '')) {
       return !obj.slicingTaskId || obj.slicingTaskStatus !== 'Completed'
     }
 
@@ -246,6 +330,22 @@ const onCesiumReady = (viewer: any) => {
 const onCesiumError = (err: Error) => {
   console.error('[ScenePreview] Cesium初始化失败:', err)
   showError('Cesium地球加载失败: ' + err.message)
+}
+
+/**
+ * Three.js就绪回调
+ */
+const onThreeJSReady = () => {
+  console.log('[ScenePreview] Three.js场景初始化成功')
+  showSuccess('Three.js 场景加载成功')
+}
+
+/**
+ * Three.js错误回调
+ */
+const onThreeJSError = (err: Error) => {
+  console.error('[ScenePreview] Three.js初始化失败:', err)
+  showError('Three.js场景加载失败: ' + err.message)
 }
 
 /**
@@ -419,6 +519,21 @@ onUnmounted(() => {
 .notice-actions {
   display: flex;
   gap: 0.75rem;
+}
+
+/* Three.js渲染器信息提示样式 */
+.format-notice.info {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(147, 197, 253, 0.9) 100%);
+  border-left-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.format-notice.info .notice-content strong {
+  color: #1e40af;
+}
+
+.format-notice.info .notice-content p {
+  color: #1e3a8a;
 }
 
 /* Cesium查看器容器 */

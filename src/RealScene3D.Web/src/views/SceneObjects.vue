@@ -29,6 +29,9 @@
       </select>
       <div v-if="selectedScene" class="scene-info">
         <span class="info-badge">{{ selectedScene.name }}</span>
+        <span class="info-badge" :class="selectedScene.renderEngine === 'ThreeJS' ? 'engine-threejs' : 'engine-cesium'">
+          {{ selectedScene.renderEngine === 'ThreeJS' ? '🎨 Three.js' : '🌍 Cesium' }}
+        </span>
         <span class="info-text">{{ objects.length }} 个对象</span>
       </div>
     </div>
@@ -794,6 +797,54 @@ const saveObject = async () => {
       return
     }
 
+    // ========== 格式兼容性验证 ==========
+    if (!editingObject.value && selectedScene.value && objectForm.value.modelPath) {
+      const sceneRenderEngine = selectedScene.value.renderEngine || 'Cesium'
+      const modelPath = objectForm.value.modelPath
+
+      // 获取文件扩展名
+      let fileExt = ''
+      if (modelPath.startsWith('本地文件:')) {
+        fileExt = modelPath.split('.').pop()?.toLowerCase() || ''
+      } else if (selectedFile.value) {
+        fileExt = selectedFile.value.name.split('.').pop()?.toLowerCase() || ''
+      } else {
+        fileExt = modelPath.split('.').pop()?.toLowerCase() || ''
+      }
+
+      console.log('[SceneObjects] 验证格式兼容性:', { sceneRenderEngine, fileExt })
+
+      // Three.js支持的格式
+      const threeJSFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'gltf', 'glb']
+
+      // Cesium支持的格式
+      const cesiumFormats = ['gltf', 'glb', 'json', 'tiles', 'osgb', 'las', 'laz', 'e57']
+
+      let isCompatible = false
+      let errorMessage = ''
+
+      if (sceneRenderEngine === 'ThreeJS') {
+        isCompatible = threeJSFormats.includes(fileExt)
+        if (!isCompatible) {
+          errorMessage = `场景使用 Three.js 渲染引擎，不支持 ${fileExt.toUpperCase()} 格式。\n\n支持的格式: ${threeJSFormats.map(f => f.toUpperCase()).join(', ')}`
+        }
+      } else { // Cesium
+        isCompatible = cesiumFormats.includes(fileExt)
+        if (!isCompatible) {
+          errorMessage = `场景使用 Cesium 渲染引擎，不支持 ${fileExt.toUpperCase()} 格式。\n\n支持的格式: ${cesiumFormats.map(f => f.toUpperCase()).join(', ')}\n\n提示: 如需使用 ${fileExt.toUpperCase()} 格式，请创建使用 Three.js 渲染引擎的场景。`
+        }
+      }
+
+      if (!isCompatible) {
+        showError(errorMessage)
+        alert(`❌ 格式不兼容\n\n${errorMessage}`)
+        return
+      } else {
+        console.log('[SceneObjects] 格式验证通过')
+      }
+    }
+    // ========== 格式兼容性验证结束 ==========
+
     let finalModelPath = objectForm.value.modelPath
 
     // 如果选择了新的本地文件，询问用户是上传还是直接使用本地路径
@@ -1385,6 +1436,18 @@ onMounted(async () => {
   border-radius: 12px;
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+.info-badge.engine-threejs {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(217, 70, 239, 0.2) 100%);
+  color: #7c3aed;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.info-badge.engine-cesium {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(16, 185, 129, 0.2) 100%);
+  color: #15803d;
+  border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
 .info-text {

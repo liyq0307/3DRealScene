@@ -49,6 +49,16 @@ public class Scene3D : BaseEntity
     public string Metadata { get; set; } = "{}";
 
     /// <summary>
+    /// 渲染引擎类型，必填项
+    /// 指定场景使用的3D渲染引擎
+    /// 可选值: "Cesium" - 基于地球的地理空间渲染引擎，支持3D Tiles和地理坐标系统
+    ///        "ThreeJS" - 通用3D渲染引擎，支持更多模型格式(OBJ, FBX, GLB等)
+    /// 默认值: "Cesium"
+    /// 说明: 场景创建后，添加的所有对象必须与此渲染引擎兼容
+    /// </summary>
+    public string RenderEngine { get; set; } = "Cesium";
+
+    /// <summary>
     /// 场景所有者导航属性
     /// 与User实体建立关联关系，用于获取所有者详细信息
     /// </summary>
