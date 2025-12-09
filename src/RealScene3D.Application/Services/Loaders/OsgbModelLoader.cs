@@ -145,10 +145,20 @@ public class OsgbNativeReader
             }
 
             _logger.LogInformation(
-                "OSG 读取成功: 顶点={VertexCount}, 面={FaceCount}, 纹理={TextureCount}",
+                "OSG 读取成功: 顶点={VertexCount}, 面={FaceCount}, 纹理={TextureCount}, 材质={MaterialCount}",
                 managedMeshData.VertexCount,
                 managedMeshData.FaceCount,
-                managedMeshData.TextureCount);
+                managedMeshData.TextureCount,
+                managedMeshData.MaterialCount);
+
+            // 输出纹理详细信息
+            for (int i = 0; i < managedMeshData.Textures.Count; i++)
+            {
+                var tex = managedMeshData.Textures[i];
+                _logger.LogInformation(
+                    "纹理 {Index}: {Name}, 尺寸={Width}x{Height}, 格式={Format}, 压缩={IsCompressed}, 通道={Components}",
+                    i, tex.Name, tex.Width, tex.Height, tex.Format, tex.IsCompressed, tex.Components);
+            }
 
             // 转换为 C# IMesh
             var (mesh, boundingBox) = ConvertToIMesh(managedMeshData, osgbPath);
@@ -235,14 +245,24 @@ public class OsgbNativeReader
             int idxB = (int)managedData.Indices[i + 1];
             int idxC = (int)managedData.Indices[i + 2];
 
+            // 获取当前面的材质索引（方案B修复）
+            int materialIndex = 0;  // 默认值
+            int faceIndex = i / 3;
+            if (managedData.FaceMaterialIndices != null &&
+                faceIndex < managedData.FaceMaterialIndices.Length)
+            {
+                int rawMaterialIndex = managedData.FaceMaterialIndices[faceIndex];
+                // 确保材质索引有效（-1表示无材质，使用0作为默认值）
+                materialIndex = rawMaterialIndex >= 0 ? rawMaterialIndex : 0;
+            }
+
             if (hasTexCoords)
             {
                 // OSGB 使用共享索引模式：顶点索引和纹理索引相同
-                // 使用带纹理索引的构造函数，材质索引默认为 0
                 faces.Add(new Face(
                     idxA, idxB, idxC,
                     idxA, idxB, idxC,
-                    0  // materialIndex
+                    materialIndex  // ✅ 使用正确的材质索引
                 ));
             }
             else
@@ -260,9 +280,24 @@ public class OsgbNativeReader
             {
                 var texture = managedData.Textures[i];
 
+                // 根据纹理格式选择文件扩展名
+                string textureExtension = texture.IsCompressed ? ".dds" : ".jpg";
+                var texturePath = Path.Combine(directory, $"texture_{i}{textureExtension}");
+
                 // 保存纹理到文件
-                var texturePath = Path.Combine(directory, $"texture_{i}.jpg");
                 SaveTexture(texture, texturePath);
+
+                // 验证纹理文件是否成功保存
+                if (!File.Exists(texturePath))
+                {
+                    _logger.LogError("纹理文件保存失败: {Path}", texturePath);
+                }
+                else
+                {
+                    var fileInfo = new FileInfo(texturePath);
+                    _logger.LogInformation("纹理文件已保存: {Path}, 大小={Size} bytes",
+                        texturePath, fileInfo.Length);
+                }
 
                 // 获取材质数据
                 RGB? diffuseColor = null;
@@ -325,25 +360,55 @@ public class OsgbNativeReader
     {
         try
         {
-            if (texture.Components == 4)
+            // 检查是否为压缩纹理格式（DXT1/3/5）
+            if (texture.IsCompressed)
             {
-                var image = Image.LoadPixelData<Rgba32>(texture.ImageData, texture.Width, texture.Height);
-                image.SaveAsJpeg(outputPath);
-                image.Dispose();
-            }
-            else if (texture.Components == 3)
-            {
-                var image = Image.LoadPixelData<Rgb24>(texture.ImageData, texture.Width, texture.Height);
-                image.SaveAsJpeg(outputPath);
-                image.Dispose();
-            }
+                // 压缩纹理需要使用 OSG 原生保存功能
+                // 通过 OsgbReaderWrapper.SaveTexture 保存
+                using var reader = new OsgbReaderWrapper();
+                bool success = reader.SaveTexture(texture, outputPath);
 
-            _logger.LogDebug("纹理已保存: {Path}, 尺寸: {Width}x{Height}",
-                outputPath, texture.Width, texture.Height);
+                if (!success)
+                {
+                    _logger.LogWarning("OSG 保存压缩纹理失败，尝试跳过: {Path} (格式: {Format})",
+                        outputPath, texture.Format);
+                    return;
+                }
+
+                _logger.LogDebug("压缩纹理已保存: {Path}, 格式: {Format}, 尺寸: {Width}x{Height}",
+                    outputPath, texture.Format, texture.Width, texture.Height);
+            }
+            else
+            {
+                // 未压缩纹理：直接解码像素数据
+                if (texture.Components == 4)
+                {
+                    var image = Image.LoadPixelData<Rgba32>(texture.ImageData, texture.Width, texture.Height);
+                    image.SaveAsJpeg(outputPath);
+                    image.Dispose();
+                }
+                else if (texture.Components == 3)
+                {
+                    var image = Image.LoadPixelData<Rgb24>(texture.ImageData, texture.Width, texture.Height);
+                    image.SaveAsJpeg(outputPath);
+                    image.Dispose();
+                }
+                else if (texture.Components == 1)
+                {
+                    // Luminance 格式
+                    var image = Image.LoadPixelData<L8>(texture.ImageData, texture.Width, texture.Height);
+                    image.SaveAsJpeg(outputPath);
+                    image.Dispose();
+                }
+
+                _logger.LogDebug("未压缩纹理已保存: {Path}, 尺寸: {Width}x{Height}, 通道: {Components}",
+                    outputPath, texture.Width, texture.Height, texture.Components);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "保存纹理失败: {Path}", outputPath);
+            _logger.LogError(ex, "保存纹理失败: {Path}, 格式: {Format}, 压缩: {IsCompressed}",
+                outputPath, texture.Format, texture.IsCompressed);
         }
     }
 

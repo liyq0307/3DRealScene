@@ -54,6 +54,8 @@ bool OsgbReaderWrapper::SaveTexture(ManagedTextureData^ texture, String^ outputP
     nativeTexture.Components = texture->Components;
     nativeTexture.Format = context.marshal_as<std::string>(texture->Format);
     nativeTexture.Name = context.marshal_as<std::string>(texture->Name);
+    nativeTexture.IsCompressed = texture->IsCompressed;
+    nativeTexture.CompressionType = texture->CompressionType;
 
     // 复制图像数据
     nativeTexture.ImageData.resize(texture->ImageData->Length);
@@ -81,6 +83,8 @@ ManagedTextureData^ OsgbReaderWrapper::ConvertTexture(const Native::TextureData&
     managedTexture->Components = nativeTexture.Components;
     managedTexture->Format = gcnew String(nativeTexture.Format.c_str());
     managedTexture->Name = gcnew String(nativeTexture.Name.c_str());
+    managedTexture->IsCompressed = nativeTexture.IsCompressed;
+    managedTexture->CompressionType = nativeTexture.CompressionType;
 
     // 复制图像数据
     managedTexture->ImageData = gcnew array<Byte>((int)nativeTexture.ImageData.size());
@@ -98,12 +102,32 @@ ManagedMaterialData^ OsgbReaderWrapper::ConvertMaterial(const Native::MaterialDa
     auto managedMaterial = gcnew ManagedMaterialData();
 
     managedMaterial->Name = gcnew String(nativeMaterial.Name.c_str());
+
+    // 环境光
+    managedMaterial->AmbientR = nativeMaterial.AmbientR;
+    managedMaterial->AmbientG = nativeMaterial.AmbientG;
+    managedMaterial->AmbientB = nativeMaterial.AmbientB;
+    managedMaterial->AmbientA = nativeMaterial.AmbientA;
+
+    // 漫反射
     managedMaterial->DiffuseR = nativeMaterial.DiffuseR;
     managedMaterial->DiffuseG = nativeMaterial.DiffuseG;
     managedMaterial->DiffuseB = nativeMaterial.DiffuseB;
+    managedMaterial->DiffuseA = nativeMaterial.DiffuseA;
+
+    // 镜面反射
     managedMaterial->SpecularR = nativeMaterial.SpecularR;
     managedMaterial->SpecularG = nativeMaterial.SpecularG;
     managedMaterial->SpecularB = nativeMaterial.SpecularB;
+    managedMaterial->SpecularA = nativeMaterial.SpecularA;
+
+    // 自发光
+    managedMaterial->EmissionR = nativeMaterial.EmissionR;
+    managedMaterial->EmissionG = nativeMaterial.EmissionG;
+    managedMaterial->EmissionB = nativeMaterial.EmissionB;
+    managedMaterial->EmissionA = nativeMaterial.EmissionA;
+
+    // 光泽度和纹理索引
     managedMaterial->Shininess = nativeMaterial.Shininess;
     managedMaterial->TextureIndex = nativeMaterial.TextureIndex;
 
@@ -154,6 +178,17 @@ ManagedMeshData^ OsgbReaderWrapper::ConvertMesh(const Native::MeshData& nativeMe
         memcpy(pinnedIndices, nativeMesh.Indices.data(), nativeMesh.Indices.size() * sizeof(unsigned int));
     }
 
+    // 转换面材质索引（方案B修复）
+    if (!nativeMesh.FaceMaterialIndices.empty()) {
+        managedMesh->FaceMaterialIndices = gcnew array<int>((int)nativeMesh.FaceMaterialIndices.size());
+        Marshal::Copy(
+            IntPtr((void*)nativeMesh.FaceMaterialIndices.data()),
+            managedMesh->FaceMaterialIndices,
+            0,
+            managedMesh->FaceMaterialIndices->Length
+        );
+    }
+
     // 转换纹理
     for (const auto& nativeTexture : nativeMesh.Textures) {
         managedMesh->Textures->Add(ConvertTexture(nativeTexture));
@@ -177,6 +212,20 @@ ManagedMeshData^ OsgbReaderWrapper::ConvertMesh(const Native::MeshData& nativeMe
     managedMesh->FaceCount = nativeMesh.FaceCount;
     managedMesh->TextureCount = nativeMesh.TextureCount;
     managedMesh->MaterialCount = nativeMesh.MaterialCount;
+
+    // 复制内存使用统计
+    managedMesh->VerticesMemory = nativeMesh.VerticesMemory;
+    managedMesh->NormalsMemory = nativeMesh.NormalsMemory;
+    managedMesh->TexCoordsMemory = nativeMesh.TexCoordsMemory;
+    managedMesh->IndicesMemory = nativeMesh.IndicesMemory;
+    managedMesh->TexturesMemory = nativeMesh.TexturesMemory;
+    managedMesh->TotalMemory = nativeMesh.TotalMemory;
+
+    // 复制变换信息
+    managedMesh->Transform->HasTransform = nativeMesh.Transform.HasTransform;
+    for (int i = 0; i < 16; i++) {
+        managedMesh->Transform->Matrix[i] = nativeMesh.Transform.Matrix[i];
+    }
 
     return managedMesh;
 }

@@ -11,7 +11,7 @@ namespace RealScene3D {
 namespace Managed {
 
 /// <summary>
-/// 托管纹理数据类
+/// 托管纹理数据类（增强版）
 /// </summary>
 public ref class ManagedTextureData {
 public:
@@ -21,22 +21,54 @@ public:
     int Components;
     String^ Format;
     String^ Name;
+    bool IsCompressed;      // 新增：是否为压缩格式
+    int CompressionType;    // 新增：压缩类型
 };
 
 /// <summary>
-/// 托管材质数据类
+/// 托管材质数据类（完整版）
 /// </summary>
 public ref class ManagedMaterialData {
 public:
     String^ Name;
-    float DiffuseR, DiffuseG, DiffuseB;
-    float SpecularR, SpecularG, SpecularB;
+
+    // 环境光
+    float AmbientR, AmbientG, AmbientB, AmbientA;
+
+    // 漫反射
+    float DiffuseR, DiffuseG, DiffuseB, DiffuseA;
+
+    // 镜面反射
+    float SpecularR, SpecularG, SpecularB, SpecularA;
+
+    // 自发光
+    float EmissionR, EmissionG, EmissionB, EmissionA;
+
+    // 光泽度
     float Shininess;
+
+    // 纹理索引
     int TextureIndex;
 };
 
 /// <summary>
-/// 托管完整网格数据类（对应 C# IMesh）
+/// 托管变换信息类
+/// </summary>
+public ref class ManagedTransformInfo {
+public:
+    bool HasTransform;
+    array<double>^ Matrix;  // 4x4 矩阵（16个元素）
+
+    ManagedTransformInfo() {
+        Matrix = gcnew array<double>(16);
+        for (int i = 0; i < 16; i++) {
+            Matrix[i] = (i % 5 == 0) ? 1.0 : 0.0;
+        }
+    }
+};
+
+/// <summary>
+/// 托管完整网格数据类（对应 C# IMesh - 增强版）
 /// </summary>
 public ref class ManagedMeshData {
 public:
@@ -44,6 +76,7 @@ public:
     array<float>^ Normals;
     array<float>^ TexCoords;
     array<unsigned int>^ Indices;
+    array<int>^ FaceMaterialIndices;  // 每个面的材质索引（方案B修复）
     List<ManagedTextureData^>^ Textures;
     List<ManagedMaterialData^>^ Materials;
 
@@ -57,9 +90,21 @@ public:
     int TextureCount;
     int MaterialCount;
 
+    // 内存使用统计（字节）
+    long long VerticesMemory;
+    long long NormalsMemory;
+    long long TexCoordsMemory;
+    long long IndicesMemory;
+    long long TexturesMemory;
+    long long TotalMemory;
+
+    // 变换信息
+    ManagedTransformInfo^ Transform;
+
     ManagedMeshData() {
         Textures = gcnew List<ManagedTextureData^>();
         Materials = gcnew List<ManagedMaterialData^>();
+        Transform = gcnew ManagedTransformInfo();
     }
 };
 
