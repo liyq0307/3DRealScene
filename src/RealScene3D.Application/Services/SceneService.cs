@@ -53,7 +53,8 @@ public class SceneService : ISceneService
             Name = request.Name,
             Description = request.Description,
             OwnerId = ownerId,
-            Metadata = request.Metadata
+            Metadata = request.Metadata,
+            RenderEngine = request.RenderEngine
         };
 
         // 解析GeoJSON边界
@@ -151,24 +152,243 @@ public class SceneService : ISceneService
     }
 
     /// <summary>
-    /// 删除场景（软删除）
+    /// 删除场景（物理删除）
     /// </summary>
     /// <param name="id">要删除的场景ID</param>
     /// <param name="userId">操作用户ID，需要验证权限</param>
     /// <returns>删除是否成功</returns>
     public async Task<bool> DeleteSceneAsync(Guid id, Guid userId)
     {
-        var scene = await _sceneRepository.GetByIdAsync(id);
+        var scene = await _context.Scenes
+            .Include(s => s.SceneObjects)
+                .ThenInclude(so => so.SlicingTask)
+            .FirstOrDefaultAsync(s => s.Id == id);
+
         if (scene == null || scene.OwnerId != userId)
         {
             return false;
         }
 
-        scene.IsDeleted = true;
-        scene.UpdatedAt = DateTime.UtcNow;
+        // 1. 删除场景下的所有对象（包括MinIO文件和切片任务）
+        if (scene.SceneObjects.Any())
+        {
+            foreach (var sceneObject in scene.SceneObjects.ToList())
+            {
+                // 删除MinIO中的模型文件
+                await DeleteMinioFileIfNeededAsync(sceneObject.ModelPath);
+
+                // 删除关联的切片任务和切片文件
+                if (sceneObject.SlicingTask != null)
+                {
+                    await DeleteSlicingTaskAndFilesAsync(sceneObject.SlicingTask.Id);
+                }
+
+                // 从数据库删除场景对象
+                _context.SceneObjects.Remove(sceneObject);
+            }
+        }
+
+        // 2. 从数据库物理删除场景
+        _context.Scenes.Remove(scene);
         await _unitOfWork.SaveChangesAsync();
 
         return true;
+    }
+
+    /// <summary>
+    /// 删除MinIO文件（如果路径指向MinIO存储）
+    /// 支持删除单个文件或整个文件夹（批量上传的OBJ+MTL+纹理）
+    /// </summary>
+    private async Task DeleteMinioFileIfNeededAsync(string? modelPath)
+    {
+        if (string.IsNullOrEmpty(modelPath))
+        {
+            Console.WriteLine("[SceneService] ModelPath为空，跳过删除");
+            return;
+        }
+
+        Console.WriteLine($"[SceneService] 开始处理文件删除: {modelPath}");
+
+        try
+        {
+            // 提取bucket和文件路径
+            string? bucketName = null;
+            string? objectName = null;
+
+            // 情况1: /api/files/proxy/bucket/object 格式
+            if (modelPath.Contains("/api/files/proxy/"))
+            {
+                Console.WriteLine("[SceneService] 检测到代理路径格式");
+                var parts = modelPath.Split(new[] { "/api/files/proxy/" }, StringSplitOptions.None);
+                if (parts.Length > 1)
+                {
+                    var pathParts = parts[1].Split('/', 2);
+                    bucketName = pathParts[0];
+                    objectName = pathParts.Length > 1 ? pathParts[1] : "";
+                    Console.WriteLine($"[SceneService] 解析结果: Bucket={bucketName}, Object={objectName}");
+                }
+            }
+            // 情况2: 预签名URL或直接MinIO URL (http://localhost:9000/bucket/object 或 https://...)
+            else if (modelPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                     modelPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("[SceneService] 检测到HTTP(S) URL格式");
+                try
+                {
+                    var uri = new Uri(modelPath);
+                    // 提取路径部分（去除查询参数）
+                    var path = uri.AbsolutePath.TrimStart('/');
+                    Console.WriteLine($"[SceneService] URL路径: {path}");
+
+                    var pathParts = path.Split('/', 2);
+                    if (pathParts.Length >= 2)
+                    {
+                        bucketName = pathParts[0];
+                        objectName = pathParts[1];
+                        Console.WriteLine($"[SceneService] 解析结果: Bucket={bucketName}, Object={objectName}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SceneService] URL解析失败: {ex.Message}");
+                }
+            }
+            // 情况3: 相对路径 bucket/object 格式
+            else if (modelPath.Contains("/"))
+            {
+                Console.WriteLine("[SceneService] 检测到相对路径格式");
+                var pathParts = modelPath.TrimStart('/').Split('/', 2);
+                if (pathParts.Length >= 2)
+                {
+                    bucketName = pathParts[0];
+                    objectName = pathParts[1];
+                    Console.WriteLine($"[SceneService] 解析结果: Bucket={bucketName}, Object={objectName}");
+                }
+            }
+
+            if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(objectName))
+            {
+                Console.WriteLine($"[SceneService] 无法解析路径，跳过删除: {modelPath}");
+                return;
+            }
+
+            // 执行删除操作
+            if (!string.IsNullOrEmpty(objectName))
+            {
+                // 检查是否是文件夹路径（批量上传的文件）
+                var lastSlashIndex = objectName.LastIndexOf('/');
+
+                if (lastSlashIndex > 0)
+                {
+                    // 这是文件夹中的文件，提取文件夹路径并删除整个文件夹
+                    var folderPath = objectName.Substring(0, lastSlashIndex + 1);
+
+                    Console.WriteLine($"[SceneService] 检测到文件夹路径，准备删除整个文件夹: {bucketName}/{folderPath}");
+
+                    try
+                    {
+                        // 列出文件夹中的所有文件
+                        var filesInFolder = await _minioStorageService.ListFilesAsync(bucketName, folderPath);
+
+                        if (filesInFolder.Any())
+                        {
+                            Console.WriteLine($"[SceneService] 文件夹 {folderPath} 包含 {filesInFolder.Count} 个文件，开始批量删除");
+
+                            int successCount = 0;
+                            foreach (var fileKey in filesInFolder)
+                            {
+                                var deleted = await _minioStorageService.DeleteFileAsync(bucketName, fileKey);
+                                if (deleted)
+                                {
+                                    successCount++;
+                                    Console.WriteLine($"[SceneService]   ✓ 已删除: {bucketName}/{fileKey}");
+                                }
+                            }
+
+                            Console.WriteLine($"[SceneService] 文件夹删除完成: 成功 {successCount}/{filesInFolder.Count}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SceneService] 列出或删除文件夹内容时发生错误: {bucketName}/{folderPath}, 错误: {ex.Message}");
+
+                        // 回退到单文件删除
+                        await _minioStorageService.DeleteFileAsync(bucketName, objectName);
+                    }
+                }
+                else
+                {
+                    // 单个文件，直接删除
+                    Console.WriteLine($"[SceneService] 删除单个文件: {bucketName}/{objectName}");
+                    var deleted = await _minioStorageService.DeleteFileAsync(bucketName, objectName);
+                    if (deleted)
+                    {
+                        Console.WriteLine($"[SceneService] ✓ 成功删除: {bucketName}/{objectName}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[SceneService] ✗ 删除失败: {bucketName}/{objectName}");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SceneService] 删除MinIO文件失败: {modelPath}, 错误: {ex.Message}");
+            Console.WriteLine($"[SceneService] 错误堆栈: {ex.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// 删除切片任务及其所有切片文件
+    /// </summary>
+    private async Task DeleteSlicingTaskAndFilesAsync(Guid taskId)
+    {
+        var task = await _context.SlicingTasks
+            .FirstOrDefaultAsync(t => t.Id == taskId);
+
+        if (task == null)
+            return;
+
+        // 查找并删除所有切片文件
+        var slices = await _context.Slices
+            .Where(s => s.SlicingTaskId == taskId)
+            .ToListAsync();
+
+        if (slices.Any())
+        {
+            foreach (var slice in slices)
+            {
+                try
+                {
+                    // 从MinIO删除切片文件
+                    if (!string.IsNullOrEmpty(slice.FilePath))
+                    {
+                        await _minioStorageService.DeleteFileAsync("slices", slice.FilePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"删除切片文件失败: {slice.FilePath}, 错误: {ex.Message}");
+                }
+
+                // 从数据库删除切片记录
+                _context.Slices.Remove(slice);
+            }
+        }
+
+        // 删除tileset.json等索引文件
+        if (!string.IsNullOrEmpty(task.OutputPath))
+        {
+            try
+            {
+                await _minioStorageService.DeleteFileAsync("slices", task.OutputPath + "/tileset.json");
+            }
+            catch { }
+        }
+
+        // 从数据库删除切片任务
+        _context.SlicingTasks.Remove(task);
     }
 
     /// <summary>
@@ -200,6 +420,11 @@ public class SceneService : ISceneService
         if (request.Metadata != null)
         {
             scene.Metadata = request.Metadata;
+        }
+
+        if (request.RenderEngine != null)
+        {
+            scene.RenderEngine = request.RenderEngine;
         }
 
         // 更新GeoJSON边界
@@ -249,6 +474,7 @@ public class SceneService : ISceneService
                 ? new[] { scene.CenterPoint.X, scene.CenterPoint.Y, scene.CenterPoint.Z }
                 : null,
             Metadata = scene.Metadata,
+            RenderEngine = scene.RenderEngine,
             OwnerId = scene.OwnerId,
             CreatedAt = scene.CreatedAt,
             SceneObjects = scene.SceneObjects.Select(so =>

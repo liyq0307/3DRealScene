@@ -52,14 +52,16 @@
     <!-- 动态渲染器容器 -->
     <div class="viewer-container">
       <!-- Three.js 查看器 (用于通用3D模型) -->
-      <SceneViewer
+      <ThreeViewer
         v-if="!loading && sceneObjects.length > 0 && sceneRenderEngine === 'threejs'"
-        :models="sceneObjectsForThreeJS"
-        mode="enhanced"
-        :show-lighting-panel="true"
-        :show-model-loader="false"
+        :scene-objects="sceneObjects"
+        :show-info="true"
+        :background-color="'#1a1a1a'"
+        :enable-shadows="true"
+        :enable-anti-alias="true"
         @ready="onThreeJSReady"
         @error="onThreeJSError"
+        @objectLoaded="onThreeJSObjectLoaded"
       />
 
       <!-- Cesium 3D地球查看器 (用于地理空间数据) -->
@@ -114,7 +116,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
 import CesiumViewer from '@/components/CesiumViewer.vue'
-import SceneViewer from '@/components/SceneViewer.vue'
+import ThreeViewer from '@/components/ThreeViewer.vue'
 
 // ==================== 组合式API ====================
 
@@ -182,18 +184,6 @@ const sceneRenderEngine = computed(() => {
 
   // 其他情况使用Cesium
   return 'cesium'
-})
-
-/**
- * 为Three.js准备的场景对象列表
- * 转换为SceneViewer所需的格式
- */
-const sceneObjectsForThreeJS = computed(() => {
-  return sceneObjects.value.map(obj => ({
-    url: obj.displayPath,
-    name: obj.name,
-    type: obj.displayPath?.split('.').pop()?.toLowerCase() || 'gltf'
-  }))
 })
 
 /**
@@ -335,9 +325,16 @@ const onCesiumError = (err: Error) => {
 /**
  * Three.js就绪回调
  */
-const onThreeJSReady = () => {
-  console.log('[ScenePreview] Three.js场景初始化成功')
+const onThreeJSReady = (viewerData: any) => {
+  console.log('[ScenePreview] Three.js场景初始化成功', viewerData)
   showSuccess('Three.js 场景加载成功')
+}
+
+/**
+ * Three.js对象加载回调
+ */
+const onThreeJSObjectLoaded = (object: any) => {
+  console.log('[ScenePreview] Three.js对象加载成功', object)
 }
 
 /**

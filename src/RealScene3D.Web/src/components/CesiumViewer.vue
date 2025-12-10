@@ -7,11 +7,14 @@
       <button class="btn" @click="resetView" title="重置视图">
         <span class="icon">🎥</span>
       </button>
-      <button class="btn" @click="toggleTerrain" title="切换地形">
-        <span class="icon">{{ terrainEnabled ? '🌋' : '🌍' }}</span>
+      <button class="btn" @click="toggleWireframe" title="线框模式">
+        <span class="icon">{{ wireframeMode ? '🔲' : '⬜' }}</span>
       </button>
-      <button class="btn" @click="toggleImagery" title="切换影像">
-        <span class="icon">🗺️</span>
+      <button class="btn" @click="toggleAxes" title="切换坐标轴">
+        <span class="icon">📐</span>
+      </button>
+      <button class="btn" @click="toggleGrid" title="切换网格">
+        <span class="icon">＃</span>
       </button>
       <button class="btn" @click="takeScreenshot" title="截图">
         <span class="icon">📷</span>
@@ -20,6 +23,18 @@
 
     <!-- 信息面板 -->
     <div v-if="showInfo" class="info-panel">
+      <div class="info-item">
+        <span class="info-label">对象数量:</span>
+        <span class="info-value">{{ loadedObjectsCount }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">FPS:</span>
+        <span class="info-value">{{ fps }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">渲染引擎:</span>
+        <span class="info-value">Cesium</span>
+      </div>
       <div class="info-item">
         <span class="info-label">经度:</span>
         <span class="info-value">{{ cameraInfo.longitude }}°</span>
@@ -31,10 +46,6 @@
       <div class="info-item">
         <span class="info-label">高度:</span>
         <span class="info-value">{{ cameraInfo.height }}m</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">FPS:</span>
-        <span class="info-value">{{ fps }}</span>
       </div>
     </div>
 
@@ -304,9 +315,11 @@ const { error: showError, success: showSuccess } = useMessage()
 // ==================== 响应式状态 ====================
 
 const loading = ref(true)
-const terrainEnabled = ref(true)
-const currentImagerySource = ref<'cartodb' | 'esri'>('cartodb')
 const fps = ref(60)
+const loadedObjectsCount = ref(0)
+const wireframeMode = ref(false)
+const axesVisible = ref(true)
+const gridVisible = ref(true)
 const cameraInfo = ref<CameraInfo>({
   longitude: 0,
   latitude: 0,
@@ -396,64 +409,6 @@ const createModelMatrix = (position: number[], rotation: { x: number; y: number;
     orientation,
     new Cesium.Cartesian3(scale.x, scale.y, scale.z)
   )
-}
-
-/**
- * 添加调试标记
- */
-const addDebugMarker = (position: number[], name: string): void => {
-  if (!viewer) return
-
-  const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
-
-  viewer.entities.add({
-    position: cartesian,
-    point: {
-      pixelSize: 20,
-      color: Cesium.Color.RED,
-      outlineColor: Cesium.Color.WHITE,
-      outlineWidth: 2
-    },
-    label: {
-      text: name,
-      font: '14px sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 2,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-      pixelOffset: new Cesium.Cartesian2(0, -20)
-    }
-  })
-}
-
-/**
- * 添加调试球体（用于模型中心位置标记，仅开发环境）
- */
-const addDebugSphere = (viewer: Cesium.Viewer, position: number[]): void => {
-  if (!import.meta.env.DEV) return
-
-  console.log('[addDebugSphere] 添加调试球体，位置:', position)
-  viewer.entities.add({
-    position: Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2]),
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(50, 50, 50), // 50米半径的球体
-      material: Cesium.Color.YELLOW.withAlpha(0.3),
-      outline: true,
-      outlineColor: Cesium.Color.YELLOW,
-      outlineWidth: 2.0
-    },
-    label: {
-      text: '调试球体 - 模型中心',
-      font: '16px sans-serif',
-      fillColor: Cesium.Color.YELLOW,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 2,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-      pixelOffset: new Cesium.Cartesian2(0, -60)
-    }
-  })
 }
 
 /**
@@ -806,13 +761,8 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     const cartesian = center
     loadedModels.set(obj.id, { type: '3dtiles', object: tileset, position: cartesian })
 
-    // 使用实际位置添加调试标记
-    addDebugMarker(actualPosition, obj.name)
-
-    // 添加调试球体（仅用于切片预览）
-    if (obj.name === '切片预览') {
-      addDebugSphere(viewer, actualPosition)
-    }
+    // 更新对象计数
+    loadedObjectsCount.value = loadedModels.size
 
     // 强制加载所有瓦片（设置为0以绕过LOD检查）
     tileset.maximumScreenSpaceError = 0
@@ -951,7 +901,9 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
     const cartesian = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
     loadedModels.set(obj.id, { type: 'model', object: model, position: cartesian })
 
-    addDebugMarker(obj.position, obj.name)
+    // 更新对象计数
+    loadedObjectsCount.value = loadedModels.size
+
     console.log('[loadGltfModel] 准备飞向模型位置...')
 
     try {
@@ -1123,10 +1075,6 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
     const validation = validateSceneObject(obj)
     if (!validation.isValid) {
       console.error(`[CesiumViewer] 对象验证失败: ${validation.error}`)
-      addDebugMarker(
-        [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height],
-        `${obj.name} (无效对象)`
-      )
       emit('objectLoaded', obj, false)
       return
     }
@@ -1160,24 +1108,12 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
         break
       default:
         console.error(`不支持的文件格式: .${fileExt}`)
-        addDebugMarker(obj.position, `${obj.name} (不支持格式)`)
         emit('objectLoaded', obj, false)
     }
   } catch (error) {
     const errorMessage = `加载对象 ${obj.name} 失败: ${error instanceof Error ? error.message : String(error)}`
     console.error('[loadSceneObject] 错误:', errorMessage, error)
     showError(errorMessage)
-
-    // 添加错误标记
-    try {
-      addDebugMarker(obj.position || [
-        APP_CONFIG.DEFAULT_POSITION.longitude,
-        APP_CONFIG.DEFAULT_POSITION.latitude,
-        APP_CONFIG.DEFAULT_POSITION.height
-      ], `${obj.name} (加载失败)`)
-    } catch (markerError) {
-      console.error('[loadSceneObject] 添加错误标记失败:', markerError)
-    }
 
     emit('objectLoaded', obj, false)
   }
@@ -1295,6 +1231,9 @@ const clearLoadedObjects = (): void => {
   })
   loadedModels.clear()
 
+  // 重置计数器
+  loadedObjectsCount.value = 0
+
   // 清除所有Entity标记
   viewer!.entities.removeAll()
 }
@@ -1322,16 +1261,19 @@ const createViewerOptions = () => ({
   selectionIndicator: false, // 选择指示器
   navigationHelpButton: false, // 导航帮助按钮
 
-  // 渲染设置
-  shadows: false,             // 启用阴影
+  // 渲染设置（优化性能）
+  shadows: false,             // 禁用阴影以提升性能
   shouldAnimate: true,        // 自动动画
 
-  // 请求渲染模式（优化性能）- 禁用以确保持续渲染
-  requestRenderMode: false,   // 设为false以持续渲染
-  maximumRenderTimeChange: Infinity,
+  // 请求渲染模式（优化性能）- 仅在场景变化时渲染
+  requestRenderMode: true,    // 启用请求渲染模式
+  maximumRenderTimeChange: 0.0,  // 设为0以提高响应性
 
   // 场景配置
-  scene3DOnly: false         // 允许2D/3D/Columbus视图
+  scene3DOnly: false,         // 允许2D/3D/Columbus视图
+
+  // MSAA抗锯齿（性能优化）
+  msaaSamples: 2              // 降低MSAA采样数（4 -> 2）
 })
 
 /**
@@ -1389,6 +1331,111 @@ const hideCesiumLogo = (viewer: Cesium.Viewer): void => {
 }
 
 /**
+ * 初始化坐标轴辅助器
+ */
+const initAxesHelper = (viewer: Cesium.Viewer): void => {
+  try {
+    // 缩短坐标轴长度以提升性能
+    const axisLength = 500000 // 500km，原来是1000km
+
+    // 创建原点
+    const origin = Cesium.Cartesian3.fromDegrees(0, 0, 0)
+
+    // X轴 (红色 - 东)
+    const xEnd = Cesium.Cartesian3.fromDegrees(axisLength / 111320, 0, 0)
+    viewer.entities.add({
+      id: 'axis-x',
+      polyline: {
+        positions: [origin, xEnd],
+        width: 2,
+        material: Cesium.Color.RED,
+        clampToGround: false
+      },
+      show: axesVisible.value
+    })
+
+    // Y轴 (绿色 - 北)
+    const yEnd = Cesium.Cartesian3.fromDegrees(0, axisLength / 111320, 0)
+    viewer.entities.add({
+      id: 'axis-y',
+      polyline: {
+        positions: [origin, yEnd],
+        width: 2,
+        material: Cesium.Color.GREEN,
+        clampToGround: false
+      },
+      show: axesVisible.value
+    })
+
+    // Z轴 (蓝色 - 上)
+    const zEnd = Cesium.Cartesian3.fromDegrees(0, 0, axisLength)
+    viewer.entities.add({
+      id: 'axis-z',
+      polyline: {
+        positions: [origin, zEnd],
+        width: 2,
+        material: Cesium.Color.BLUE,
+        clampToGround: false
+      },
+      show: axesVisible.value
+    })
+
+    console.log('[initAxesHelper] 坐标轴创建成功')
+  } catch (error) {
+    console.warn('[initAxesHelper] 创建坐标轴失败:', error)
+  }
+}
+
+/**
+ * 初始化网格辅助器
+ */
+const initGridHelper = (viewer: Cesium.Viewer): void => {
+  try {
+    // 经度线（南北向）- 每30度一条，减少线条数量提升性能
+    for (let lon = -180; lon <= 180; lon += 30) {
+      const positions = []
+      // 减少点的密度，每10度采样一次
+      for (let lat = -85; lat <= 85; lat += 10) {
+        positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, 0))
+      }
+      viewer.entities.add({
+        id: `grid-lon-${lon}`,
+        polyline: {
+          positions: positions,
+          width: 1,
+          material: Cesium.Color.WHITE.withAlpha(0.15),
+          clampToGround: true
+        },
+        show: gridVisible.value
+      })
+    }
+
+    // 纬度线（东西向）- 每30度一条，减少线条数量提升性能
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const positions = []
+      // 减少点的密度，每10度采样一次
+      for (let lon = -180; lon <= 180; lon += 10) {
+        positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, 0))
+      }
+      viewer.entities.add({
+        id: `grid-lat-${lat}`,
+        polyline: {
+          positions: positions,
+          width: 1,
+          material: Cesium.Color.WHITE.withAlpha(0.15),
+          clampToGround: true
+        },
+        show: gridVisible.value
+      })
+    }
+
+    console.log('[initGridHelper] 网格创建成功')
+  } catch (error) {
+    console.warn('[initGridHelper] 创建网格失败:', error)
+  }
+}
+
+/**
  * 初始化Cesium查看器
  */
 const initCesium = async (): Promise<void> => {
@@ -1405,6 +1452,30 @@ const initCesium = async (): Promise<void> => {
     // 配置globe设置（必须在viewer创建后设置）
     if (viewer.scene.globe) {
       viewer.scene.globe.depthTestAgainstTerrain = false  // 禁用地形深度测试，避免模型被遮挡
+      viewer.scene.globe.enableLighting = false  // 禁用全局光照以提升性能
+    }
+
+    // 场景性能优化设置
+    if (viewer.scene.fog) {
+      viewer.scene.fog.enabled = false  // 禁用雾效
+    }
+
+    if (viewer.scene.skyAtmosphere) {
+      viewer.scene.skyAtmosphere.show = true  // 保持大气层显示（视觉效果）
+    }
+
+    if (viewer.scene.sun) {
+      viewer.scene.sun.show = false  // 隐藏太阳
+    }
+
+    if (viewer.scene.moon) {
+      viewer.scene.moon.show = false  // 隐藏月亮
+    }
+
+    // 优化地球渲染
+    if (viewer.scene.globe) {
+      viewer.scene.globe.tileCacheSize = 100  // 减少瓦片缓存大小（默认100）
+      viewer.scene.globe.maximumScreenSpaceError = 2  // 适当降低屏幕空间误差以提升性能
     }
 
     // 隐藏Cesium Logo
@@ -1412,6 +1483,12 @@ const initCesium = async (): Promise<void> => {
 
     // 设置初始相机位置
     setupInitialCamera(viewer)
+
+    // 添加坐标轴辅助器
+    initAxesHelper(viewer)
+
+    // 添加网格辅助器
+    initGridHelper(viewer)
 
     // 设置相机运动事件监听
     viewer.camera.moveEnd.addEventListener(updateCameraInfo)
@@ -1487,97 +1564,85 @@ const updateCameraInfo = () => {
 }
 
 /**
- * 重置视图到初始位置
+ * 重置视图 - 智能飞向场景对象或初始位置
  */
-const resetView = (): void => {
+const resetView = async (): Promise<void> => {
   if (!viewer) {
     showError('Cesium 查看器未初始化')
     return
   }
 
   try {
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(
-        props.initialPosition.longitude,
-        props.initialPosition.latitude,
-        props.initialPosition.height
-      ),
-      orientation: {
-        heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
-        pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
-        roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
-      },
-      duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration
-    })
+    // 如果有加载的模型，飞向所有模型
+    if (loadedModels.size > 0) {
+      console.log('[resetView] 飞向已加载的场景对象')
+
+      if (loadedModels.size === 1) {
+        // 单个对象，飞向该对象
+        const modelInfo = Array.from(loadedModels.values())[0]
+        const position = modelInfo.position
+
+        if (modelInfo.type === '3dtiles') {
+          const tileset = modelInfo.object as Cesium.Cesium3DTileset
+          await viewer.flyTo(tileset, {
+            duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+            offset: new Cesium.HeadingPitchRange(0, -0.5, Math.max(tileset.boundingSphere.radius * 3.0, 500))
+          })
+        } else {
+          // Model类型 - 飞向模型的包围球
+          const model = modelInfo.object as Cesium.Model
+          if (model.boundingSphere && model.boundingSphere.radius > 0) {
+            await viewer.camera.flyToBoundingSphere(model.boundingSphere, {
+              duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+              offset: new Cesium.HeadingPitchRange(0, -0.5, Math.max(model.boundingSphere.radius * 3.0, 500))
+            })
+          } else {
+            // 备用方案：使用固定偏移量
+            const offset = new Cesium.Cartesian3(500, 500, 500)
+            const cameraPosition = Cesium.Cartesian3.add(position, offset, new Cesium.Cartesian3())
+
+            await viewer.camera.flyTo({
+              destination: cameraPosition,
+              orientation: {
+                heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+                pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+                roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+              },
+              duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration
+            })
+          }
+        }
+      } else {
+        // 多个对象，飞向包围盒中心
+        const positions = Array.from(loadedModels.values()).map(item => item.position)
+        const boundingSphere = Cesium.BoundingSphere.fromPoints(positions)
+
+        await viewer.camera.flyToBoundingSphere(boundingSphere, {
+          duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+          offset: new Cesium.HeadingPitchRange(0, -0.5, boundingSphere.radius * 3.0)
+        })
+      }
+    } else {
+      // 没有模型，飞向初始位置（使用合理的高度）
+      console.log('[resetView] 没有场景对象，飞向初始位置')
+      const reasonableHeight = 10000 // 10km，而不是15000km
+
+      await viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(
+          props.initialPosition.longitude,
+          props.initialPosition.latitude,
+          reasonableHeight
+        ),
+        orientation: {
+          heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+          pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+          roll: APP_CONFIG.CAMERA_FLIGHT_CONFIG.roll
+        },
+        duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration
+      })
+    }
   } catch (error) {
     const errorMessage = `重置视图失败: ${error instanceof Error ? error.message : String(error)}`
-    console.error(errorMessage)
-    showError(errorMessage)
-  }
-}
-
-/**
- * 切换地形
- */
-const toggleTerrain = async (): Promise<void> => {
-  if (!viewer) {
-    showError('Cesium 查看器未初始化')
-    return
-  }
-
-  terrainEnabled.value = !terrainEnabled.value
-
-  try {
-    if (terrainEnabled.value) {
-      // 启用真实地形（需要Cesium Ion令牌）
-      // 暂时使用椭球地形作为替代
-      viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider()
-      showSuccess('地形已启用（椭球模式）- 配置 Cesium Ion 令牌可获得真实地形')
-    } else {
-      // 禁用地形（使用椭球地形提供者 - 平坦表面）
-      viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider()
-      showSuccess('地形已禁用（平坦模式）')
-    }
-  } catch (error) {
-    const errorMessage = `切换地形失败: ${error instanceof Error ? error.message : String(error)}`
-    console.error(errorMessage)
-    showError(errorMessage)
-    // 恢复状态
-    terrainEnabled.value = !terrainEnabled.value
-  }
-}
-
-/**
- * 切换影像图层
- */
-const toggleImagery = async (): Promise<void> => {
-  if (!viewer) return
-
-  try {
-    const layers = viewer.imageryLayers
-    const newSource = currentImagerySource.value === 'cartodb' ? 'esri' : 'cartodb'
-    const imageryConfig = APP_CONFIG.IMAGERY_SOURCES[newSource]
-
-    // 移除所有现有图层
-    layers.removeAll()
-
-    // 添加新的影像提供者
-    const providerOptions: Cesium.UrlTemplateImageryProvider.ConstructorOptions = {
-      url: imageryConfig.url,
-      credit: imageryConfig.credit
-    }
-
-    if (imageryConfig.subdomains) {
-      providerOptions.subdomains = [...imageryConfig.subdomains]
-    }
-
-    const newProvider = new Cesium.UrlTemplateImageryProvider(providerOptions)
-
-    layers.addImageryProvider(newProvider)
-    currentImagerySource.value = newSource
-
-  } catch (error) {
-    const errorMessage = `切换影像失败: ${error instanceof Error ? error.message : String(error)}`
     console.error(errorMessage)
     showError(errorMessage)
   }
@@ -1609,6 +1674,60 @@ const takeScreenshot = (): void => {
     console.error(errorMessage)
     showError(errorMessage)
   }
+}
+
+/**
+ * 切换线框模式
+ * 注意：Cesium的3D Tiles不直接支持线框模式，此功能主要用于界面一致性
+ */
+const toggleWireframe = (): void => {
+  wireframeMode.value = !wireframeMode.value
+
+  // Cesium的3D Tiles和Model不直接支持线框模式
+  // 这里仅切换状态，保持UI一致性
+  showSuccess(wireframeMode.value ? '线框模式（Cesium不支持）' : '线框模式已禁用')
+}
+
+/**
+ * 切换坐标轴
+ */
+const toggleAxes = (): void => {
+  if (!viewer) return
+
+  axesVisible.value = !axesVisible.value
+
+  // 通过ID获取坐标轴实体并设置显示状态
+  const axisX = viewer.entities.getById('axis-x')
+  const axisY = viewer.entities.getById('axis-y')
+  const axisZ = viewer.entities.getById('axis-z')
+
+  if (axisX) axisX.show = axesVisible.value
+  if (axisY) axisY.show = axesVisible.value
+  if (axisZ) axisZ.show = axesVisible.value
+
+  showSuccess(axesVisible.value ? '坐标轴已显示' : '坐标轴已隐藏')
+}
+
+/**
+ * 切换网格
+ */
+const toggleGrid = (): void => {
+  if (!viewer) return
+
+  gridVisible.value = !gridVisible.value
+
+  // 控制所有网格线的显示状态（匹配30度间隔）
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const entity = viewer.entities.getById(`grid-lon-${lon}`)
+    if (entity) entity.show = gridVisible.value
+  }
+
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const entity = viewer.entities.getById(`grid-lat-${lat}`)
+    if (entity) entity.show = gridVisible.value
+  }
+
+  showSuccess(gridVisible.value ? '网格已显示' : '网格已隐藏')
 }
 
 // ==================== FPS监控 ====================
@@ -1688,6 +1807,7 @@ onUnmounted(() => {
   top: 1rem;
   right: 1rem;
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
   z-index: 10;
 }

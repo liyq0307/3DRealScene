@@ -108,6 +108,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js'
 
@@ -433,37 +434,171 @@ const loadGLTF = (url: string): Promise<THREE.Object3D> => {
   })
 }
 
-// 加载OBJ模型
+// 加载OBJ模型（带MTL材质支持）
 const loadOBJ = (url: string): Promise<THREE.Object3D> => {
   return new Promise((resolve, reject) => {
-    const loader = new OBJLoader()
+    console.log('[ModelViewer] 开始加载OBJ文件:', url)
 
-    loader.load(
-      url,
-      (object: THREE.Object3D) => {
-        // OBJ模型通常没有材质,添加默认材质
-        object.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh
-            if (!mesh.material) {
-              mesh.material = new THREE.MeshStandardMaterial({
-                color: 0xcccccc,
-                roughness: 0.5,
-                metalness: 0.5
-              })
-            }
-          }
+    // 将MinIO预签名URL转换为后端代理URL
+    // 原始: http://localhost:9000/models-3d/folder/file.obj?X-Amz-...
+    // 转换: /api/files/proxy/models-3d/folder/file.obj
+    let proxyModelPath = url
+    let baseURL = ''
+    let fileName = ''
+
+    try {
+      const urlObj = new URL(url, window.location.origin)
+
+      // 检查是否是MinIO URL（包含签名参数）
+      if (urlObj.search.includes('X-Amz-Algorithm')) {
+        console.log('[ModelViewer] 检测到MinIO预签名URL，转换为代理路径')
+
+        // 提取路径部分: /models-3d/folder/file.obj
+        const pathname = urlObj.pathname
+
+        // 转换为代理URL
+        proxyModelPath = `/api/files/proxy${pathname}`
+
+        console.log('[ModelViewer] 转换后的代理路径:', proxyModelPath)
+      }
+
+      // 解析路径
+      const urlForParsing = new URL(proxyModelPath, window.location.origin)
+      const pathname = urlForParsing.pathname
+      const pathParts = pathname.split('/')
+      fileName = pathParts[pathParts.length - 1]
+      const basePath = pathname.substring(0, pathname.lastIndexOf('/') + 1)
+      baseURL = urlForParsing.origin + basePath
+
+      console.log('[ModelViewer] 基础路径:', baseURL)
+      console.log('[ModelViewer] OBJ文件名:', fileName)
+    } catch (error) {
+      console.error('[ModelViewer] URL解析失败:', error)
+      reject(error)
+      return
+    }
+
+    // 构建MTL路径（不带签名参数）
+    const mtlFileName = fileName.replace(/\.obj$/i, '.mtl')
+    const mtlFullPath = baseURL + mtlFileName
+
+    console.log('[ModelViewer] MTL文件名:', mtlFileName)
+    console.log('[ModelViewer] MTL完整路径:', mtlFullPath)
+
+    // 创建LoadingManager来正确处理纹理路径
+    const loadingManager = new THREE.LoadingManager()
+
+    // 设置URL修改器,确保纹理路径正确解析
+    loadingManager.setURLModifier((textureUrl) => {
+      // 如果是相对路径(纹理文件路径),添加基础路径
+      if (!textureUrl.startsWith('http') && !textureUrl.startsWith('/') && !textureUrl.startsWith('data:')) {
+        const resolved = baseURL + textureUrl
+        console.log('[ModelViewer] 纹理路径:', textureUrl, '->', resolved)
+        return resolved
+      }
+      return textureUrl
+    })
+
+    // 创建MTL加载器
+    const mtlLoader = new MTLLoader(loadingManager)
+    // 不设置 setPath，直接使用完整路径避免路径重复拼接
+
+    // 加载MTL文件（使用代理路径，不带签名参数）
+    mtlLoader.load(
+      mtlFullPath,
+      // MTL加载成功
+      (materials) => {
+        console.log('[ModelViewer] ✅ MTL加载成功,材质数:', Object.keys(materials.materials).length)
+
+        // 预加载材质和纹理
+        materials.preload()
+
+        // 打印材质详情
+        Object.keys(materials.materials).forEach((key) => {
+          const mat = materials.materials[key] as any
+          console.log('[ModelViewer] 材质:', key)
+          if (mat.map) console.log('  - 漫反射纹理:', mat.map)
+          if (mat.normalMap) console.log('  - 法线贴图:', mat.normalMap)
+          if (mat.bumpMap) console.log('  - 凹凸贴图:', mat.bumpMap)
         })
-        resolve(object)
+
+        // 创建OBJ加载器并应用材质
+        const objLoader = new OBJLoader(loadingManager)
+        objLoader.setMaterials(materials)
+
+        // 加载OBJ（使用代理路径）
+        objLoader.load(
+          proxyModelPath,
+          (object) => {
+            console.log('[ModelViewer] ✅ OBJ加载成功(带材质)')
+
+            // 检查网格材质
+            let meshCount = 0
+            object.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                meshCount++
+                console.log(`[ModelViewer] Mesh #${meshCount}:`, child.name || 'unnamed')
+                if (Array.isArray(child.material)) {
+                  child.material.forEach((m: any, i) => {
+                    console.log(`  材质[${i}]:`, m.name, m.map ? '有纹理' : '无纹理')
+                  })
+                } else {
+                  const mat = child.material as any
+                  console.log('  材质:', mat.name, mat.map ? '有纹理' : '无纹理')
+                }
+              }
+            })
+
+            resolve(object)
+          },
+          (progress: { loaded: number; total: number }) => {
+            if (progress.total > 0) {
+              const percent = Math.round((progress.loaded / progress.total) * 100)
+              loadingProgress.value = percent
+              emit('progress', percent)
+            }
+          },
+          (error) => {
+            console.error('[ModelViewer] ❌ OBJ加载失败:', error)
+            reject(error)
+          }
+        )
       },
-      (progress: { loaded: number; total: number }) => {
-        if (progress.total > 0) {
-          const percent = Math.round((progress.loaded / progress.total) * 100)
-          loadingProgress.value = percent
-          emit('progress', percent)
-        }
-      },
-      reject
+      undefined,
+      // MTL加载失败
+      (mtlError) => {
+        console.warn('[ModelViewer] ⚠️ MTL加载失败,使用默认材质:', mtlError)
+
+        // 不使用LoadingManager,直接加载OBJ（使用代理路径）
+        const objLoader = new OBJLoader()
+        objLoader.load(
+          proxyModelPath,
+          (object) => {
+            console.log('[ModelViewer] OBJ加载成功(无材质)')
+
+            // 应用默认材质
+            object.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                child.material = new THREE.MeshStandardMaterial({
+                  color: 0xaaaaaa,
+                  roughness: 0.5,
+                  metalness: 0.5
+                })
+              }
+            })
+
+            resolve(object)
+          },
+          (progress: { loaded: number; total: number }) => {
+            if (progress.total > 0) {
+              const percent = Math.round((progress.loaded / progress.total) * 100)
+              loadingProgress.value = percent
+              emit('progress', percent)
+            }
+          },
+          reject
+        )
+      }
     )
   })
 }

@@ -188,7 +188,7 @@
 
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { sceneService } from '../services/api'
+import { sceneService, fileService } from '../services/api'
 import authStore from '@/stores/auth'
 import { useMessage } from '@/composables/useMessage'
 import SearchFilter from '@/components/SearchFilter.vue'
@@ -219,7 +219,8 @@ const sceneForm = ref({
   name: '',
   description: '',
   renderEngine: 'Cesium', // 默认使用Cesium
-  boundaryGeoJson: ''
+  boundaryGeoJson: '',
+  sceneObjects: [] as any[] // 场景对象集合
 })
 
 // 搜索和筛选状态
@@ -300,7 +301,8 @@ const openCreateDialog = () => {
     name: '',
     description: '',
     renderEngine: 'Cesium',
-    boundaryGeoJson: ''
+    boundaryGeoJson: '',
+    sceneObjects: []
   }
   sceneFile.value = null
   showCreateDialog.value = true
@@ -350,7 +352,9 @@ const editScene = async (id: string) => {
     sceneForm.value = {
       name: scene.name,
       description: scene.description,
-      boundaryGeoJson: scene.boundaryGeoJson || ''
+      renderEngine: scene.renderEngine || 'Cesium', // 兼容旧数据，默认Cesium
+      boundaryGeoJson: scene.boundaryGeoJson || '',
+      sceneObjects: [] // 编辑时不修改现有场景对象
     }
     sceneFile.value = null
     showCreateDialog.value = true
@@ -373,13 +377,46 @@ const saveScene = async () => {
     // 获取当前用户ID (使用已注册的管理员用户ID作为默认值)
     const userId = authStore.currentUser.value?.id || '9055f06c-20d2-4e67-8a89-069887a2c4e8'
 
-    // TODO: 如果有场景文件，先上传文件
+    // 如果有场景文件,先上传文件并创建场景对象
     if (sceneFile.value) {
-      console.log('需要上传场景文件:', sceneFile.value.name)
-      // 实现文件上传逻辑
-      // const formData = new FormData()
-      // formData.append('file', sceneFile.value)
-      // await sceneService.uploadSceneFile(formData)
+      try {
+        console.log('开始上传场景文件:', sceneFile.value.name)
+
+        // 上传文件到MinIO
+        const uploadResult = await fileService.uploadFile(sceneFile.value, 'models-3d')
+        console.log('文件上传成功:', uploadResult)
+
+        // 从返回的filePath中提取对象名称(去除bucket前缀)
+        // uploadResult.filePath 格式: "models-3d/xxx.glb"
+        // 我们需要提取: "xxx.glb"
+        let objectName = uploadResult.filePath
+        if (objectName.startsWith('models-3d/')) {
+          objectName = objectName.substring('models-3d/'.length)
+        }
+        console.log('提取的对象名称:', objectName)
+
+        // 创建场景对象请求
+        const sceneObject = {
+          sceneId: '00000000-0000-0000-0000-000000000000', // 占位符,后端会自动设置为新创建的场景ID
+          name: sceneFile.value.name.replace(/\.[^/.]+$/, ''), // 去除文件扩展名作为对象名称
+          type: 'Model3D',
+          position: [0, 0, 0], // 默认位置
+          rotation: '{"x":0,"y":0,"z":0}',
+          scale: '{"x":1,"y":1,"z":1}',
+          modelPath: objectName, // 使用纯对象名称(不包含bucket)
+          materialData: '{}',
+          properties: '{}'
+        }
+
+        // 注意: sceneId 将在后端创建场景对象时自动设置
+        sceneForm.value.sceneObjects = [sceneObject]
+
+        showSuccess(`场景文件 ${sceneFile.value.name} 上传成功`)
+      } catch (error) {
+        console.error('场景文件上传失败:', error)
+        showError('场景文件上传失败，请重试')
+        return
+      }
     }
 
     if (editingScene.value) {
@@ -973,6 +1010,59 @@ onMounted(() => {
   min-height: 120px;
   resize: vertical;
   font-family: inherit;
+}
+
+/* 表单提示样式 */
+.field-hint {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.field-hint strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.field-hint ul {
+  margin: 0.5rem 0 0 0;
+  padding-left: 1.5rem;
+  list-style: none;
+}
+
+.field-hint ul li {
+  margin-bottom: 0.4rem;
+  color: #555;
+  position: relative;
+}
+
+.field-hint ul li::before {
+  content: '';
+  position: absolute;
+  left: -1.2rem;
+  top: 0.5rem;
+  width: 4px;
+  height: 4px;
+  background: #667eea;
+  border-radius: 50%;
+}
+
+.field-hint.warning {
+  background: #fff3cd;
+  border-left-color: #ff9800;
+  color: #856404;
+}
+
+.form-input:disabled {
+  background: #f0f0f0;
+  color: #999;
+  cursor: not-allowed;
 }
 
 .modal-actions {

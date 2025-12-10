@@ -250,9 +250,8 @@ public class SceneObjectService : ISceneObjectService
                 }
             }
 
-            // 3. 软删除场景对象
-            obj.IsDeleted = true;
-            obj.UpdatedAt = DateTime.UtcNow;
+            // 3. 物理删除场景对象
+            await _objectRepository.DeleteAsync(obj);
             await _unitOfWork.SaveChangesAsync();
 
             _logger.LogInformation("成功删除场景对象 {ObjectId} 及其关联的切片数据", id);
@@ -422,17 +421,95 @@ public class SceneObjectService : ISceneObjectService
             // 执行删除操作
             if (!string.IsNullOrEmpty(bucket) && !string.IsNullOrEmpty(objectName))
             {
-                _logger.LogInformation("尝试删除MinIO文件: {Bucket}/{ObjectName}", bucket, objectName);
+                // 检查是否是文件夹路径（批量上传的文件）
+                // 例如: "HouseName/house.obj" 或 "HouseName/house.mtl"
+                var lastSlashIndex = objectName.LastIndexOf('/');
 
-                var deleted = await _minioStorageService.DeleteFileAsync(bucket, objectName);
-
-                if (deleted)
+                if (lastSlashIndex > 0)
                 {
-                    _logger.LogInformation("✓ 成功删除MinIO文件: {Bucket}/{ObjectName}", bucket, objectName);
+                    // 这是文件夹中的文件，提取文件夹路径
+                    var folderPath = objectName.Substring(0, lastSlashIndex + 1);
+
+                    _logger.LogInformation("检测到文件夹路径，准备删除整个文件夹: {Bucket}/{FolderPath}", bucket, folderPath);
+
+                    try
+                    {
+                        // 列出文件夹中的所有文件
+                        var filesInFolder = await _minioStorageService.ListFilesAsync(bucket, folderPath);
+
+                        if (filesInFolder.Any())
+                        {
+                            _logger.LogInformation("文件夹 {FolderPath} 包含 {Count} 个文件，开始批量删除", folderPath, filesInFolder.Count);
+
+                            int successCount = 0;
+                            int failCount = 0;
+
+                            // 删除文件夹中的每个文件
+                            foreach (var fileKey in filesInFolder)
+                            {
+                                try
+                                {
+                                    var deleted = await _minioStorageService.DeleteFileAsync(bucket, fileKey);
+
+                                    if (deleted)
+                                    {
+                                        successCount++;
+                                        _logger.LogInformation("  ✓ 已删除: {Bucket}/{FileKey}", bucket, fileKey);
+                                    }
+                                    else
+                                    {
+                                        failCount++;
+                                        _logger.LogWarning("  ✗ 删除失败: {Bucket}/{FileKey}", bucket, fileKey);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    failCount++;
+                                    _logger.LogError(ex, "  ✗ 删除文件时发生异常: {Bucket}/{FileKey}", bucket, fileKey);
+                                }
+                            }
+
+                            _logger.LogInformation("文件夹删除完成: 成功 {SuccessCount}/{TotalCount}, 失败 {FailCount}",
+                                successCount, filesInFolder.Count, failCount);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("文件夹 {FolderPath} 为空或不存在", folderPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "列出或删除文件夹内容时发生错误: {Bucket}/{FolderPath}", bucket, folderPath);
+
+                        // 如果文件夹删除失败，尝试删除单个文件作为后备方案
+                        _logger.LogInformation("回退到单文件删除模式: {Bucket}/{ObjectName}", bucket, objectName);
+                        var deleted = await _minioStorageService.DeleteFileAsync(bucket, objectName);
+
+                        if (deleted)
+                        {
+                            _logger.LogInformation("✓ 成功删除单个文件: {Bucket}/{ObjectName}", bucket, objectName);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("✗ 单个文件删除也失败: {Bucket}/{ObjectName}", bucket, objectName);
+                        }
+                    }
                 }
                 else
                 {
-                    _logger.LogWarning("✗ MinIO文件删除失败或文件不存在: {Bucket}/{ObjectName}", bucket, objectName);
+                    // 这是单个文件（不在文件夹中），直接删除
+                    _logger.LogInformation("尝试删除单个文件: {Bucket}/{ObjectName}", bucket, objectName);
+
+                    var deleted = await _minioStorageService.DeleteFileAsync(bucket, objectName);
+
+                    if (deleted)
+                    {
+                        _logger.LogInformation("✓ 成功删除MinIO文件: {Bucket}/{ObjectName}", bucket, objectName);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("✗ MinIO文件删除失败或文件不存在: {Bucket}/{ObjectName}", bucket, objectName);
+                    }
                 }
             }
         }

@@ -56,13 +56,12 @@
     <!-- 动态渲染器容器 -->
     <div class="viewer-container">
       <!-- Three.js 查看器 (用于OBJ, FBX等格式) -->
-      <ModelViewer
+      <ThreeViewer
         v-if="!loading && currentObject && renderEngine === 'threejs'"
-        :model-url="currentObject.displayPath"
-        :show-controls="true"
+        :scene-objects="[currentObject]"
         :show-info="true"
         :background-color="'#1a1a1a'"
-        @loaded="onThreeJSReady"
+        @ready="onThreeJSReady"
         @error="onThreeJSError"
       />
 
@@ -119,7 +118,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import CesiumViewer from '@/components/CesiumViewer.vue'
-import ModelViewer from '@/components/ModelViewer.vue'
+import ThreeViewer from '@/components/ThreeViewer.vue'
 
 // ==================== 组合式API ====================
 

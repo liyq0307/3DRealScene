@@ -239,7 +239,11 @@
               <div class="path-actions">
                 <button @click="selectLocalFile" class="btn-action" type="button" title="从本地选择文件">
                   <span>📁</span>
-                  本地文件
+                  单个文件
+                </button>
+                <button @click="selectMultipleFiles" class="btn-action btn-batch" type="button" title="批量选择文件(OBJ+MTL+纹理)">
+                  <span>📦</span>
+                  批量上传
                 </button>
                 <button @click="openUrlDialog" class="btn-action" type="button" title="输入远程URL">
                   <span>🌐</span>
@@ -258,7 +262,7 @@
               </div>
             </div>
 
-            <!-- 文件选择器（隐藏） -->
+            <!-- 单文件选择器（隐藏） -->
             <input
               ref="fileInputRef"
               type="file"
@@ -267,8 +271,18 @@
               style="display: none"
             />
 
-            <!-- 已选择文件信息 -->
-            <div v-if="selectedFile" class="file-info">
+            <!-- 多文件选择器（隐藏） -->
+            <input
+              ref="multiFileInputRef"
+              type="file"
+              accept=".gltf,.glb,.obj,.fbx,.dae,.3ds,.mtl,.jpg,.jpeg,.png,.webp,.bmp"
+              multiple
+              @change="handleMultipleFilesSelect"
+              style="display: none"
+            />
+
+            <!-- 已选择单个文件信息 -->
+            <div v-if="selectedFile && !selectedFiles.length" class="file-info">
               <span class="file-icon">📄</span>
               <div class="file-details">
                 <div class="file-name">{{ selectedFile.name }}</div>
@@ -278,6 +292,43 @@
                 </div>
               </div>
               <button @click="clearFile" class="btn-clear" type="button">✕</button>
+            </div>
+
+            <!-- 批量选择文件列表 -->
+            <div v-if="selectedFiles.length > 0" class="files-list">
+              <div class="files-list-header">
+                <span class="files-count">已选择 {{ selectedFiles.length }} 个文件</span>
+                <button @click="clearAllFiles" class="btn-clear-all" type="button">清空全部</button>
+              </div>
+              <div class="files-grid">
+                <div v-for="(file, index) in selectedFiles" :key="index" class="file-item">
+                  <span class="file-icon">{{ getFileIcon(file.name) }}</span>
+                  <div class="file-details">
+                    <div class="file-name" :title="file.name">{{ file.name }}</div>
+                    <div class="file-size">{{ formatFileSize(file.size) }}</div>
+                  </div>
+                  <button @click="removeFile(index)" class="btn-remove" type="button">✕</button>
+                </div>
+              </div>
+              <!-- OBJ文件提示 -->
+              <div v-if="hasOBJFile" class="upload-hint success">
+                <span class="hint-icon">✓</span>
+                <div class="hint-content">
+                  <strong>OBJ模型上传提示</strong>
+                  <p>请确保已选择：OBJ文件 + MTL材质文件 + 纹理图片（.jpg/.png等）</p>
+                  <div class="file-check">
+                    <span :class="['check-item', { checked: hasOBJFile }]">
+                      {{ hasOBJFile ? '✓' : '○' }} OBJ文件 (.obj)
+                    </span>
+                    <span :class="['check-item', { checked: hasMTLFile }]">
+                      {{ hasMTLFile ? '✓' : '○' }} MTL材质 (.mtl)
+                    </span>
+                    <span :class="['check-item', { checked: hasTextureFiles }]">
+                      {{ hasTextureFiles ? '✓' : '○' }} 纹理图片
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -444,59 +495,76 @@
       <div class="slicing-dialog">
         <div class="form-group">
           <label>任务名称 *</label>
-          <input v-model="slicingForm.name" type="text" class="form-input" />
+          <input v-model="slicingForm.name" type="text" class="form-input" placeholder="输入任务名称" />
         </div>
+
         <div class="form-group">
-          <label>模型类型</label>
-          <select v-model="slicingForm.modelType" class="form-select">
-            <option value="Model3D">3D模型</option>
-            <option value="PointCloud">点云</option>
-            <!-- 其他类型 -->
+          <label>描述</label>
+          <textarea v-model="slicingForm.description" class="form-textarea" placeholder="输入任务描述"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>输出路径</label>
+          <input v-model="slicingForm.outputPath" type="text" class="form-input" placeholder="例如: F:/Data/3D/Output" />
+          <small class="form-hint">名称或绝对路径或空，名称或者为空则切片保存到minio</small>
+        </div>
+
+        <div class="form-group">
+          <label>LOD层级数（网格简化级别）*</label>
+          <input v-model.number="slicingForm.lodLevels" type="number" min="1" max="5" class="form-input" placeholder="默认3" />
+        </div>
+
+        <div class="form-group">
+          <label>输出格式 *</label>
+          <select v-model="slicingForm.outputFormat" class="form-select">
+            <option value="b3dm">B3DM - Batched 3D Model（默认，推荐）✨</option>
+            <option value="gltf">GLTF - GL Transmission Format</option>
+            <option value="i3dm">I3DM - Instanced 3D Model</option>
+            <option value="pnts">PNTS - Point Cloud</option>
+            <option value="cmpt">CMPT - Composite</option>
           </select>
         </div>
+
         <div class="form-group">
-          <label>最大LOD级别 (建议≤8，过高会导致内存溢出)</label>
-          <input v-model.number="slicingForm.maxLevel" type="number" class="form-input" min="0" max="10" />
-          <small class="form-hint" v-if="slicingForm.maxLevel > 8" style="color: orange;">
-            ⚠️ 级别{slicingForm.maxLevel}}将生成约 {{ estimateSliceCount(slicingForm.maxLevel) }} 个切片，可能导致内存不足
+          <label>纹理策略 *</label>
+          <select v-model.number="slicingForm.textureStrategy" class="form-select">
+            <option :value="2">Repack - 重新打包纹理（PNG格式，推荐）✨</option>
+            <option :value="3">RepackCompressed - 打包+压缩（JPEG质量75）</option>
+            <option :value="1">Compress - 压缩纹理（保持原始分辨率）</option>
+            <option :value="0">KeepOriginal - 保持原样（不推荐）</option>
+          </select>
+        </div>
+
+        <div class="form-group" v-if="slicingForm.enableMeshDecimation">
+          <label>空间分割递归深度（Divisions）</label>
+          <input v-model.number="slicingForm.divisions" type="number" min="1" max="4" class="form-input" placeholder="默认2" />
+          <small class="form-hint" style="color: #2196F3; display: block; margin-top: 4px;">
+            📊 预估切片数：{{ estimateSliceCount(slicingForm.lodLevels, slicingForm.divisions) }} 个
+            （{{ slicingForm.lodLevels }} LOD × {{ Math.pow(2, slicingForm.divisions) }}×{{ Math.pow(2, slicingForm.divisions) }} 空间单元）
           </small>
         </div>
-        <div class="form-group">
-          <label>切片尺寸 (米)</label>
-          <input v-model.number="slicingForm.tileSize" type="number" class="form-input" min="1" />
-        </div>
-        <div class="form-group">
-          <label>几何误差阈值</label>
-          <input v-model.number="slicingForm.geometricErrorThreshold" type="number" class="form-input" min="0.1" step="0.1" />
-        </div>
-        <div class="form-group">
-          <label>并行处理数量</label>
-          <input v-model.number="slicingForm.parallelProcessingCount" type="number" class="form-input" min="1" />
-        </div>
-        <div class="form-group">
-          <label>输出格式</label>
-          <select v-model="slicingForm.outputFormat" class="form-select">
-            <option value="b3dm">B3DM</option>
-            <option value="gltf">GLTF</option>
-            <option value="glb">GLB</option>
-            <option value="json">JSON</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>压缩级别</label>
-          <input v-model.number="slicingForm.compressionLevel" type="number" class="form-input" min="0" max="9" />
-        </div>
-        <div class="form-group">
-          <label>存储位置</label>
-          <select v-model="slicingForm.storageLocation" class="form-select">
-            <option value="MinIO">MinIO</option>
-            <option value="LocalFileSystem">本地文件系统</option>
-          </select>
-        </div>
+
         <div class="form-group">
           <label class="checkbox-label">
-            <input v-model="slicingForm.enableIncrementalUpdates" type="checkbox" />
+            <input v-model="slicingForm.enableMeshDecimation" type="checkbox" />
+            <span>启用网格简化（LOD生成）</span>
+          </label>
+          <small class="form-hint" v-if="slicingForm.enableMeshDecimation">
+            使用 Fast Quadric Mesh Simplification 算法生成多级 LOD
+          </small>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input v-model="slicingForm.enableIncrementalUpdate" type="checkbox" />
             <span>启用增量更新</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input v-model="slicingForm.enableCompression" type="checkbox" />
+            <span>启用几何压缩</span>
           </label>
         </div>
       </div>
@@ -579,25 +647,38 @@ const objectToSlice = ref<any>(null) // 新增：待切片的对象
 // 切片表单数据
 const slicingForm = ref({
   name: '',
+  description: '',
   modelType: 'Model3D',
-  maxLevel: 10,
-  tileSize: 100,
-  geometricErrorThreshold: 1,
-  parallelProcessingCount: 4,
-  outputFormat: 'b3dm',
-  compressionLevel: 6,
-  enableIncrementalUpdates: false,
-  storageLocation: 'MinIO'
+  outputPath: '',
+  slicingStrategy: 0,  // TileGenerationPipeline
+  outputFormat: 'b3dm',  // 输出格式，默认b3dm
+  textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
+  lodLevels: 3,
+  divisions: 2,  // 空间分割递归深度
+  enableCompression: true,
+  enableIncrementalUpdate: false,
+  enableMeshDecimation: true,  // 启用网格简化
+  generateTileset: true  // 生成 tileset.json
 })
 
 // 文件选择相关
 const fileInputRef = ref<HTMLInputElement>()
+const multiFileInputRef = ref<HTMLInputElement>()  // 多文件选择器
 const selectedFile = ref<File | null>(null)
+const selectedFiles = ref<File[]>([])  // 批量选择的文件列表
 const selectedFileHandle = ref<any | null>(null)
 const urlInput = ref('')
 const localPreviewUrl = ref('')  // 存储本地文件的blob URL用于预览
 const selectedFileExtension = ref('')  // 存储文件扩展名
 //const realFilePath = ref('')  // 存储文件的真实路径
+
+// 批量文件检测
+const hasOBJFile = computed(() => selectedFiles.value.some(f => f.name.toLowerCase().endsWith('.obj')))
+const hasMTLFile = computed(() => selectedFiles.value.some(f => f.name.toLowerCase().endsWith('.mtl')))
+const hasTextureFiles = computed(() => {
+  const textureExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tga', '.dds']
+  return selectedFiles.value.some(f => textureExts.some(ext => f.name.toLowerCase().endsWith(ext)))
+})
 
 // 表单数据
 const objectForm = ref({
@@ -683,6 +764,7 @@ const openCreateDialog = () => {
     isVisible: true
   }
   selectedFile.value = null
+  selectedFiles.value = []  // 清除批量文件
   selectedFileHandle.value = null
   selectedFileExtension.value = ''
   // 释放之前的blob URL
@@ -696,6 +778,7 @@ const openCreateDialog = () => {
 const closeCreateDialog = () => {
   showCreateDialog.value = false
   selectedFile.value = null
+  selectedFiles.value = []  // 清除批量文件选择
   selectedFileHandle.value = null
   selectedFileExtension.value = ''
   // 释放blob URL
@@ -804,7 +887,16 @@ const saveObject = async () => {
 
       // 获取文件扩展名
       let fileExt = ''
-      if (modelPath.startsWith('本地文件:')) {
+      if (modelPath.startsWith('批量上传:')) {
+        // 批量上传时，从selectedFiles中查找主模型文件
+        const mainModelFile = selectedFiles.value.find(f => {
+          const ext = f.name.split('.').pop()?.toLowerCase()
+          return ['obj', 'gltf', 'glb', 'fbx', 'dae', 'stl', '3ds', 'ply'].includes(ext || '')
+        })
+        if (mainModelFile) {
+          fileExt = mainModelFile.name.split('.').pop()?.toLowerCase() || ''
+        }
+      } else if (modelPath.startsWith('本地文件:')) {
         fileExt = modelPath.split('.').pop()?.toLowerCase() || ''
       } else if (selectedFile.value) {
         fileExt = selectedFile.value.name.split('.').pop()?.toLowerCase() || ''
@@ -847,8 +939,83 @@ const saveObject = async () => {
 
     let finalModelPath = objectForm.value.modelPath
 
+    // ========== 批量文件上传处理 ==========
+    if (selectedFiles.value.length > 0 && objectForm.value.modelPath.startsWith('批量上传:')) {
+      const shouldUpload = confirm(
+        `您选择了 ${selectedFiles.value.length} 个文件进行批量上传。\n\n` +
+        '点击"确定"将所有文件上传到服务器(推荐)。\n' +
+        '点击"取消"返回修改。'
+      )
+
+      if (!shouldUpload) {
+        return
+      }
+
+      try {
+        showSuccess(`正在批量上传 ${selectedFiles.value.length} 个文件...`)
+
+        // 打印上传的文件列表
+        console.log('[SceneObjects] 准备批量上传文件:', selectedFiles.value.map(f => ({
+          name: f.name,
+          size: f.size,
+          type: f.type
+        })))
+
+        // 使用批量上传API，传递对象名称作为文件夹名
+        const uploadResult = await fileService.uploadFilesBatch(
+          selectedFiles.value,
+          'models-3d',
+          objectForm.value.name  // 传递场景对象名称作为文件夹名
+        )
+
+        // 打印完整的上传结果
+        console.log('[SceneObjects] 批量上传API响应:', uploadResult)
+        console.log('[SceneObjects] success:', uploadResult.success)
+        console.log('[SceneObjects] totalFiles:', uploadResult.totalFiles)
+        console.log('[SceneObjects] successCount:', uploadResult.successCount)
+        console.log('[SceneObjects] failedCount:', uploadResult.failedCount)
+        console.log('[SceneObjects] results:', uploadResult.results)
+        console.log('[SceneObjects] errors:', uploadResult.errors)
+
+        if (!uploadResult.success) {
+          const errorMsg = uploadResult.errors && uploadResult.errors.length > 0
+            ? uploadResult.errors.join('\n')
+            : '未知错误'
+          showError(`批量上传失败: ${uploadResult.failedCount} 个文件上传失败\n\n${errorMsg}`)
+          console.error('上传失败的文件:', uploadResult.errors)
+          return
+        }
+
+        console.log(`[SceneObjects] 批量上传成功: ${uploadResult.successCount}/${uploadResult.totalFiles}`)
+
+        // 查找OBJ文件的上传结果，作为主模型路径
+        const objFile = selectedFiles.value.find(f => f.name.toLowerCase().endsWith('.obj'))
+        if (objFile) {
+          const objResult = uploadResult.results.find((r: any) => r.originalFileName === objFile.name)
+          if (objResult) {
+            finalModelPath = objResult.downloadUrl || objResult.filePath
+            showSuccess(`批量上传成功！主模型: ${objFile.name}`)
+            console.log('[SceneObjects] 主模型路径:', finalModelPath)
+          } else {
+            showError('未找到OBJ文件的上传结果')
+            return
+          }
+        } else {
+          // 如果没有OBJ文件，使用第一个文件
+          const firstResult = uploadResult.results[0]
+          if (firstResult) {
+            finalModelPath = firstResult.downloadUrl || firstResult.filePath
+            showSuccess(`批量上传成功！主模型: ${firstResult.originalFileName}`)
+          }
+        }
+      } catch (uploadError) {
+        console.error('批量上传失败:', uploadError)
+        showError('批量上传失败,请稍后重试')
+        return
+      }
+    }
     // 如果选择了新的本地文件，询问用户是上传还是直接使用本地路径
-    if (selectedFile.value && objectForm.value.modelPath.startsWith('本地文件:')) {
+    else if (selectedFile.value && objectForm.value.modelPath.startsWith('本地文件:')) {
       const shouldUpload = confirm(
         '您选择了本地文件。\n\n' +
         '点击"确定"将文件上传到服务器(推荐)。\n' +
@@ -1009,8 +1176,24 @@ const startSlicing = (obj: any) => {
     return;
   }
   objectToSlice.value = obj;
-  slicingForm.value.name = `切片任务 - ${obj.name}`;
-  slicingForm.value.modelType = obj.objectType || obj.type; // 继承对象类型
+
+  // 初始化表单，匹配 Slicing.vue 的默认值
+  slicingForm.value = {
+    name: `切片任务 - ${obj.name}`,
+    description: '',
+    modelType: obj.objectType || obj.type,
+    outputPath: '',
+    slicingStrategy: 0,  // TileGenerationPipeline
+    outputFormat: 'b3dm',  // 输出格式，默认b3dm
+    textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
+    lodLevels: 3,
+    divisions: 2,
+    enableCompression: true,
+    enableIncrementalUpdate: false,
+    enableMeshDecimation: true,  // 启用网格简化
+    generateTileset: true  // 生成 tileset.json
+  };
+
   openSlicingDialog();
 };
 
@@ -1024,17 +1207,18 @@ const closeSlicingDialog = () => {
 };
 
 // 估算切片数量
-const estimateSliceCount = (level: number): string => {
-  const tilesInLevel = Math.pow(2, level);
-  const zTiles = level === 0 ? 1 : tilesInLevel / 2;
-  const count = tilesInLevel * tilesInLevel * zTiles;
+const estimateSliceCount = (lodLevels: number, divisions: number = 2): string => {
+  // 计算空间单元数：(2^divisions)² 个网格单元（2D分割）
+  const spatialCells = Math.pow(Math.pow(2, divisions), 2)
+  // 总切片数 = LOD级别数 × 空间单元数
+  const count = lodLevels * spatialCells
 
   if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}百万`;
+    return `${(count / 1000000).toFixed(1)}百万`
   } else if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}千`;
+    return `${(count / 1000).toFixed(1)}千`
   }
-  return count.toString();
+  return count.toString()
 };
 
 const submitSlicingTask = async () => {
@@ -1048,41 +1232,65 @@ const submitSlicingTask = async () => {
     return;
   }
 
-  // 验证最大LOD级别，防止内存溢出
-  if (slicingForm.value.maxLevel > 10) {
-    showError('最大LOD级别不能超过10，以防止内存溢出。请降低级别或增大切片尺寸。');
+  // 验证参数范围
+  if (slicingForm.value.lodLevels > 5) {
+    showError('LOD级别建议不超过5，过高会导致生成时间过长。');
     return;
+  }
+
+  if (slicingForm.value.divisions > 4) {
+    showError('空间分割深度建议不超过4（最多256个空间单元），过高会导致内存不足。');
+    return;
+  }
+
+  // 检查预估切片数量
+  const estimatedCount = slicingForm.value.lodLevels * Math.pow(Math.pow(2, slicingForm.value.divisions), 2)
+  if (estimatedCount > 1000) {
+    const confirmed = confirm(
+      `预估将生成 ${estimatedCount} 个切片，处理时间可能较长。是否继续？\n\n` +
+      `建议：减少 LOD 级别或降低空间分割深度`
+    )
+    if (!confirmed) {
+      return
+    }
   }
 
   try {
     // 获取当前用户ID
     const userId = authStore.currentUser.value?.id || '9055f06c-20d2-4e67-8a89-069887a2c4e8';
 
+    // 将前端表单数据映射到后端期望的格式
     const requestData = {
       name: slicingForm.value.name,
       sourceModelPath: objectToSlice.value.modelPath,
-      modelType: slicingForm.value.modelType,
+      modelType: 'General3DModel', // 默认模型类型
+      outputPath: slicingForm.value.outputPath || '', // 添加输出路径
       sceneObjectId: objectToSlice.value.id, // 关联场景对象ID
       slicingConfig: {
-        granularity: 'Medium',
-        maxLevel: slicingForm.value.maxLevel,
-        tileSize: slicingForm.value.tileSize,
-        geometricErrorThreshold: slicingForm.value.geometricErrorThreshold,
-        parallelProcessingCount: slicingForm.value.parallelProcessingCount,
-        outputFormat: slicingForm.value.outputFormat,
-        compressionLevel: slicingForm.value.compressionLevel,
-        enableIncrementalUpdates: slicingForm.value.enableIncrementalUpdates,
-        storageLocation: slicingForm.value.storageLocation
+        outputFormat: slicingForm.value.outputFormat,  // 使用用户选择的输出格式
+        coordinateSystem: 'EPSG:4326',  // 后端必需字段
+        customSettings: '{}',  // 后端必需字段
+        divisions: slicingForm.value.divisions,  // 空间分割递归深度
+        lodLevels: slicingForm.value.lodLevels,  // LOD级别数量
+        enableMeshDecimation: slicingForm.value.enableMeshDecimation,  // 启用网格简化
+        generateTileset: slicingForm.value.generateTileset,  // 生成tileset.json
+        compressOutput: slicingForm.value.enableCompression,  // 压缩输出
+        enableIncrementalUpdates: slicingForm.value.enableIncrementalUpdate,  // 启用增量更新
+        textureStrategy: slicingForm.value.textureStrategy  // 纹理策略枚举
       }
     };
 
+    console.log('发送的切片任务请求数据:', JSON.stringify(requestData, null, 2))
     await slicingService.createSlicingTask(requestData, userId);
     showSuccess('切片任务已成功创建！');
     closeSlicingDialog();
     await loadObjects(); // 刷新对象列表以显示切片状态
-  } catch (error) {
+  } catch (error: any) {
     console.error('创建切片任务失败:', error);
-    showError('创建切片任务失败，请稍后重试。');
+    console.error('错误详情:', error.response?.data)
+    console.error('错误状态:', error.response?.status)
+    const errorMessage = error.response?.data?.message || error.message || '创建任务失败'
+    showError(`创建切片任务失败: ${errorMessage}`);
   }
 };
 
@@ -1246,6 +1454,100 @@ const clearFile = () => {
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
+}
+
+/**
+ * 选择多个文件（批量上传）
+ */
+const selectMultipleFiles = () => {
+  multiFileInputRef.value?.click()
+}
+
+/**
+ * 处理多文件选择
+ */
+const handleMultipleFilesSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const files = Array.from(target.files || [])
+
+  if (files.length === 0) return
+
+  // 验证文件大小（单个文件不超过500MB）
+  const maxSize = 500 * 1024 * 1024
+  const oversizedFiles = files.filter(f => f.size > maxSize)
+
+  if (oversizedFiles.length > 0) {
+    showError(`以下文件超过500MB限制:\n${oversizedFiles.map(f => f.name).join('\n')}`)
+    return
+  }
+
+  // 清除单文件选择
+  selectedFile.value = null
+  selectedFileHandle.value = null
+
+  // 设置批量文件
+  selectedFiles.value = files
+
+  // 查找OBJ文件并设置为主模型路径
+  const objFile = files.find(f => f.name.toLowerCase().endsWith('.obj'))
+  if (objFile) {
+    objectForm.value.modelPath = `批量上传: ${objFile.name} + ${files.length - 1} 个相关文件`
+    showSuccess(`已选择 ${files.length} 个文件，主模型: ${objFile.name}`)
+  } else {
+    objectForm.value.modelPath = `批量上传: ${files.length} 个文件`
+    showSuccess(`已选择 ${files.length} 个文件`)
+  }
+}
+
+/**
+ * 清空所有选中的文件
+ */
+const clearAllFiles = () => {
+  selectedFiles.value = []
+  objectForm.value.modelPath = ''
+
+  if (multiFileInputRef.value) {
+    multiFileInputRef.value.value = ''
+  }
+}
+
+/**
+ * 移除指定索引的文件
+ */
+const removeFile = (index: number) => {
+  selectedFiles.value.splice(index, 1)
+
+  if (selectedFiles.value.length === 0) {
+    objectForm.value.modelPath = ''
+  } else {
+    const objFile = selectedFiles.value.find(f => f.name.toLowerCase().endsWith('.obj'))
+    if (objFile) {
+      objectForm.value.modelPath = `批量上传: ${objFile.name} + ${selectedFiles.value.length - 1} 个相关文件`
+    } else {
+      objectForm.value.modelPath = `批量上传: ${selectedFiles.value.length} 个文件`
+    }
+  }
+}
+
+/**
+ * 根据文件名获取文件图标
+ */
+const getFileIcon = (filename: string): string => {
+  const ext = filename.split('.').pop()?.toLowerCase()
+  const iconMap: Record<string, string> = {
+    'obj': '🎨',
+    'mtl': '🎭',
+    'jpg': '🖼️',
+    'jpeg': '🖼️',
+    'png': '🖼️',
+    'webp': '🖼️',
+    'bmp': '🖼️',
+    'glb': '📦',
+    'gltf': '📦',
+    'fbx': '🔷',
+    'dae': '⭕',
+  }
+  return iconMap[ext || ''] || '📄'
 }
 
 /**
@@ -1746,11 +2048,18 @@ onMounted(async () => {
 
 /* 表单样式 */
 .form-select,
-.form-input {
+.form-input,
+.form-textarea {
   padding: 0.5rem;
   border: 1px solid #e1e5e9;
   border-radius: 4px;
   font-size: 0.9rem;
+}
+
+.form-textarea {
+  min-height: 80px;
+  resize: vertical;
+  width: 100%;
 }
 
 .form-input[readonly] {
@@ -1764,9 +2073,19 @@ onMounted(async () => {
 }
 
 .form-select:focus,
-.form-input:focus {
+.form-input:focus,
+.form-textarea:focus {
   outline: none;
   border-color: #007acc;
+}
+
+/* 表单提示样式 */
+.form-hint {
+  display: block;
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 0.25rem;
+  line-height: 1.4;
 }
 
 /* 模态框样式 */
@@ -2041,4 +2360,205 @@ onMounted(async () => {
   color: #dc3545;
   font-weight: 600;
 }
+
+/* 批量文件上传样式 */
+.btn-batch {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.btn-batch:hover {
+  background: linear-gradient(135deg, #5a67d8 0%, #6b42ad 100%);
+}
+
+.files-list {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border: 1px solid #e1e5e9;
+  border-radius: 6px;
+}
+
+.files-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e1e5e9;
+}
+
+.files-count {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.btn-clear-all {
+  padding: 0.4rem 0.8rem;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-clear-all:hover {
+  background: #c82333;
+  transform: translateY(-1px);
+}
+
+.files-grid {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.files-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.files-grid::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 3px;
+}
+
+.files-grid::-webkit-scrollbar-track {
+  background: #f7fafc;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.file-item:hover {
+  border-color: #007acc;
+  box-shadow: 0 2px 4px rgba(0, 122, 204, 0.1);
+}
+
+.file-item .file-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.file-item .file-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-item .file-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.file-item .file-size {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.btn-remove {
+  padding: 0.25rem 0.5rem;
+  background: #f8f9fa;
+  color: #dc3545;
+  border: 1px solid #e1e5e9;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-remove:hover {
+  background: #dc3545;
+  color: white;
+  border-color: #dc3545;
+}
+
+/* OBJ文件上传提示 */
+.upload-hint {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 4px solid;
+  display: flex;
+  gap: 0.75rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.upload-hint.success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border-left-color: #22c55e;
+}
+
+.hint-icon {
+  font-size: 1.25rem;
+  color: #22c55e;
+  flex-shrink: 0;
+}
+
+.hint-content {
+  flex: 1;
+}
+
+.hint-content strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #15803d;
+  font-size: 0.95rem;
+}
+
+.hint-content p {
+  margin: 0 0 0.75rem 0;
+  color: #166534;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.file-check {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.check-item {
+  padding: 0.4rem 0.75rem;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.check-item.checked {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+  color: #15803d;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 </style>

@@ -35,7 +35,9 @@ public class FilesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<FileUploadResponse>> Upload(
         IFormFile file,
-        string? bucketName = null)
+        string? bucketName = null,
+        string? folderName = null,
+        bool keepOriginalName = true)
     {
         try
         {
@@ -55,40 +57,63 @@ public class FilesController : ControllerBase
             // 3. 自动选择存储桶
             var targetBucket = DetermineBucket(bucketName, file.FileName);
 
-            // 4. 生成唯一文件名
-            var fileName = GenerateUniqueFileName(file.FileName);
+            // 4. 确定文件名（支持保持原始文件名或生成唯一文件名）
+            string objectName;
+            if (keepOriginalName)
+            {
+                // 保持原始文件名
+                if (!string.IsNullOrEmpty(folderName))
+                {
+                    // 如果指定了文件夹，放在文件夹中
+                    var sanitizedFolder = SanitizeFolderName(folderName);
+                    objectName = $"{sanitizedFolder}/{file.FileName}";
+                }
+                else
+                {
+                    // 直接使用原始文件名（可能会覆盖同名文件）
+                    objectName = file.FileName;
+                }
+            }
+            else
+            {
+                // 生成唯一文件名（添加时间戳和GUID）
+                objectName = GenerateUniqueFileName(file.FileName);
+            }
+
+            _logger.LogInformation("目标对象名称: {ObjectName}, 保持原始文件名: {KeepOriginalName}",
+                objectName, keepOriginalName);
 
             // 5. 上传文件（自动重试）
             using var stream = file.OpenReadStream();
             var filePath = await _storageService.UploadFileAsync(
                 targetBucket,
-                fileName,
+                objectName,
                 stream,
                 file.ContentType);
 
             // 6. 验证文件上传成功
-            var fileExists = await _storageService.FileExistsAsync(targetBucket, fileName);
+            var fileExists = await _storageService.FileExistsAsync(targetBucket, objectName);
             if (!fileExists)
             {
-                _logger.LogError("文件上传后验证失败: Bucket={Bucket}, FileName={FileName}",
-                    targetBucket, fileName);
+                _logger.LogError("文件上传后验证失败: Bucket={Bucket}, ObjectName={ObjectName}",
+                    targetBucket, objectName);
                 return StatusCode(500, new { message = "文件上传验证失败，请稍后重试" });
             }
 
-            _logger.LogInformation("文件上传成功并已验证: Bucket={Bucket}, FileName={FileName}, FilePath={FilePath}",
-                targetBucket, fileName, filePath);
+            _logger.LogInformation("文件上传成功并已验证: Bucket={Bucket}, ObjectName={ObjectName}, FilePath={FilePath}",
+                targetBucket, objectName, filePath);
 
             // 7. 生成预签名URL (有效期7天)
             var downloadUrl = await _storageService.GetPresignedUrlAsync(
                 targetBucket,
-                fileName,
+                objectName,
                 7 * 24 * 3600); // 7天转换为秒
 
             return Ok(new FileUploadResponse
             {
                 Success = true,
                 FilePath = filePath,
-                FileName = fileName,
+                FileName = objectName,  // 完整对象名称（可能包含文件夹路径）
                 OriginalFileName = file.FileName,
                 Bucket = targetBucket,
                 Size = file.Length,
@@ -114,7 +139,8 @@ public class FilesController : ControllerBase
     [ProducesResponseType(typeof(BatchFileUploadResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<BatchFileUploadResponse>> UploadBatch(
         List<IFormFile> files,
-        string? bucketName = null)
+        string? bucketName = null,
+        string? folderName = null)  // 新增：文件夹名称参数
     {
         var results = new List<FileUploadResponse>();
         var errors = new List<string>();
@@ -136,7 +162,39 @@ public class FilesController : ControllerBase
         _logger.LogInformation("开始批量上传: {Count} 个文件, 总大小: {TotalSize}, 用户: {UserId}",
             files.Count, FileValidator.GetFileSizeString(totalSize), userId ?? "Anonymous");
 
-        // 2. 逐个处理文件
+        // 2. 确定上传目录
+        // 优先使用用户指定的文件夹名，否则使用第一个模型文件的文件名（不含扩展名）
+        var targetBucket = string.IsNullOrEmpty(bucketName) ? MinioBuckets.MODELS_3D : bucketName;
+        string uploadDirectory;
+
+        if (!string.IsNullOrEmpty(folderName))
+        {
+            // 使用用户指定的文件夹名
+            uploadDirectory = SanitizeFolderName(folderName);
+        }
+        else
+        {
+            // 从文件列表中找到第一个模型文件，使用其文件名（不含扩展名）作为文件夹名
+            var modelFile = files.FirstOrDefault(f =>
+                f.FileName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase) ||
+                f.FileName.EndsWith(".gltf", StringComparison.OrdinalIgnoreCase) ||
+                f.FileName.EndsWith(".glb", StringComparison.OrdinalIgnoreCase) ||
+                f.FileName.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase));
+
+            if (modelFile != null)
+            {
+                uploadDirectory = Path.GetFileNameWithoutExtension(modelFile.FileName);
+            }
+            else
+            {
+                // 如果没有找到模型文件，使用时间戳
+                uploadDirectory = $"upload_{DateTime.UtcNow:yyyyMMddHHmmss}";
+            }
+        }
+
+        _logger.LogInformation("批量上传目录: {Bucket}/{Directory}", targetBucket, uploadDirectory);
+
+        // 3. 逐个处理文件，保持原始文件名
         foreach (var file in files)
         {
             try
@@ -149,36 +207,36 @@ public class FilesController : ControllerBase
                     continue;
                 }
 
-                var targetBucket = DetermineBucket(bucketName, file.FileName);
-                var fileName = GenerateUniqueFileName(file.FileName);
+                // 保持原始文件名，放在统一的子目录下
+                var objectName = $"{uploadDirectory}/{file.FileName}";
 
                 // 上传文件（自动重试）
                 using var stream = file.OpenReadStream();
                 var filePath = await _storageService.UploadFileAsync(
                     targetBucket,
-                    fileName,
+                    objectName,
                     stream,
                     file.ContentType);
 
                 // 验证上传成功
-                var fileExists = await _storageService.FileExistsAsync(targetBucket, fileName);
+                var fileExists = await _storageService.FileExistsAsync(targetBucket, objectName);
                 if (!fileExists)
                 {
-                    _logger.LogWarning("批量上传中文件验证失败: {FileName}", fileName);
+                    _logger.LogWarning("批量上传中文件验证失败: {FileName}", objectName);
                     errors.Add($"{file.FileName}: 上传验证失败");
                     continue;
                 }
 
                 var downloadUrl = await _storageService.GetPresignedUrlAsync(
                     targetBucket,
-                    fileName,
+                    objectName,
                     7 * 24 * 3600); // 7天转换为秒
 
                 results.Add(new FileUploadResponse
                 {
                     Success = true,
                     FilePath = filePath,
-                    FileName = fileName,
+                    FileName = objectName,  // 包含子目录的完整路径
                     OriginalFileName = file.FileName,
                     Bucket = targetBucket,
                     Size = file.Length,
@@ -188,8 +246,8 @@ public class FilesController : ControllerBase
                     UploadedBy = userId
                 });
 
-                _logger.LogInformation("批量上传成功: {OriginalFileName} -> {FileName}",
-                    file.FileName, fileName);
+                _logger.LogInformation("批量上传成功: {OriginalFileName} -> {ObjectName}",
+                    file.FileName, objectName);
             }
             catch (Exception ex)
             {
@@ -626,6 +684,24 @@ public class FilesController : ControllerBase
         var guid = Guid.NewGuid().ToString("N")[..8]; // 取前8位
 
         return $"{fileName}_{timestamp}_{guid}{extension}";
+    }
+
+    /// <summary>
+    /// 清理文件夹名称，移除不安全的字符
+    /// </summary>
+    private string SanitizeFolderName(string folderName)
+    {
+        // 移除路径分隔符和其他不安全字符
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = string.Join("_", folderName.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
+
+        // 限制长度
+        if (sanitized.Length > 100)
+        {
+            sanitized = sanitized.Substring(0, 100);
+        }
+
+        return sanitized;
     }
 }
 

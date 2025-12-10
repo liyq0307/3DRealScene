@@ -40,16 +40,16 @@ class Program
         try
         {
             // 测试1: 使用 ObjModelLoader
-            //await TestWithObjModelLoader(logger, serviceProvider, objFilePath, glbOutputPath1);
+            await TestWithObjModelLoader(logger, serviceProvider, objFilePath, glbOutputPath1);
 
-            //logger.LogInformation("");
-            //logger.LogInformation("");
+            logger.LogInformation("");
+            logger.LogInformation("");
 
             // 测试2: 使用 MeshUtils.LoadMesh
-            //await TestWithMeshUtils(logger, serviceProvider, objFilePath, glbOutputPath2);
+            await TestWithMeshUtils(logger, serviceProvider, objFilePath, glbOutputPath2);
 
-            //logger.LogInformation("");
-            //logger.LogInformation("");
+            logger.LogInformation("");
+            logger.LogInformation("");
 
             // 测试3: 使用 OsgbModelLoader
             await TestWithOsgbModelLoader(logger, serviceProvider, osgbFilePath, glbOutputPath3);

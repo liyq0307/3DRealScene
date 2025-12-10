@@ -1016,15 +1016,19 @@ export const fileService = {
    * 批量文件上传
    * @param files 要上传的文件数组
    * @param bucketName 可选的存储桶名称
+   * @param folderName 可选的文件夹名称
    * @returns Promise<BatchFileUploadResponse> 批量上传结果
    */
-  async uploadFilesBatch(files: File[], bucketName?: string) {
+  async uploadFilesBatch(files: File[], bucketName?: string, folderName?: string) {
     const formData = new FormData()
     files.forEach(file => {
       formData.append('files', file)
     })
     if (bucketName) {
       formData.append('bucketName', bucketName)
+    }
+    if (folderName) {
+      formData.append('folderName', folderName)
     }
 
     const response = await api.post('/files/upload/batch', formData, {
