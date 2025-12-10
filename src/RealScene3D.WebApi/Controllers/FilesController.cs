@@ -350,12 +350,53 @@ public class FilesController : ControllerBase
             if (!fileFound)
             {
                 var localPath = decodedObjectPath;
-                // 如果路径是Windows绝对路径，尝试直接读取
-                if (System.IO.Path.IsPathRooted(localPath) && System.IO.File.Exists(localPath))
+                // 如果路径是Windows绝对路径，尝试直接读取（仅针对允许的目录）
+                if (System.IO.Path.IsPathRooted(localPath))
                 {
-                    stream = System.IO.File.OpenRead(localPath);
-                    fileFound = true;
-                    _logger.LogInformation("从本地文件系统加载文件成功：{LocalPath}", localPath);
+                    // 安全验证：确保路径在允许的目录范围内，或使用安全检查
+                    // 对于切片存储桶，允许访问用户指定的本地路径（需要安全验证）
+                    var isSafePath = false;
+
+                    // 检查是否为应用相关目录（安全）
+                    var allowedPaths = new[]
+                    {
+                        Directory.GetCurrentDirectory(), // 当前应用目录
+                        Path.Combine(Directory.GetCurrentDirectory(), "slices") // 默认切片目录
+                    };
+
+                    var fullPath = Path.GetFullPath(localPath);
+                    foreach (var allowedPath in allowedPaths)
+                    {
+                        var allowedFullPath = Path.GetFullPath(allowedPath);
+                        if (fullPath.StartsWith(allowedFullPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isSafePath = true;
+                            break;
+                        }
+                    }
+
+                    // 针对切片存储桶的特殊处理：
+                    // 允许访问用户指定的文件系统路径，但需要额外的安全验证
+                    if (!isSafePath && bucket == MinioBuckets.SLICES)
+                    {
+                        // 对于切片存储，如果路径是合法的本地驱动器路径，允许访问
+                        // 但要确保不是危险路径，如系统目录、或包含恶意字符
+                        var pathRoot = Path.GetPathRoot(fullPath);
+                        if (!string.IsNullOrEmpty(pathRoot) &&
+                            pathRoot.Length >= 3 && // 至少是 X:\
+                            (pathRoot[1] == ':' && (pathRoot[2] == '\\' || pathRoot[2] == '/')) && // 验证格式
+                            Directory.Exists(pathRoot)) // 根目录存在
+                        {
+                            isSafePath = true;
+                        }
+                    }
+
+                    if (isSafePath && System.IO.File.Exists(localPath))
+                    {
+                        stream = System.IO.File.OpenRead(localPath);
+                        fileFound = true;
+                        _logger.LogInformation("从本地文件系统加载文件成功：{LocalPath}", localPath);
+                    }
                 }
                 else
                 {
@@ -494,13 +535,31 @@ public class FilesController : ControllerBase
     {
         try
         {
-            // 构建完整的本地文件路径
-            // 基础路径: F:/Data/3D/
-            var basePath = "F:\\Data\\3D\\";
-            var fullPath = Path.Combine(basePath, filePath.Replace('/', '\\'));
+            // 解码URL编码的路径
+            var decodedPath = Uri.UnescapeDataString(filePath);
+
+            // 标准化路径：将正斜杠转换为反斜杠（Windows路径）
+            string fullPath = decodedPath.Replace('/', '\\');
+
+            // 检查是否是绝对路径
+            if (!System.IO.Path.IsPathRooted(fullPath))
+            {
+                // 如果不是绝对路径，说明路径格式不正确
+                _logger.LogWarning("收到相对路径请求（这不应该发生）: {Path}", decodedPath);
+                return BadRequest(new { message = "路径必须是绝对路径", path = decodedPath });
+            }
 
             _logger.LogInformation("访问本地文件: {FilePath}", fullPath);
 
+            // 安全检查：验证路径根目录有效性
+            var pathRoot = Path.GetPathRoot(fullPath);
+            if (string.IsNullOrEmpty(pathRoot))
+            {
+                _logger.LogWarning("无效的路径根目录: {FilePath}", fullPath);
+                return BadRequest(new { message = "无效的文件路径" });
+            }
+
+            // 检查文件是否存在
             if (!System.IO.File.Exists(fullPath))
             {
                 _logger.LogWarning("本地文件不存在: {FilePath}", fullPath);

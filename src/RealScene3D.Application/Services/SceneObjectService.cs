@@ -413,8 +413,12 @@ public class SceneObjectService : ISceneObjectService
                 }
                 else
                 {
-                    _logger.LogInformation("无法解析为MinIO路径（缺少bucket/object结构），跳过删除: {FilePath}", filePath);
-                    return;
+                    // 情况5: 仅包含文件名（如直接上传场景对象时，ModelPath可能只包含文件名，没有bucket前缀）
+                    // 默认使用3D模型存储桶
+                    _logger.LogInformation("检测到纯文件名格式，使用默认3D模型存储桶: {FilePath}", filePath);
+                    bucket = MinioBuckets.MODELS_3D;
+                    objectName = normalizedPath;
+                    _logger.LogInformation("解析结果: Bucket={Bucket}, Object={ObjectName}", bucket, objectName);
                 }
             }
 

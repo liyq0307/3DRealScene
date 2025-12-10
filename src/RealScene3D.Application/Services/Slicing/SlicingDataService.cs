@@ -69,11 +69,25 @@ public class SlicingDataService
                 // 从MinIO加载到临时文件
                 try
                 {
+                    string? bucket = null;
+                    string? objectName = null;
+
                     var segments = modelPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
                     if (segments.Length >= 2)
                     {
-                        var bucket = segments[0];
-                        var objectName = string.Join("/", segments.Skip(1));
+                        bucket = segments[0];
+                        objectName = string.Join("/", segments.Skip(1));
+                    }
+                    else if (!string.IsNullOrEmpty(modelPath))
+                    {
+                        // 仅包含文件名（如直接上传场景时，modelPath可能只包含文件名，没有bucket前缀）
+                        // 默认使用3D模型存储桶
+                        bucket = MinioBuckets.MODELS_3D;
+                        objectName = modelPath.TrimStart('/').TrimStart('\\');
+                    }
+
+                    if (!string.IsNullOrEmpty(bucket) && !string.IsNullOrEmpty(objectName))
+                    {
                         _logger.LogDebug("从MinIO加载：bucket={Bucket}, object={ObjectName}", bucket, objectName);
 
                         return await LoadMeshFromMinIOAsync(bucket, objectName, modelPath, cancellationToken);

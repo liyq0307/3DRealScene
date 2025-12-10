@@ -475,21 +475,24 @@ const resolveObjectUrl = (displayPath: string): string => {
 
   if (isWindowsPath) {
     // 本地文件路径需要通过API代理访问
-    // 将路径转换为相对于数据根目录的路径
-    // 例如: F:/Data/3D/test/tileset.json -> test/tileset.json
-    const match = fullPath.match(/^[A-Za-z]:[\\/]Data[\\/]3D[\\/](.+)$/i)
-    if (match) {
-      const relativePath = match[1].replace(/\\/g, '/')
-      fullPath = `${apiBaseUrl.value}/api/files/local/${relativePath}`
-      console.log('[CesiumViewer] 本地文件路径转换:', { original: displayPath, converted: fullPath })
-      return fullPath
-    } else {
-      console.warn('[CesiumViewer] 无法识别的本地文件路径格式:', displayPath)
-      // 尝试提取文件名部分
-      const pathParts = fullPath.replace(/\\/g, '/').split('/')
-      const fileName = pathParts[pathParts.length - 1]
-      fullPath = `${apiBaseUrl.value}/api/files/local/${fileName}`
-    }
+    // 传递完整的绝对路径，让后端处理
+    // 例如: E:\Data\3D\test\tileset.json -> /api/files/local/E:/Data/3D/test/tileset.json
+
+    // 标准化路径：将反斜杠转换为正斜杠
+    const normalizedPath = fullPath.replace(/\\/g, '/')
+
+    // 使用 encodeURI 而非 encodeURIComponent，保留路径分隔符
+    // 这样 Cesium 可以正确解析相对路径（如 LOD-2/Mesh.b3dm）
+    // encodeURI 只编码特殊字符如空格、中文等，但保留 /、: 等路径相关字符
+    const encodedPath = encodeURI(normalizedPath)
+
+    fullPath = `${apiBaseUrl.value}/api/files/local/${encodedPath}`
+    console.log('[CesiumViewer] 本地文件路径转换:', {
+      original: displayPath,
+      normalized: normalizedPath,
+      encoded: encodedPath,
+      converted: fullPath
+    })
     return fullPath
   }
 
@@ -1544,10 +1547,16 @@ const updateCameraInfo = () => {
     clearTimeout(cameraUpdateTimer)
   }
 
-  // 延迟更新，避免频繁计算
+  // 延迟更新,避免频繁计算
   cameraUpdateTimer = window.setTimeout(() => {
     try {
-      const cameraPosition = viewer!.camera.positionCartographic
+      // 再次检查 viewer 是否存在（防止在延迟期间被销毁）
+      if (!viewer) {
+        console.warn('[updateCameraInfo] viewer 已被销毁，跳过相机信息更新')
+        return
+      }
+
+      const cameraPosition = viewer.camera.positionCartographic
 
       if (cameraPosition) {
         cameraInfo.value = {

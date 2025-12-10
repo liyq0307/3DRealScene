@@ -265,6 +265,14 @@ public class SceneService : ISceneService
                     Console.WriteLine($"[SceneService] 解析结果: Bucket={bucketName}, Object={objectName}");
                 }
             }
+            // 情况4: 仅包含文件名（如直接上传场景时，modelPath可能只包含文件名，没有bucket前缀）
+            else
+            {
+                Console.WriteLine("[SceneService] 检测到纯文件名格式，使用默认3D模型存储桶");
+                bucketName = MinioBuckets.MODELS_3D;
+                objectName = modelPath.TrimStart('/');
+                Console.WriteLine($"[SceneService] 解析结果: Bucket={bucketName}, Object={objectName}");
+            }
 
             if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(objectName))
             {
@@ -498,6 +506,9 @@ public class SceneService : ISceneService
                     {
                         displayPath = slicingOutputPath + "/tileset.json";
                     }
+
+                    // 如果输出路径是绝对路径（本地文件系统），我们需要考虑如何处理
+                    // 在这种情况下，保留原始路径，后面会根据情况决定是否使用代理
                 }
                 else
                 {
@@ -554,20 +565,33 @@ public class SceneService : ISceneService
             // 使用后端代理路径访问MinIO对象
             try
             {
-                // 根据场景对象是否有完成的切片任务来决定使用哪个存储桶
-                string bucketName;
-                if (obj.SlicingTaskStatus == SlicingTaskStatus.Completed.ToString() && !string.IsNullOrEmpty(obj.SlicingOutputPath))
+                // 检查是否为本地文件系统路径（包含驱动器号，如 C:\ 或绝对路径）
+                bool isLocalFileSystemPath = Path.IsPathRooted(obj.DisplayPath);
+
+                if (isLocalFileSystemPath)
                 {
-                    // 切片输出使用 slices 存储桶
-                    bucketName = MinioBuckets.SLICES;
+                    // 对于本地文件系统路径，转换为本地文件API访问路径
+                    // 使用URL编码来安全地处理文件路径中的特殊字符
+                    var encodedPath = Uri.EscapeDataString(obj.DisplayPath);
+                    obj.DisplayPath = $"/api/files/local/{encodedPath}";
                 }
                 else
                 {
-                    // 原始模型使用 models-3d 存储桶
-                    bucketName = MinioBuckets.MODELS_3D;
-                }
+                    // 根据场景对象是否有完成的切片任务来决定使用哪个存储桶
+                    string bucketName;
+                    if (obj.SlicingTaskStatus == SlicingTaskStatus.Completed.ToString() && !string.IsNullOrEmpty(obj.SlicingOutputPath))
+                    {
+                        // 切片输出使用 slices 存储桶
+                        bucketName = MinioBuckets.SLICES;
+                    }
+                    else
+                    {
+                        // 原始模型使用 models-3d 存储桶
+                        bucketName = MinioBuckets.MODELS_3D;
+                    }
 
-                obj.DisplayPath = $"/api/files/proxy/{bucketName}/{obj.DisplayPath}";
+                    obj.DisplayPath = $"/api/files/proxy/{bucketName}/{obj.DisplayPath}";
+                }
             }
             catch (Exception ex)
             {

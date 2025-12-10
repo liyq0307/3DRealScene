@@ -85,7 +85,7 @@ public class SlicingAppService : ISlicingAppService
                 throw new ArgumentException("LOD级别数量必须在0-20之间", nameof(request.SlicingConfig.Divisions));
 
             // 验证源模型文件是否存在 - 关键业务规则检查
-            var sourceFileExists = await _minioService.FileExistsAsync("models", request.SourceModelPath);
+            var sourceFileExists = await CheckSourceModelFileExistsAsync(request.SourceModelPath);
             if (!sourceFileExists)
             {
                 // Fallback to local file system check
@@ -1272,6 +1272,99 @@ public class SlicingAppService : ISlicingAppService
             ".json" => "application/json",
             _ => "application/octet-stream"
         };
+    }
+
+    /// <summary>
+    /// 检查源模型文件是否存在 - 支持多种路径格式
+    /// 包括完整的 bucket/object 路径、纯文件名、URL 等
+    /// </summary>
+    /// <param name="modelPath">模型文件路径</param>
+    /// <returns>文件是否存在</returns>
+    private async Task<bool> CheckSourceModelFileExistsAsync(string? modelPath)
+    {
+        if (string.IsNullOrEmpty(modelPath))
+        {
+            _logger.LogWarning("[SlicingAppService] ModelPath 为空，跳过文件存在性检查");
+            return false;
+        }
+
+        _logger.LogInformation("[SlicingAppService] 检查源模型文件存在性: {ModelPath}", modelPath);
+
+        try
+        {
+            // 提取bucket和文件路径
+            string? bucketName = null;
+            string? objectName = null;
+
+            // 情况1: /api/files/proxy/bucket/object 格式
+            if (modelPath.Contains("/api/files/proxy/"))
+            {
+                _logger.LogDebug("[SlicingAppService] 检测到代理路径格式");
+                var parts = modelPath.Split(new[] { "/api/files/proxy/" }, StringSplitOptions.None);
+                if (parts.Length > 1)
+                {
+                    var pathParts = parts[1].Split('/', 2);
+                    bucketName = pathParts[0];
+                    objectName = pathParts.Length > 1 ? pathParts[1] : "";
+                }
+            }
+            // 情况2: 预签名URL或直接MinIO URL (http://localhost:9000/bucket/object 或 https://...)
+            else if (modelPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                     modelPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("[SlicingAppService] 检测到HTTP(S) URL格式");
+                try
+                {
+                    var uri = new Uri(modelPath);
+                    // 提取路径部分（去除查询参数）
+                    var path = uri.AbsolutePath.TrimStart('/');
+                    var pathParts = path.Split('/', 2);
+                    if (pathParts.Length >= 2)
+                    {
+                        bucketName = pathParts[0];
+                        objectName = pathParts[1];
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("[SlicingAppService] URL解析失败: {ErrorMessage}", ex.Message);
+                }
+            }
+            // 情况3: 相对路径 bucket/object 格式
+            else if (modelPath.Contains("/"))
+            {
+                _logger.LogDebug("[SlicingAppService] 检测到相对路径格式");
+                var pathParts = modelPath.TrimStart('/').Split('/', 2);
+                if (pathParts.Length >= 2)
+                {
+                    bucketName = pathParts[0];
+                    objectName = pathParts[1];
+                }
+            }
+            // 情况4: 仅包含文件名（如直接上传场景时，modelPath可能只包含文件名，没有bucket前缀）
+            else
+            {
+                _logger.LogDebug("[SlicingAppService] 检测到纯文件名格式，使用默认3D模型存储桶");
+                bucketName = MinioBuckets.MODELS_3D;
+                objectName = modelPath.TrimStart('/');
+            }
+
+            if (string.IsNullOrEmpty(bucketName) || string.IsNullOrEmpty(objectName))
+            {
+                _logger.LogWarning("[SlicingAppService] 无法解析路径，跳过文件存在性检查: {ModelPath}", modelPath);
+                return false;
+            }
+
+            // 检查文件是否存在
+            var exists = await _minioService.FileExistsAsync(bucketName, objectName);
+            _logger.LogInformation("[SlicingAppService] 文件 {Bucket}/{ObjectName} 存在性检查结果: {Exists}", bucketName, objectName, exists);
+            return exists;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SlicingAppService] 检查源模型文件存在性失败: {ModelPath}", modelPath);
+            return false;
+        }
     }
 
     #endregion
