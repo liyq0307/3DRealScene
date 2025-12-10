@@ -113,6 +113,19 @@ const routes = [
   },
 
   /**
+   * 切片预览页面路由
+   * 路径：/slicing/:taskId/preview
+   * 组件：SlicePreviewPage.vue（切片预览页面组件）
+   * 用途：全屏预览3D切片数据
+   */
+  {
+    path: '/slicing/:taskId/preview',
+    name: 'SlicePreview',
+    component: () => import('../views/SlicePreviewPage.vue'),
+    meta: { requiresAuth: true, title: '切片预览' }
+  },
+
+  /**
    * 登录页面路由
    * 路径: /login
    * 组件: Login.vue (登录/注册组件)

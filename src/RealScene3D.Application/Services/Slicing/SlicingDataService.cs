@@ -72,18 +72,50 @@ public class SlicingDataService
                     string? bucket = null;
                     string? objectName = null;
 
-                    var segments = modelPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                    if (segments.Length >= 2)
+                    // 检查是否为 MinIO 预签名 URL（以 http:// 或 https:// 开头）
+                    if (modelPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                        modelPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                     {
-                        bucket = segments[0];
-                        objectName = string.Join("/", segments.Skip(1));
+                        _logger.LogDebug("检测到预签名URL，开始解析：{Url}", modelPath);
+
+                        try
+                        {
+                            // 解析 URL，提取路径部分（去除查询参数）
+                            var uri = new Uri(modelPath);
+                            var pathWithoutQuery = uri.AbsolutePath; // 例如：/models-3d/odm_textured_model_geo/odm_textured_model_geo.obj
+
+                            _logger.LogDebug("URL路径部分：{Path}", pathWithoutQuery);
+
+                            // 分割路径，提取 bucket 和 object
+                            var segments = pathWithoutQuery.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                            if (segments.Length >= 2)
+                            {
+                                bucket = segments[0];
+                                objectName = string.Join("/", segments.Skip(1));
+                                _logger.LogDebug("从URL提取：bucket={Bucket}, object={ObjectName}", bucket, objectName);
+                            }
+                        }
+                        catch (UriFormatException uriEx)
+                        {
+                            _logger.LogWarning(uriEx, "URL格式无效：{Url}", modelPath);
+                        }
                     }
-                    else if (!string.IsNullOrEmpty(modelPath))
+                    else
                     {
-                        // 仅包含文件名（如直接上传场景时，modelPath可能只包含文件名，没有bucket前缀）
-                        // 默认使用3D模型存储桶
-                        bucket = MinioBuckets.MODELS_3D;
-                        objectName = modelPath.TrimStart('/').TrimStart('\\');
+                        // 直接路径格式（如 "models-3d/file.obj"）
+                        var segments = modelPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        if (segments.Length >= 2)
+                        {
+                            bucket = segments[0];
+                            objectName = string.Join("/", segments.Skip(1));
+                        }
+                        else if (!string.IsNullOrEmpty(modelPath))
+                        {
+                            // 仅包含文件名（如直接上传场景时，modelPath可能只包含文件名，没有bucket前缀）
+                            // 默认使用3D模型存储桶
+                            bucket = MinioBuckets.MODELS_3D;
+                            objectName = modelPath.TrimStart('/').TrimStart('\\');
+                        }
                     }
 
                     if (!string.IsNullOrEmpty(bucket) && !string.IsNullOrEmpty(objectName))
@@ -138,6 +170,7 @@ public class SlicingDataService
 
     /// <summary>
     /// 从MinIO下载到临时文件再加载网格数据
+    /// 对于OBJ文件，会自动下载相关的MTL和纹理文件
     /// </summary>
     private async Task<(IMesh Mesh, Box3 BoundingBox)>
     LoadMeshFromMinIOAsync(
@@ -146,21 +179,28 @@ public class SlicingDataService
         string originalPath,
         CancellationToken cancellationToken)
     {
-        // 从MinIO下载文件流
-        using var modelStream = await _minioService.DownloadFileAsync(bucket, objectName);
-
-        // 创建临时文件
-        var tempFilePath = Path.Combine(
-            Path.GetTempPath(),
-            $"temp_model_{Guid.NewGuid()}{Path.GetExtension(originalPath)}");
+        // 创建临时目录（用于存放模型及其依赖文件）
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"model_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDirectory);
 
         try
         {
-            // 将MinIO流写入临时文件
-            _logger.LogDebug("将MinIO文件写入临时文件：{TempPath}", tempFilePath);
+            // 下载主模型文件
+            var fileName = Path.GetFileName(objectName);
+            var tempFilePath = Path.Combine(tempDirectory, fileName);
+
+            _logger.LogDebug("下载主模型文件到临时目录：{TempPath}", tempFilePath);
+            using (var modelStream = await _minioService.DownloadFileAsync(bucket, objectName))
             using (var fileStream = File.Create(tempFilePath))
             {
                 await modelStream.CopyToAsync(fileStream, cancellationToken);
+            }
+
+            // 如果是OBJ文件，下载同目录下的所有相关文件（MTL和纹理）
+            var extension = Path.GetExtension(originalPath).ToLowerInvariant();
+            if (extension == ".obj")
+            {
+                await DownloadObjDependenciesAsync(bucket, objectName, tempDirectory, cancellationToken);
             }
 
             // 使用临时文件路径加载模型
@@ -176,19 +216,75 @@ public class SlicingDataService
         }
         finally
         {
-            // 清理临时文件
-            if (File.Exists(tempFilePath))
+            // 清理临时目录及所有文件
+            if (Directory.Exists(tempDirectory))
             {
                 try
                 {
-                    File.Delete(tempFilePath);
-                    _logger.LogDebug("已清理临时文件：{TempPath}", tempFilePath);
+                    Directory.Delete(tempDirectory, recursive: true);
+                    _logger.LogDebug("已清理临时目录：{TempDirectory}", tempDirectory);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "清理临时文件失败：{TempPath}", tempFilePath);
+                    _logger.LogWarning(ex, "清理临时目录失败：{TempDirectory}", tempDirectory);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// 下载OBJ文件的依赖文件（MTL材质文件和纹理图片）
+    /// </summary>
+    private async Task DownloadObjDependenciesAsync(
+        string bucket,
+        string objObjectName,
+        string tempDirectory,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // 获取OBJ文件所在的目录
+            var objDirectory = Path.GetDirectoryName(objObjectName)?.Replace('\\', '/') ?? "";
+            _logger.LogDebug("OBJ文件目录：{ObjDirectory}", objDirectory);
+
+            // 列出同目录下的所有文件
+            var prefix = string.IsNullOrEmpty(objDirectory) ? "" : objDirectory + "/";
+            var filesInDirectory = await _minioService.ListFilesAsync(bucket, prefix);
+
+            _logger.LogInformation("在MinIO目录 {Prefix} 中找到 {Count} 个文件", prefix, filesInDirectory.Count());
+
+            // 下载 MTL 文件和纹理文件（JPG、PNG、BMP等）
+            var supportedExtensions = new[] { ".mtl", ".jpg", ".jpeg", ".png", ".bmp", ".tga", ".tif", ".tiff" };
+
+            foreach (var file in filesInDirectory)
+            {
+                var fileExtension = Path.GetExtension(file).ToLowerInvariant();
+                if (supportedExtensions.Contains(fileExtension))
+                {
+                    try
+                    {
+                        var fileName = Path.GetFileName(file);
+                        var localFilePath = Path.Combine(tempDirectory, fileName);
+
+                        _logger.LogDebug("下载依赖文件：{FileName}", fileName);
+
+                        using var fileStream = await _minioService.DownloadFileAsync(bucket, file);
+                        using var localStream = File.Create(localFilePath);
+                        await fileStream.CopyToAsync(localStream, cancellationToken);
+
+                        _logger.LogDebug("依赖文件下载成功：{FileName}", fileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        // 记录警告但不中断流程（有些依赖文件可能可选）
+                        _logger.LogWarning(ex, "下载依赖文件失败：{FileName}，继续处理", file);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "下载OBJ依赖文件时发生错误，将尝试仅使用主文件加载");
         }
     }
 

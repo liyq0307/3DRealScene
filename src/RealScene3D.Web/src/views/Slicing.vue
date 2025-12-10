@@ -503,32 +503,19 @@
         </div>
       </div>
     </div>
-
-    <!-- 切片预览对话框 -->
-    <div v-if="showPreviewDialog" class="modal-overlay" @click="closePreviewDialog">
-      <div class="modal-content fullscreen" @click.stop>
-        <div class="modal-header">
-          <h3>切片预览: {{ previewTask?.name }}</h3>
-          <button @click="closePreviewDialog" class="btn-close">✕</button>
-        </div>
-        <div class="modal-body">
-          <SlicePreview v-if="previewTask" :taskId="previewTask.id" :outputPath="previewTask.outputPath"
-            :autoLoad="true" @loaded="onPreviewLoaded" @error="onPreviewError" />
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { slicingService } from '@/services/api'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Badge from '@/components/Badge.vue'
 import Pagination from '@/components/Pagination.vue'
-import SlicePreview from '@/components/SlicePreview.vue'
 import { useAuthStore } from '@/stores/auth'
 
+const router = useRouter()
 const authStore = useAuthStore()
 const userId = authStore.currentUser.value?.id || '00000000-0000-0000-0000-000000000001'
 
@@ -579,14 +566,12 @@ const strategies = ref<any[]>([])
 // 对话框状态
 const showCreateTaskDialog = ref(false)
 const showTaskDetailDialog = ref(false)
-const showPreviewDialog = ref(false)
 
 const currentTask = ref<any>(null)
 const taskProgress = ref<any>(null)
 const totalDataSize = ref<number>(0)
 const totalSliceCount = ref<number>(0)
 const processedSliceCount = ref<number>(0)
-const previewTask = ref<any>(null)
 
 // 任务表单
 const taskForm = ref({
@@ -1108,24 +1093,12 @@ const downloadSlice = async (taskId: string, level: number, x: number, y: number
   }
 }
 
-// 预览切片
+// 预览切片 - 跳转到独立预览页面
 const previewSlices = (task: any) => {
-  previewTask.value = task
-  showPreviewDialog.value = true
-}
-
-const closePreviewDialog = () => {
-  showPreviewDialog.value = false
-  previewTask.value = null
-}
-
-const onPreviewLoaded = (sliceCount: number) => {
-  console.log(`切片预览加载完成，共${sliceCount}个切片`)
-}
-
-const onPreviewError = (error: string) => {
-  console.error('切片预览加载失败:', error)
-  alert(`切片预览加载失败: ${error}`)
+  router.push({
+    name: 'SlicePreview',
+    params: { taskId: task.id }
+  })
 }
 
 // 生命周期
