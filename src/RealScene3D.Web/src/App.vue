@@ -3,50 +3,89 @@
   <div class="container">
     <!-- 应用头部，显示品牌和标题信息 -->
     <header v-if="!hideLayout" class="header">
-      <h1>实景三维</h1>
+      <!-- 移动端汉堡菜单按钮 -->
+      <button @click="toggleMobileMenu" class="mobile-menu-btn" :class="{ active: isMobileMenuOpen }">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </button>
+
       <!-- 导航菜单 -->
-      <nav class="nav">
-        <router-link to="/" class="nav-link">首页</router-link>
+      <nav class="nav" :class="{ 'nav-open': isMobileMenuOpen }">
+        <router-link to="/" class="nav-link" @click="closeMobileMenu">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-text">首页</span>
+        </router-link>
 
         <!-- 场景管理下拉菜单 -->
-        <div class="nav-dropdown" @mouseenter="showDropdown('scenes')" @mouseleave="hideDropdown('scenes')">
+        <div class="nav-dropdown" @mouseenter="showDropdown('scenes')" @mouseleave="hideDropdown('scenes')" @click="toggleDropdown('scenes')" :class="{ 'dropdown-open': activeDropdown === 'scenes' }">
           <div class="nav-link dropdown-toggle" :class="{ active: isSceneActive }">
-            场景管理
-            <span class="dropdown-icon">▾</span>
+            <span class="nav-icon">🌍</span>
+            <span class="nav-text">场景管理</span>
+            <span class="dropdown-icon" :class="{ rotated: activeDropdown === 'scenes' }">▾</span>
           </div>
-          <div class="dropdown-menu" v-show="activeDropdown === 'scenes'">
-            <router-link to="/scenes" class="dropdown-item">场景列表</router-link>
-            <router-link to="/scene-objects" class="dropdown-item">场景对象</router-link>
-            <router-link to="/slicing" class="dropdown-item">切片管理</router-link>
+          <div class="dropdown-menu" :class="{ 'dropdown-visible': activeDropdown === 'scenes' }">
+            <router-link to="/scenes" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">📋</span>
+              <span class="item-text">场景列表</span>
+            </router-link>
+            <router-link to="/scene-objects" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">🔧</span>
+              <span class="item-text">场景对象</span>
+            </router-link>
+            <router-link to="/slicing" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">✂️</span>
+              <span class="item-text">切片管理</span>
+            </router-link>
           </div>
         </div>
 
         <!-- 元数据管理下拉菜单 -->
-        <div class="nav-dropdown" @mouseenter="showDropdown('metadata')" @mouseleave="hideDropdown('metadata')">
+        <div class="nav-dropdown" @mouseenter="showDropdown('metadata')" @mouseleave="hideDropdown('metadata')" @click="toggleDropdown('metadata')" :class="{ 'dropdown-open': activeDropdown === 'metadata' }">
           <div class="nav-link dropdown-toggle" :class="{ active: isMetadataActive }">
-            元数据管理
-            <span class="dropdown-icon">▾</span>
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">元数据管理</span>
+            <span class="dropdown-icon" :class="{ rotated: activeDropdown === 'metadata' }">▾</span>
           </div>
-          <div class="dropdown-menu" v-show="activeDropdown === 'metadata'">
-            <router-link to="/video-metadata" class="dropdown-item">视频元数据</router-link>
-            <router-link to="/bim-model-metadata" class="dropdown-item">BIM模型</router-link>
-            <router-link to="/tilt-photography-metadata" class="dropdown-item">倾斜摄影</router-link>
+          <div class="dropdown-menu" :class="{ 'dropdown-visible': activeDropdown === 'metadata' }">
+            <router-link to="/video-metadata" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">🎥</span>
+              <span class="item-text">视频元数据</span>
+            </router-link>
+            <router-link to="/bim-model-metadata" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">🏗️</span>
+              <span class="item-text">BIM模型</span>
+            </router-link>
+            <router-link to="/tilt-photography-metadata" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">📸</span>
+              <span class="item-text">倾斜摄影</span>
+            </router-link>
           </div>
         </div>
 
         <!-- 工作流下拉菜单 -->
-        <div class="nav-dropdown" @mouseenter="showDropdown('workflow')" @mouseleave="hideDropdown('workflow')">
+        <div class="nav-dropdown" @mouseenter="showDropdown('workflow')" @mouseleave="hideDropdown('workflow')" @click="toggleDropdown('workflow')" :class="{ 'dropdown-open': activeDropdown === 'workflow' }">
           <div class="nav-link dropdown-toggle" :class="{ active: isWorkflowActive }">
-            工作流
-            <span class="dropdown-icon">▾</span>
+            <span class="nav-icon">⚡</span>
+            <span class="nav-text">工作流</span>
+            <span class="dropdown-icon" :class="{ rotated: activeDropdown === 'workflow' }">▾</span>
           </div>
-          <div class="dropdown-menu" v-show="activeDropdown === 'workflow'">
-            <router-link to="/workflow-designer" class="dropdown-item">工作流设计</router-link>
-            <router-link to="/workflow-instances" class="dropdown-item">工作流实例</router-link>
+          <div class="dropdown-menu" :class="{ 'dropdown-visible': activeDropdown === 'workflow' }">
+            <router-link to="/workflow-designer" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">🎨</span>
+              <span class="item-text">工作流设计</span>
+            </router-link>
+            <router-link to="/workflow-instances" class="dropdown-item" @click="closeMobileMenu">
+              <span class="item-icon">📈</span>
+              <span class="item-text">工作流实例</span>
+            </router-link>
           </div>
         </div>
 
-        <router-link to="/monitoring" class="nav-link">系统监控</router-link>
+        <router-link to="/monitoring" class="nav-link" @click="closeMobileMenu">
+          <span class="nav-icon">📊</span>
+          <span class="nav-text">系统监控</span>
+        </router-link>
       </nav>
 
       <!-- 用户信息和操作 -->
@@ -98,6 +137,9 @@ const currentUser = authStore.currentUser
 // 下拉菜单状态
 const activeDropdown = ref<string | null>(null)
 
+// 移动端菜单状态
+const isMobileMenuOpen = ref(false)
+
 // 根据路由meta控制是否隐藏布局（用于全屏预览页面）
 const hideLayout = computed(() => {
   return route.meta.hideLayout === true
@@ -113,6 +155,21 @@ const hideDropdown = (menu: string) => {
   if (activeDropdown.value === menu) {
     activeDropdown.value = null
   }
+}
+
+// 切换移动端菜单
+const toggleMobileMenu = () => {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value
+}
+
+// 关闭移动端菜单
+const closeMobileMenu = () => {
+  isMobileMenuOpen.value = false
+}
+
+// 切换下拉菜单（移动端）
+const toggleDropdown = (menu: string) => {
+  activeDropdown.value = activeDropdown.value === menu ? null : menu
 }
 
 // 判断当前路由是否在场景管理分组
@@ -132,6 +189,10 @@ const isWorkflowActive = computed(() => {
   const workflowRoutes = ['/workflow-designer', '/workflow-instances']
   return workflowRoutes.includes(route.path)
 })
+// 切换移动端菜单nst toggleMobileMenu = () => {  isMobileMenuOpen.value = !isMobileMenuOpen.value}
+// 关闭移动端菜单nst closeMobileMenu = () => {  isMobileMenuOpen.value = false}
+// 切换下拉菜单（移动端）nst toggleDropdown = (menu: string) => {  activeDropdown.value = activeDropdown.value === menu ? null : menu}
+
 
 // 处理登出
 const handleLogout = async () => {
@@ -169,6 +230,52 @@ const handleLogout = async () => {
   gap: 2rem;
   animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   transition: all var(--transition-base);
+}
+
+/* 移动端汉堡菜单按钮 */
+.mobile-menu-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: var(--border-radius);
+  transition: all var(--transition-base);
+  z-index: 1001;
+}
+
+.mobile-menu-btn:hover {
+  background: var(--primary-lighter);
+}
+
+.mobile-menu-btn.active {
+  background: var(--primary-color);
+}
+
+.hamburger-line {
+  width: 24px;
+  height: 2px;
+  background: var(--gray-700);
+  margin: 2px 0;
+  transition: all 0.3s ease;
+  border-radius: 1px;
+}
+
+.mobile-menu-btn.active .hamburger-line:nth-child(1) {
+  transform: rotate(45deg) translate(6px, 6px);
+}
+
+.mobile-menu-btn.active .hamburger-line:nth-child(2) {
+  opacity: 0;
+}
+
+.mobile-menu-btn.active .hamburger-line:nth-child(3) {
+  transform: rotate(-45deg) translate(6px, -6px);
 }
 
 @keyframes slideDown {
@@ -212,14 +319,29 @@ const handleLogout = async () => {
   text-decoration: none;
   color: var(--gray-700);
   font-weight: 500;
-  font-size: 0.9rem;
-  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  padding: 0.7rem 1.4rem;
   border-radius: var(--border-radius);
   transition: all var(--transition-base);
   white-space: nowrap;
   overflow: hidden;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   cursor: pointer;
+}
+
+.nav-icon {
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.nav-text {
+  flex: 1;
 }
 
 .dropdown-toggle {
@@ -234,6 +356,10 @@ const handleLogout = async () => {
 }
 
 .nav-dropdown:hover .dropdown-icon {
+  transform: rotate(180deg);
+}
+
+.dropdown-icon.rotated {
   transform: rotate(180deg);
 }
 
@@ -293,29 +419,41 @@ const handleLogout = async () => {
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 160px;
-  
+  min-width: 200px;
+  max-width: 280px;
+
   background: white;
   border-radius: var(--border-radius);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
   overflow: hidden;
-  animation: dropdownSlide 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+  pointer-events: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 1000;
+}
+
+.dropdown-menu.dropdown-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 @keyframes dropdownSlide {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-10px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 .dropdown-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.75rem 1.2rem;
   color: var(--gray-700);
   text-decoration: none;
@@ -325,11 +463,25 @@ const handleLogout = async () => {
   border-left: 3px solid transparent;
 }
 
+.item-icon {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.item-text {
+  flex: 1;
+}
+
 .dropdown-item:hover {
   background: linear-gradient(90deg, var(--primary-lighter) 0%, transparent 100%);
   color: var(--primary-color);
   border-left-color: var(--primary-color);
   padding-left: 1.4rem;
+  transform: translateX(4px);
 }
 
 .dropdown-item.router-link-active {
@@ -515,13 +667,13 @@ const handleLogout = async () => {
   }
 
   .nav-link {
-    padding: 0.5rem 0.8rem;
-    font-size: 0.85rem;
+    padding: 0.6rem 1rem;
+    font-size: 0.95rem;
   }
 
   .dropdown-item {
-    padding: 0.6rem 1rem;
-    font-size: 0.85rem;
+    padding: 0.7rem 1.1rem;
+    font-size: 0.9rem;
   }
 }
 
@@ -536,16 +688,69 @@ const handleLogout = async () => {
   }
 
   .nav {
+    position: fixed;
+    top: 100%;
+    left: 0;
+    right: 0;
     width: 100%;
-    order: 3;
-    
+    height: calc(100vh - 80px);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    flex-direction: column;
     justify-content: flex-start;
-    overflow-x: auto;
-    padding-bottom: 0.25rem;
+    align-items: stretch;
+    padding: 2rem 1rem;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 999;
+    overflow-y: auto;
   }
 
-  .nav::-webkit-scrollbar {
-    height: 4px;
+  .nav.nav-open {
+    transform: translateX(0);
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+  }
+
+  .nav-link {
+    padding: 1.2rem 1.5rem;
+    font-size: 1.1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 0.25rem;
+  }
+
+  .dropdown-menu {
+    position: static;
+    box-shadow: none;
+    background: rgba(52, 152, 219, 0.05);
+    border-radius: var(--border-radius);
+    margin-top: 0.5rem;
+    margin-left: 1rem;
+    max-width: none;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    border-left: 3px solid var(--primary-color);
+  }
+
+  .dropdown-menu.dropdown-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .dropdown-item {
+    padding: 0.9rem 1.5rem;
+    font-size: 1rem;
+    border-left: none;
+    margin-bottom: 0.25rem;
+  }
+
+  .dropdown-item:hover {
+    background: rgba(52, 152, 219, 0.1);
+    transform: translateX(8px);
+    padding-left: 2rem;
   }
 }
 
@@ -568,13 +773,18 @@ const handleLogout = async () => {
     font-size: 0.85rem;
   }
 
-  /* 移动端将下拉菜单改为点击展开 */
-  .dropdown-menu {
-    position: static;
-    box-shadow: none;
-    margin-top: 0.25rem;
-    border-radius: 0;
-    border-left: 3px solid var(--primary-color);
+  .nav {
+    padding: 1.5rem 1rem;
+  }
+
+  .nav-link {
+    padding: 1rem 1.2rem;
+    font-size: 1rem;
+  }
+
+  .dropdown-item {
+    padding: 0.8rem 1.2rem;
+    font-size: 0.95rem;
   }
 }
 

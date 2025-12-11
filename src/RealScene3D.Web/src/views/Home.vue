@@ -606,7 +606,7 @@ const getFrontBuildingStyle = (index: number) => {
 }
 
 .hero-title {
-  font-size: clamp(3.5rem, 12vw, 8rem);
+  font-size: clamp(.5rem, 12vw, 7rem);
   font-weight: 900;
   margin: 0;
   letter-spacing: 0.15em;
