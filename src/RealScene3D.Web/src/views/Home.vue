@@ -1,28 +1,7 @@
 <template>
   <div class="home">
     <!-- 3D旋转地球背景 -->
-    <div class="globe-container">
-      <div class="globe">
-        <!-- 经线 -->
-        <div class="meridian" v-for="i in 16" :key="'meridian-' + i" :style="getMeridianStyle(i)"></div>
-        <!-- 纬线 -->
-        <div class="parallel" v-for="i in 10" :key="'parallel-' + i" :style="getParallelStyle(i)"></div>
-
-        <!-- 地球表面光晕 -->
-        <div class="globe-surface"></div>
-
-        <!-- 大陆轮廓点 -->
-        <div class="continents">
-          <div class="continent-dot" v-for="i in 80" :key="'dot-' + i" :style="getContinentDotStyle(i)"></div>
-        </div>
-
-        <!-- 地球核心光晕 -->
-        <div class="globe-core"></div>
-
-        <!-- 轨道环 -->
-        <div class="orbit-ring"></div>
-      </div>
-    </div>
+    <div class="globe-container" ref="globeContainer"></div>
 
     <!-- 3D城市建筑剪影 -->
     <div class="city-silhouette">
@@ -93,15 +72,241 @@
  *
  * 设计理念：
  * - 蓝色科技风主题
- * - 3D旋转地球和城市建筑剪影背景
+ * - 3D旋转地球（使用Three.js）
  * - 参考专业GIS平台设计风格
  * - 动态粒子和网格效果
  * - 沉浸式视觉体验
  *
- * 技术栈：Vue 3 + TypeScript + CSS3 动画
+ * 技术栈：Vue 3 + TypeScript + Three.js + CSS3
  * 作者：liyq
  * 创建时间：2025-12-11
  */
+
+import { ref, onMounted, onUnmounted } from 'vue'
+import * as THREE from 'three'
+import earthTexture from '../image/earth.jpg'
+
+const globeContainer = ref<HTMLElement>()
+
+let scene: THREE.Scene
+let camera: THREE.PerspectiveCamera
+let renderer: THREE.WebGLRenderer
+let globe: THREE.Mesh
+let group: THREE.Group
+let animationId: number
+
+onMounted(() => {
+  if (!globeContainer.value) return
+  init()
+})
+
+const init = () => {
+  scene = new THREE.Scene()
+  
+  camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
+  camera.position.z = 15
+  
+  renderer = new THREE.WebGLRenderer({ 
+    antialias: true, 
+    alpha: true 
+  })
+  renderer.setSize(450, 450)
+  renderer.setPixelRatio(window.devicePixelRatio)
+  globeContainer.value!.appendChild(renderer.domElement)
+  
+  // 光照
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.2)
+  scene.add(ambientLight)
+  
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
+  directionalLight.position.set(5, 3, 5)
+  scene.add(directionalLight)
+  
+  const backLight = new THREE.DirectionalLight(0xffffff, 0.5)
+  backLight.position.set(-5, -3, -5)
+  scene.add(backLight)
+  
+  // 星空背景
+  createStars()
+  
+  // 地球组
+  group = new THREE.Group()
+  scene.add(group)
+  
+  // 创建地球
+  createGlobe()
+  createAtmosphere()
+  createCities()
+  createFlyLines()
+  
+  animate()
+}
+
+// 星空
+const createStars = () => {
+  const geometry = new THREE.BufferGeometry()
+  const vertices = []
+  for (let i = 0; i < 5000; i++) {
+    vertices.push(
+      (Math.random() - 0.5) * 2000,
+      (Math.random() - 0.5) * 2000,
+      (Math.random() - 0.5) * 2000
+    )
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+  const material = new THREE.PointsMaterial({ 
+    color: 0xffffff, 
+    size: 1.5,
+    transparent: true,
+    opacity: 0.8
+  })
+  const stars = new THREE.Points(geometry, material)
+  scene.add(stars)
+}
+
+// 地球
+const createGlobe = () => {
+  const loader = new THREE.TextureLoader()
+  const texture = loader.load(earthTexture)
+  
+  const geometry = new THREE.SphereGeometry(5, 64, 64)
+  const material = new THREE.MeshPhongMaterial({
+    map: texture,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
+    shininess: 15,
+    specular: 0x222222
+  })
+  globe = new THREE.Mesh(geometry, material)
+  group.add(globe)
+}
+
+// 大气层
+const createAtmosphere = () => {
+  const geometry = new THREE.SphereGeometry(5.3, 64, 64)
+  const material = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      void main() {
+        float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+        gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
+      }
+    `,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,
+    transparent: true
+  })
+  const atmosphere = new THREE.Mesh(geometry, material)
+  group.add(atmosphere)
+}
+
+// 城市标点
+const createCities = () => {
+  const cities = [
+    { name: '北京', lat: 39.9, lon: 116.4 },
+    { name: '上海', lat: 31.2, lon: 121.5 },
+    { name: '东京', lat: 35.7, lon: 139.7 },
+    { name: '伦敦', lat: 51.5, lon: -0.1 },
+    { name: '纽约', lat: 40.7, lon: -74.0 },
+    { name: '悉尼', lat: -33.9, lon: 151.2 }
+  ]
+  
+  cities.forEach(city => {
+    const position = latLonToVector3(city.lat, city.lon, 5.05)
+    
+    // 光柱
+    const pillarGeometry = new THREE.CylinderGeometry(0.02, 0.04, 0.4, 8)
+    const pillarMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.8
+    })
+    const pillar = new THREE.Mesh(pillarGeometry, pillarMaterial)
+    pillar.position.copy(position)
+    pillar.lookAt(new THREE.Vector3(0, 0, 0))
+    pillar.rotateX(Math.PI / 2)
+    const dir = position.clone().normalize()
+    pillar.position.add(dir.multiplyScalar(0.2))
+    group.add(pillar)
+    
+    // 光点
+    const dotGeometry = new THREE.SphereGeometry(0.06, 16, 16)
+    const dotMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 1
+    })
+    const dot = new THREE.Mesh(dotGeometry, dotMaterial)
+    dot.position.copy(position)
+    group.add(dot)
+  })
+}
+
+// 飞线
+const createFlyLines = () => {
+  const routes = [
+    { from: [39.9, 116.4], to: [40.7, -74.0] },    // 北京-纽约
+    { from: [31.2, 121.5], to: [51.5, -0.1] },     // 上海-伦敦
+    { from: [35.7, 139.7], to: [-33.9, 151.2] }    // 东京-悉尼
+  ]
+  
+  routes.forEach(route => {
+    const start = latLonToVector3(route.from[0], route.from[1], 5.05)
+    const end = latLonToVector3(route.to[0], route.to[1], 5.05)
+    
+    // 创建曲线
+    const mid = new THREE.Vector3()
+      .addVectors(start, end)
+      .multiplyScalar(0.5)
+      .normalize()
+      .multiplyScalar(6.5)
+    
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end)
+    const points = curve.getPoints(50)
+    
+    const geometry = new THREE.BufferGeometry().setFromPoints(points)
+    const material = new THREE.LineBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.6
+    })
+    const line = new THREE.Line(geometry, material)
+    group.add(line)
+  })
+}
+
+// 经纬度转3D坐标
+const latLonToVector3 = (lat: number, lon: number, radius: number) => {
+  const phi = (90 - lat) * (Math.PI / 180)
+  const theta = (lon + 180) * (Math.PI / 180)
+  return new THREE.Vector3(
+    -(radius * Math.sin(phi) * Math.cos(theta)),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta)
+  )
+}
+
+const animate = () => {
+  animationId = requestAnimationFrame(animate)
+  
+  if (group) {
+    group.rotation.y += 0.001
+  }
+  
+  renderer.render(scene, camera)
+}
+
+onUnmounted(() => {
+  if (animationId) cancelAnimationFrame(animationId)
+  if (renderer) renderer.dispose()
+})
 
 // 生成随机粒子样式
 const getParticleStyle = (index: number) => {
@@ -117,47 +322,6 @@ const getParticleStyle = (index: number) => {
     left: `${x}%`,
     top: `${y}%`,
     animationDuration: `${duration}s`,
-    animationDelay: `${delay}s`
-  }
-}
-
-// 生成经线样式
-const getMeridianStyle = (index: number) => {
-  const rotation = (index - 1) * 11.25 // 每11.25度一条经线
-  return {
-    transform: `rotateY(${rotation}deg)`
-  }
-}
-
-// 生成纬线样式
-const getParallelStyle = (index: number) => {
-  const angle = (index - 5) * 15 // -60deg 到 +60deg
-  const scale = Math.cos((angle * Math.PI) / 180)
-  return {
-    transform: `rotateX(${angle}deg) scale(${scale})`,
-    opacity: Math.abs(scale) * 0.5
-  }
-}
-
-// 生成大陆轮廓点样式
-const getContinentDotStyle = (index: number) => {
-  // 模拟随机分布在地球表面的点
-  const theta = Math.random() * Math.PI * 2
-  const phi = Math.acos(2 * Math.random() - 1)
-
-  const x = 50 + 45 * Math.sin(phi) * Math.cos(theta)
-  const y = 50 + 45 * Math.sin(phi) * Math.sin(theta)
-  const z = 45 * Math.cos(phi)
-
-  const size = Math.random() * 3 + 1
-  const delay = Math.random() * 3
-
-  return {
-    left: `${x}%`,
-    top: `${y}%`,
-    width: `${size}px`,
-    height: `${size}px`,
-    transform: `translateZ(${z}px)`,
     animationDelay: `${delay}s`
   }
 }
@@ -224,160 +388,16 @@ const getFrontBuildingStyle = (index: number) => {
 .globe-container {
   position: absolute;
   top: 50%;
-  right: 8%;
+  right: 15%;
   transform: translateY(-50%);
-  width: 550px;
-  height: 550px;
-  perspective: 1500px;
+  width: 450px;
+  height: 450px;
   z-index: 5;
+  filter: drop-shadow(0 0 80px rgba(52, 152, 219, 0.8));
 }
 
-.globe {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-  animation: rotateGlobe 80s linear infinite;
-}
-
-@keyframes rotateGlobe {
-  0% { transform: rotateY(0deg) rotateX(-15deg); }
-  100% { transform: rotateY(360deg) rotateX(-15deg); }
-}
-
-/* 地球表面 */
-.globe-surface {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 450px;
-  height: 450px;
-  margin: -225px 0 0 -225px;
-  background: radial-gradient(circle at 30% 30%,
-    rgba(41, 128, 185, 0.15) 0%,
-    rgba(30, 90, 150, 0.1) 50%,
-    transparent 100%);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 0 50px rgba(41, 128, 185, 0.3),
-    0 0 50px rgba(41, 128, 185, 0.2);
-}
-
-/* 经线 */
-.meridian {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 450px;
-  height: 450px;
-  margin: -225px 0 0 -225px;
-  border: 1.5px solid rgba(52, 152, 219, 0.4);
-  border-radius: 50%;
-  transform-style: preserve-3d;
-}
-
-/* 纬线 */
-.parallel {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 450px;
-  height: 450px;
-  margin: -225px 0 0 -225px;
-  border: 1.5px solid rgba(52, 152, 219, 0.35);
-  border-radius: 50%;
-  transform-style: preserve-3d;
-}
-
-/* 大陆轮廓点 */
-.continents {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-}
-
-.continent-dot {
-  position: absolute;
-  background: radial-gradient(circle, rgba(52, 152, 219, 0.9), rgba(41, 128, 185, 0.4));
-  border-radius: 50%;
-  box-shadow: 0 0 8px rgba(52, 152, 219, 0.8);
-  animation: dotPulse 3s ease-in-out infinite;
-}
-
-@keyframes dotPulse {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.3); }
-}
-
-/* 地球核心光晕 */
-.globe-core {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 120px;
-  height: 120px;
-  margin: -60px 0 0 -60px;
-  background: radial-gradient(circle,
-    rgba(52, 152, 219, 0.6) 0%,
-    rgba(41, 128, 185, 0.3) 40%,
-    transparent 70%);
-  border-radius: 50%;
-  box-shadow:
-    0 0 80px rgba(52, 152, 219, 0.6),
-    0 0 120px rgba(41, 128, 185, 0.4),
-    inset 0 0 40px rgba(52, 152, 219, 0.3);
-  animation: coreGlow 4s ease-in-out infinite;
-}
-
-@keyframes coreGlow {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.7;
-    box-shadow:
-      0 0 80px rgba(52, 152, 219, 0.6),
-      0 0 120px rgba(41, 128, 185, 0.4);
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 1;
-    box-shadow:
-      0 0 100px rgba(52, 152, 219, 0.8),
-      0 0 150px rgba(41, 128, 185, 0.6);
-  }
-}
-
-/* 轨道环 */
-.orbit-ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 520px;
-  height: 520px;
-  margin: -260px 0 0 -260px;
-  border: 2px solid rgba(52, 152, 219, 0.2);
-  border-radius: 50%;
-  animation: orbitRotate 15s linear infinite;
-}
-
-.orbit-ring::before {
-  content: '';
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
-  background: radial-gradient(circle, rgba(52, 152, 219, 1), rgba(52, 152, 219, 0.3));
-  border-radius: 50%;
-  box-shadow: 0 0 15px rgba(52, 152, 219, 0.8);
-}
-
-@keyframes orbitRotate {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.globe-container canvas {
+  display: block;
 }
 
 /* ==================== 3D城市建筑剪影 ==================== */
@@ -762,23 +782,9 @@ const getFrontBuildingStyle = (index: number) => {
 /* ==================== 响应式设计 ==================== */
 @media (max-width: 1200px) {
   .globe-container {
-    width: 450px;
-    height: 450px;
-    right: 5%;
-  }
-
-  .globe-surface,
-  .meridian,
-  .parallel {
-    width: 370px;
-    height: 370px;
-    margin: -185px 0 0 -185px;
-  }
-
-  .orbit-ring {
-    width: 430px;
-    height: 430px;
-    margin: -215px 0 0 -215px;
+    width: 380px;
+    height: 380px;
+    right: 8%;
   }
 }
 
@@ -788,19 +794,11 @@ const getFrontBuildingStyle = (index: number) => {
   }
 
   .globe-container {
-    width: 320px;
-    height: 320px;
+    width: 280px;
+    height: 280px;
     top: 15%;
-    right: -30px;
-    opacity: 0.3;
-  }
-
-  .globe-surface,
-  .meridian,
-  .parallel {
-    width: 260px;
-    height: 260px;
-    margin: -130px 0 0 -130px;
+    right: -20px;
+    opacity: 0.6;
   }
 
   .city-silhouette {
