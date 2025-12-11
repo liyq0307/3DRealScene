@@ -2,7 +2,7 @@
   <!-- 主应用容器，采用Flexbox布局结构 -->
   <div class="container">
     <!-- 应用头部，显示品牌和标题信息 -->
-    <header class="header">
+    <header v-if="!hideLayout" class="header">
       <h1>实景三维</h1>
       <!-- 导航菜单 -->
       <nav class="nav">
@@ -97,6 +97,11 @@ const currentUser = authStore.currentUser
 
 // 下拉菜单状态
 const activeDropdown = ref<string | null>(null)
+
+// 根据路由meta控制是否隐藏布局（用于全屏预览页面）
+const hideLayout = computed(() => {
+  return route.meta.hideLayout === true
+})
 
 // 显示下拉菜单
 const showDropdown = (menu: string) => {

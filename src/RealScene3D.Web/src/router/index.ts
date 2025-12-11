@@ -57,7 +57,7 @@ const routes = [
     path: '/scenes/:id/preview',
     name: 'ScenePreview',
     component: () => import('../views/ScenePreview.vue'),
-    meta: { requiresAuth: true, title: '场景预览' }
+    meta: { requiresAuth: true, title: '场景预览', hideLayout: true }
   },
 
   /**
@@ -70,7 +70,7 @@ const routes = [
     path: '/scenes/:sceneId/objects/:objectId/preview',
     name: 'SceneObjectPreview',
     component: () => import('../views/SceneObjectPreview.vue'),
-    meta: { requiresAuth: true, title: '对象预览' }
+    meta: { requiresAuth: true, title: '对象预览', hideLayout: true }
   },
 
   /**
@@ -122,7 +122,7 @@ const routes = [
     path: '/slicing/:taskId/preview',
     name: 'SlicePreview',
     component: () => import('../views/SlicePreviewPage.vue'),
-    meta: { requiresAuth: true, title: '切片预览' }
+    meta: { requiresAuth: true, title: '切片预览', hideLayout: true }
   },
 
   /**
