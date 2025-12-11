@@ -95,12 +95,41 @@ public class ModelLoaderFactory : IModelLoaderFactory
     /// <summary>
     /// 根据文件路径获取模型格式
     /// </summary>
-    /// <param name="filePath">文件路径</param>
+    /// <param name="filePath">文件路径（支持URL，会自动去除查询参数）</param>
     /// <returns>模型格式枚举</returns>
     public ModelFormat GetModelFormatFromPath(string filePath)
     {
-        var extension = Path.GetExtension(filePath);
+        // 清理路径：移除URL查询参数（如MinIO预签名URL的查询字符串）
+        var cleanPath = CleanUrlPath(filePath);
+        var extension = Path.GetExtension(cleanPath);
         return GetModelFormatFromExtension(extension);
+    }
+
+    /// <summary>
+    /// 清理URL路径，移除查询参数和片段标识符
+    /// </summary>
+    /// <param name="path">原始路径或URL</param>
+    /// <returns>清理后的路径</returns>
+    private static string CleanUrlPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+
+        // 移除查询参数（? 及之后的内容）
+        var queryIndex = path.IndexOf('?');
+        if (queryIndex >= 0)
+        {
+            path = path.Substring(0, queryIndex);
+        }
+
+        // 移除片段标识符（# 及之后的内容）
+        var fragmentIndex = path.IndexOf('#');
+        if (fragmentIndex >= 0)
+        {
+            path = path.Substring(0, fragmentIndex);
+        }
+
+        return path;
     }
 
     /// <summary>

@@ -1652,10 +1652,39 @@ public class MeshT : IMesh
 
         var material = _materials[materialIndex];
 
-        if (material.Texture == null && material.NormalMap == null) return;
+        // 关键修复：优先使用内存中的纹理图像，其次从文件加载
+        Image<Rgba32>? texture = null;
+        Image<Rgba32>? normalMap = null;
 
-        var texture = material.Texture != null ? TexturesCache.GetTexture(material.Texture) : null;
-        var normalMap = material.NormalMap != null ? TexturesCache.GetTexture(material.NormalMap) : null;
+        // 检查是否有纹理数据（内存或文件）
+        bool hasTexture = material.TextureImage != null || material.Texture != null;
+        bool hasNormalMap = material.NormalMapImage != null || material.NormalMap != null;
+
+        if (!hasTexture && !hasNormalMap) return;
+
+        // 优先使用内存中的纹理图像
+        if (material.TextureImage != null)
+        {
+            texture = material.TextureImage;
+            Debug.WriteLine($"使用内存中的纹理: {material.Name}");
+        }
+        else if (material.Texture != null)
+        {
+            texture = TexturesCache.GetTexture(material.Texture);
+            Debug.WriteLine($"从文件加载纹理: {material.Texture}");
+        }
+
+        // 优先使用内存中的法线贴图
+        if (material.NormalMapImage != null)
+        {
+            normalMap = material.NormalMapImage;
+            Debug.WriteLine($"使用内存中的法线贴图: {material.Name}");
+        }
+        else if (material.NormalMap != null)
+        {
+            normalMap = TexturesCache.GetTexture(material.NormalMap);
+            Debug.WriteLine($"从文件加载法线贴图: {material.NormalMap}");
+        }
 
         // 如果纹理和法线贴图都加载失败，则跳过该材质
         if (texture == null && normalMap == null)

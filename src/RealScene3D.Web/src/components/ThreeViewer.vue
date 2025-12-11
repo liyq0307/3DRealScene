@@ -99,6 +99,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js'
+import { TilesRenderer } from '3d-tiles-renderer'
 
 // ==================== 类型定义 ====================
 
@@ -198,6 +199,9 @@ const loaders = {
   dae: new ColladaLoader()
 }
 
+// 3D Tiles渲染器集合（每个tileset一个实例）
+const tilesRenderers = new Map<string, TilesRenderer>()
+
 // ==================== 业务逻辑方法 ====================
 
 /**
@@ -296,6 +300,23 @@ const animate = () => {
     controls.update()
   }
 
+  // 更新所有3D Tiles渲染器
+  if (camera && renderer) {
+    tilesRenderers.forEach((tilesRenderer, key) => {
+      tilesRenderer.setCamera(camera!)
+      tilesRenderer.setResolutionFromRenderer(camera!, renderer!)
+      tilesRenderer.update()
+
+      // 每100帧打印一次调试信息
+      if (frameCount % 100 === 0) {
+        console.log(`[ThreeViewer] TilesRenderer[${key}] 状态:`)
+        console.log(`[ThreeViewer]   - 已加载瓦片数: ${tilesRenderer.group.children.length}`)
+        console.log(`[ThreeViewer]   - 下载中: ${(tilesRenderer.downloadQueue as any)?.items?.length || 0}`)
+        console.log(`[ThreeViewer]   - 解析中: ${(tilesRenderer.parseQueue as any)?.items?.length || 0}`)
+      }
+    })
+  }
+
   if (scene && camera && renderer) {
     renderer.render(scene, camera)
 
@@ -341,7 +362,16 @@ const loadSceneObjects = async () => {
     return
   }
 
+  console.log('[ThreeViewer] ========================================')
   console.log('[ThreeViewer] 开始加载场景对象,数量:', props.sceneObjects.length)
+  console.log('[ThreeViewer] 场景对象详情:')
+  props.sceneObjects.forEach((obj, index) => {
+    console.log(`[ThreeViewer] [${index}] ${obj.name}:`)
+    console.log(`[ThreeViewer]     - id: ${obj.id}`)
+    console.log(`[ThreeViewer]     - displayPath: ${obj.displayPath}`)
+    console.log(`[ThreeViewer]     - modelPath: ${obj.modelPath || 'undefined'}`)
+  })
+  console.log('[ThreeViewer] ========================================')
 
   for (const obj of props.sceneObjects) {
     try {
@@ -526,6 +556,161 @@ const loadOBJWithMTL = (
 }
 
 /**
+ * 加载3D Tiles tileset
+ */
+const loadTileset = (
+  modelPath: string,
+  obj: SceneObject,
+  resolve: (value?: void | PromiseLike<void>) => void,
+  reject: (reason?: any) => void
+) => {
+  console.log('[ThreeViewer] ======================================')
+  console.log('[ThreeViewer] 开始加载3D Tiles')
+  console.log('[ThreeViewer] 原始路径:', modelPath)
+
+  if (!scene || !camera || !renderer) {
+    reject(new Error('Three.js场景未初始化'))
+    return
+  }
+
+  try {
+    // 将MinIO预签名URL转换为后端代理URL
+    let proxyTilesetPath = modelPath
+
+    const urlObj = new URL(modelPath, window.location.origin)
+    if (urlObj.search.includes('X-Amz-Algorithm')) {
+      proxyTilesetPath = `/api/files/proxy${urlObj.pathname}`
+    } else if (urlObj.pathname.startsWith('/api/files/')) {
+      proxyTilesetPath = urlObj.pathname
+    }
+
+    console.log('[ThreeViewer] 最终tileset路径:', proxyTilesetPath)
+
+    // 创建TilesRenderer实例
+    const tilesRenderer = new TilesRenderer(proxyTilesetPath)
+
+    // 先添加到场景
+    scene.add(tilesRenderer.group)
+
+    // 应用场景对象的变换到group
+    const position = Array.isArray(obj.position)
+      ? obj.position
+      : [obj.position.x, obj.position.y, obj.position.z]
+
+    tilesRenderer.group.position.set(position[0], position[1], position[2])
+
+    const rotation = typeof obj.rotation === 'string'
+      ? JSON.parse(obj.rotation)
+      : obj.rotation
+
+    tilesRenderer.group.rotation.set(
+      (rotation.x * Math.PI) / 180,
+      (rotation.y * Math.PI) / 180,
+      (rotation.z * Math.PI) / 180
+    )
+
+    const scale = typeof obj.scale === 'string' ? JSON.parse(obj.scale) : obj.scale
+    tilesRenderer.group.scale.set(scale.x, scale.y, scale.z)
+
+    console.log('[ThreeViewer] Group变换:', {
+      position,
+      rotation: [rotation.x, rotation.y, rotation.z],
+      scale: [scale.x, scale.y, scale.z]
+    })
+
+    // 监听tileset加载完成
+    tilesRenderer.addEventListener('load-tile-set', () => {
+      console.log('[ThreeViewer] ✅ Tileset加载成功')
+
+      // 获取包围盒并调整相机
+      const box = new THREE.Box3()
+      const sphere = new THREE.Sphere()
+      tilesRenderer.getBoundingBox(box)
+      tilesRenderer.getBoundingSphere(sphere)
+
+      console.log('[ThreeViewer] 包围盒信息:', {
+        boxMin: box.min.toArray(),
+        boxMax: box.max.toArray(),
+        sphereCenter: sphere.center.toArray(),
+        sphereRadius: sphere.radius
+      })
+
+      if (!box.isEmpty() && sphere.radius > 0) {
+        // 使用包围球来定位相机
+        const center = sphere.center
+        const radius = sphere.radius
+
+        // 设置相机位置：从中心沿(1,1,1)方向移动到合适距离
+        const distance = radius * 2.5
+        const direction = new THREE.Vector3(1, 1, 1).normalize()
+        camera!.position.copy(center).add(direction.multiplyScalar(distance))
+        camera!.lookAt(center)
+
+        // 设置轨道控制器目标
+        if (controls) {
+          controls.target.copy(center)
+          controls.update()
+        }
+
+        // 调整near/far平面
+        camera!.near = radius / 100
+        camera!.far = radius * 10
+        camera!.updateProjectionMatrix()
+
+        console.log('[ThreeViewer] 相机已调整:', {
+          position: camera!.position.toArray(),
+          target: center.toArray(),
+          near: camera!.near,
+          far: camera!.far,
+          distance
+        })
+
+        // 强制更新一次以触发瓦片加载
+        tilesRenderer.setCamera(camera!)
+        tilesRenderer.setResolutionFromRenderer(camera!, renderer!)
+        tilesRenderer.update()
+
+        console.log('[ThreeViewer] 首次update已调用')
+      } else {
+        console.warn('[ThreeViewer] 包围盒为空或包围球半径为0')
+      }
+    })
+
+    // 监听瓦片加载
+    tilesRenderer.addEventListener('load-model', (event: any) => {
+      console.log('[ThreeViewer] ✅ 加载了一个瓦片')
+    })
+
+    // 监听错误
+    tilesRenderer.addEventListener('load-tile-set-error', (event: any) => {
+      console.error('[ThreeViewer] ❌ Tileset加载失败:', event)
+    })
+
+    tilesRenderer.addEventListener('load-tile-error', (event: any) => {
+      console.error('[ThreeViewer] ❌ 瓦片加载失败:', event)
+    })
+
+    // 立即设置相机和分辨率
+    tilesRenderer.setCamera(camera)
+    tilesRenderer.setResolutionFromRenderer(camera, renderer)
+
+    // 存储渲染器实例
+    tilesRenderers.set(obj.id, tilesRenderer)
+
+    // 更新对象计数
+    loadedObjectsCount.value++
+
+    console.log('[ThreeViewer] ✅ TilesRenderer已创建并添加到场景')
+    console.log('[ThreeViewer] ======================================')
+
+    resolve()
+  } catch (error) {
+    console.error('[ThreeViewer] ❌ 创建TilesRenderer失败:', error)
+    reject(error)
+  }
+}
+
+/**
  * 加载单个场景对象
  */
 const loadSceneObject = async (obj: SceneObject): Promise<void> => {
@@ -536,10 +721,17 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
       return
     }
 
+    console.log(`[ThreeViewer] ====== 开始加载场景对象 ======`)
+    console.log(`[ThreeViewer] 对象名称: ${obj.name}`)
+    console.log(`[ThreeViewer] displayPath: ${obj.displayPath}`)
+    console.log(`[ThreeViewer] modelPath: ${obj.modelPath}`)
+    console.log(`[ThreeViewer] 使用路径: ${modelPath}`)
+
     // 获取文件扩展名
     const fileExt = modelPath.split('?')[0].split('.').pop()?.toLowerCase()
 
-    console.log(`[ThreeViewer] 加载模型: ${obj.name}, 格式: ${fileExt}`)
+    console.log(`[ThreeViewer] 检测到文件扩展名: ${fileExt}`)
+    console.log(`[ThreeViewer] ============================`)
 
     // 根据文件类型选择加载器
     switch (fileExt) {
@@ -617,6 +809,15 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
         )
         break
 
+      case 'json':
+        // 检查是否为tileset.json
+        if (modelPath.includes('tileset')) {
+          loadTileset(modelPath, obj, resolve, reject)
+        } else {
+          reject(new Error(`不支持的JSON文件: ${modelPath}`))
+        }
+        break
+
       default:
         reject(new Error(`不支持的文件格式: ${fileExt}`))
     }
@@ -691,14 +892,30 @@ const fitCameraToObjects = () => {
   if (!scene || !camera || !controls) return
 
   const box = new THREE.Box3()
+  let hasObjects = false
+
+  // 1. 统计普通网格对象
   scene.traverse((object) => {
     if (object instanceof THREE.Mesh) {
       box.expandByObject(object)
+      hasObjects = true
     }
   })
 
-  if (box.isEmpty()) {
-    console.warn('[ThreeViewer] 场景中没有网格对象')
+  // 2. 统计3D Tiles渲染器的包围盒
+  if (tilesRenderers.size > 0) {
+    tilesRenderers.forEach((tilesRenderer) => {
+      // 使用TilesRenderer的group包围盒
+      const tilesBox = new THREE.Box3().setFromObject(tilesRenderer.group)
+      if (!tilesBox.isEmpty()) {
+        box.union(tilesBox)
+        hasObjects = true
+      }
+    })
+  }
+
+  if (!hasObjects || box.isEmpty()) {
+    console.warn('[ThreeViewer] 场景中没有可见对象（可能正在加载中）')
     return
   }
 
@@ -820,6 +1037,13 @@ const cleanup = () => {
     controls.dispose()
     controls = null
   }
+
+  // 释放3D Tiles渲染器
+  tilesRenderers.forEach((tilesRenderer, key) => {
+    tilesRenderer.dispose()
+    console.log(`[ThreeViewer] 释放TilesRenderer: ${key}`)
+  })
+  tilesRenderers.clear()
 
   // 释放场景中的资源
   if (scene) {

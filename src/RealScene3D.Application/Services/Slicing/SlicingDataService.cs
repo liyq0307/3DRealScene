@@ -196,8 +196,8 @@ public class SlicingDataService
                 await modelStream.CopyToAsync(fileStream, cancellationToken);
             }
 
-            // 如果是OBJ文件，下载同目录下的所有相关文件（MTL和纹理）
-            var extension = Path.GetExtension(originalPath).ToLowerInvariant();
+            // 如果是OBJ文件，从objectName（不包含查询参数）提取扩展名，而不是从URL提取                                                                                             
+            var extension = Path.GetExtension(objectName).ToLowerInvariant();
             if (extension == ".obj")
             {
                 await DownloadObjDependenciesAsync(bucket, objectName, tempDirectory, cancellationToken);
@@ -211,6 +211,42 @@ public class SlicingDataService
 
             _logger.LogInformation("从MinIO加载完成：{VertexCount} 个顶点, {FaceCount} 个面",
                 result.Mesh.Vertices.Count, result.Mesh.Faces.Count);
+
+            // 将纹理图像数据加载到内存中，避免临时目录删除后纹理丢失
+            if (result.Mesh.Materials != null && result.Mesh.Materials.Count > 0)
+            {
+                _logger.LogDebug("开始预加载 {Count} 个材质的纹理到内存", result.Mesh.Materials.Count);
+
+                foreach (var material in result.Mesh.Materials)
+                {
+                    if (!string.IsNullOrEmpty(material.Texture) && File.Exists(material.Texture))
+                    {
+                        try
+                        {
+                            material.TextureImage = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(material.Texture);
+                            material.IsTextureCompressed = false;
+                            _logger.LogDebug("材质 {MaterialName} 的纹理已加载到内存: {TexturePath}", material.Name, material.Texture);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "加载材质 {MaterialName} 的纹理到内存失败: {TexturePath}", material.Name, material.Texture);
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(material.NormalMap) && File.Exists(material.NormalMap))
+                    {
+                        try
+                        {
+                            material.NormalMapImage = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(material.NormalMap);
+                            _logger.LogDebug("材质 {MaterialName} 的法线贴图已加载到内存: {NormalMapPath}", material.Name, material.NormalMap);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "加载材质 {MaterialName} 的法线贴图到内存失败: {NormalMapPath}", material.Name, material.NormalMap);
+                        }
+                    }
+                }
+            }
 
             return result;
         }

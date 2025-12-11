@@ -286,11 +286,12 @@ public class Material : ICloneable
 
     /// <summary>
     /// 克隆材质对象
+    /// 注意：会复制TextureImage和NormalMapImage的引用（浅拷贝），因为图像数据是只读的
     /// </summary>
     /// <returns>克隆的材质对象</returns>
     public object Clone()
     {
-        return new Material(
+        var cloned = new Material(
             Name,
             Texture,
             NormalMap,
@@ -300,6 +301,14 @@ public class Material : ICloneable
             SpecularExponent,
             Dissolve,
             IlluminationModel);
+
+        // 关键修复：复制内存中的纹理图像引用
+        // 使用浅拷贝是安全的，因为图像数据在切片过程中是只读的
+        cloned.TextureImage = this.TextureImage;
+        cloned.NormalMapImage = this.NormalMapImage;
+        cloned.IsTextureCompressed = this.IsTextureCompressed;
+
+        return cloned;
     }
 
     /// <summary>
