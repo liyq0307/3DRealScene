@@ -1,148 +1,87 @@
 <template>
-  <!--
-    主页视图模板
-    提供应用的欢迎界面和导航入口
-    采用居中布局，展示品牌信息和简介
-  -->
-
   <div class="home">
-    <!-- Hero区域 -->
-    <div class="hero-section">
+    <!-- 3D旋转地球背景 -->
+    <div class="globe-container">
+      <div class="globe">
+        <!-- 经线 -->
+        <div class="meridian" v-for="i in 16" :key="'meridian-' + i" :style="getMeridianStyle(i)"></div>
+        <!-- 纬线 -->
+        <div class="parallel" v-for="i in 10" :key="'parallel-' + i" :style="getParallelStyle(i)"></div>
+
+        <!-- 地球表面光晕 -->
+        <div class="globe-surface"></div>
+
+        <!-- 大陆轮廓点 -->
+        <div class="continents">
+          <div class="continent-dot" v-for="i in 80" :key="'dot-' + i" :style="getContinentDotStyle(i)"></div>
+        </div>
+
+        <!-- 地球核心光晕 -->
+        <div class="globe-core"></div>
+
+        <!-- 轨道环 -->
+        <div class="orbit-ring"></div>
+      </div>
+    </div>
+
+    <!-- 3D城市建筑剪影 -->
+    <div class="city-silhouette">
+      <!-- 后排建筑 -->
+      <div class="building-layer back-layer">
+        <div class="building" v-for="i in 15" :key="'back-' + i" :style="getBackBuildingStyle(i)"></div>
+      </div>
+      <!-- 中排建筑 -->
+      <div class="building-layer mid-layer">
+        <div class="building" v-for="i in 20" :key="'mid-' + i" :style="getMidBuildingStyle(i)"></div>
+      </div>
+      <!-- 前排建筑 -->
+      <div class="building-layer front-layer">
+        <div class="building" v-for="i in 25" :key="'front-' + i" :style="getFrontBuildingStyle(i)"></div>
+      </div>
+    </div>
+
+    <!-- 3D网格背景 -->
+    <div class="grid-background"></div>
+
+    <!-- 动态粒子效果 -->
+    <div class="particles">
+      <div v-for="i in 40" :key="i" class="particle" :style="getParticleStyle(i)"></div>
+    </div>
+
+    <!-- 扫描线效果 -->
+    <div class="scan-line"></div>
+
+    <!-- 主内容区 -->
+    <div class="hero-container">
+      <!-- 标题区域 -->
       <div class="hero-content">
-        <!-- <div class="badge-new">全新体验</div> -->
-        <h1 class="hero-title">
-          <span class="gradient-text"></span>
-          <br/>实景三维管理系统
-        </h1>
-        <p class="hero-subtitle">
-          现代化的3D场景管理平台，提供强大的可视化工作流设计、实时监控和场景编辑功能
+        <div class="glitch-container">
+          <h1 class="hero-title">实景三维</h1>
+        </div>
+        <div class="subtitle-container">
+          <p class="hero-subtitle">Real Scene 3D Platform</p>
+          <div class="subtitle-line"></div>
+        </div>
+        <p class="hero-description">
+          <span class="typed-text">构建数字孪生世界</span>
+          <br />
+          <span class="typed-text delay-1">精准复现真实场景</span>
+          <br />
+          <span class="typed-text delay-2">驱动智慧城市未来</span>
         </p>
+
+        <!-- 操作按钮 -->
         <div class="hero-actions">
           <router-link to="/scenes" class="btn btn-primary">
-            <span class="btn-icon">🚀</span>
-            开始探索
+            <span class="btn-icon">▶</span>
+            <span class="btn-text">进入平台</span>
+            <span class="btn-glow"></span>
           </router-link>
           <router-link to="/workflow-designer" class="btn btn-secondary">
-            <span class="btn-icon">🎨</span>
-            设计工作流
+            <span class="btn-icon">✦</span>
+            <span class="btn-text">工作流设计</span>
           </router-link>
         </div>
-      </div>
-    </div>
-
-    <!-- 功能特性卡片 -->
-    <div class="features-container">
-      <h2 class="section-title">核心功能</h2>
-      <div class="features">
-        <router-link to="/scenes" class="feature-card-link">
-          <div class="feature-card fade-in">
-            <div class="feature-icon gradient-bg-primary">🌐</div>
-            <h3>3D场景查看</h3>
-            <p>支持GLTF、OBJ、FBX等多种3D格式的实时渲染和交互操作</p>
-            <div class="feature-tags">
-              <span class="tag">实时渲染</span>
-              <span class="tag">多格式支持</span>
-            </div>
-            <div class="feature-link">
-              查看更多 →
-            </div>
-          </div>
-        </router-link>
-
-        <router-link to="/scene-objects" class="feature-card-link">
-          <div class="feature-card fade-in" style="animation-delay: 0.1s;">
-            <div class="feature-icon gradient-bg-success">📊</div>
-            <h3>场景对象管理</h3>
-            <p>完整的场景对象CRUD操作，支持变换属性编辑和实时预览</p>
-            <div class="feature-tags">
-              <span class="tag">对象编辑</span>
-              <span class="tag">属性管理</span>
-            </div>
-            <div class="feature-link">
-              查看更多 →
-            </div>
-          </div>
-        </router-link>
-
-        <router-link to="/workflow-designer" class="feature-card-link">
-          <div class="feature-card fade-in" style="animation-delay: 0.2s;">
-            <div class="feature-icon gradient-bg-info">🎨</div>
-            <h3>工作流设计器</h3>
-            <p>强大的拖拽式工作流可视化设计工具，支持流程建模和执行</p>
-            <div class="feature-tags">
-              <span class="tag">可视化设计</span>
-              <span class="tag">流程编排</span>
-            </div>
-            <div class="feature-link">
-              查看更多 →
-            </div>
-          </div>
-        </router-link>
-
-        <router-link to="/monitoring" class="feature-card-link">
-          <div class="feature-card fade-in" style="animation-delay: 0.3s;">
-            <div class="feature-icon gradient-bg-warning">📈</div>
-            <h3>系统监控</h3>
-            <p>实时监控系统状态、性能指标和业务数据，提供可视化图表</p>
-            <div class="feature-tags">
-              <span class="tag">实时监控</span>
-              <span class="tag">数据可视化</span>
-            </div>
-            <div class="feature-link">
-              查看更多 →
-            </div>
-          </div>
-        </router-link>
-
-        <router-link to="/workflow-instances" class="feature-card-link">
-          <div class="feature-card fade-in" style="animation-delay: 0.4s;">
-            <div class="feature-icon gradient-bg-primary">🔧</div>
-            <h3>工作流实例</h3>
-            <p>工作流实例管理和执行历史跟踪，支持暂停、恢复、取消等操作</p>
-            <div class="feature-tags">
-              <span class="tag">实例管理</span>
-              <span class="tag">执行跟踪</span>
-            </div>
-            <div class="feature-link">
-              查看更多 →
-            </div>
-          </div>
-        </router-link>
-
-        <router-link to="/slicing" class="feature-card-link">
-          <div class="feature-card fade-in" style="animation-delay: 0.5s;">
-            <div class="feature-icon gradient-bg-success">🗂️</div>
-            <h3>切片管理</h3>
-            <p>3D模型切片任务创建、管理和数据浏览，支持批量处理</p>
-            <div class="feature-tags">
-              <span class="tag">任务管理</span>
-              <span class="tag">批量处理</span>
-            </div>
-            <div class="feature-link">
-              查看更多 →
-            </div>
-          </div>
-        </router-link>
-      </div>
-    </div>
-
-    <!-- 统计数据展示 -->
-    <div class="stats-section">
-      <div class="stat-card">
-        <div class="stat-value">99.9%</div>
-        <div class="stat-label">系统可用性</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">&lt;100ms</div>
-        <div class="stat-label">平均响应时间</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">10+</div>
-        <div class="stat-label">3D格式支持</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">24/7</div>
-        <div class="stat-label">实时监控</div>
       </div>
     </div>
   </div>
@@ -150,91 +89,490 @@
 
 <script setup lang="ts">
 /**
- * 主页视图组件 - Vue 3 组合式API实现
+ * 实景三维平台首页
  *
- * 功能说明：
- * - 展示应用欢迎信息和品牌标识
- * - 提供简洁明了的界面布局
- * - 为用户提供应用功能概览
- * - 作为应用的默认首页和导航起点
+ * 设计理念：
+ * - 蓝色科技风主题
+ * - 3D旋转地球和城市建筑剪影背景
+ * - 参考专业GIS平台设计风格
+ * - 动态粒子和网格效果
+ * - 沉浸式视觉体验
  *
- * 技术栈：Vue 3 + TypeScript
+ * 技术栈：Vue 3 + TypeScript + CSS3 动画
  * 作者：liyq
- * 创建时间：2025-10-13
- *
- * 未来扩展：
- * - 添加快速开始指南
- * - 集成最近使用的场景快捷访问
- * - 添加系统状态指示器
+ * 创建时间：2025-12-11
  */
 
-// ==================== 组件逻辑区域 ====================
-// 目前该组件主要用于展示，无复杂交互逻辑
-// 未来可以添加欢迎动画、快速操作按钮等功能
+// 生成随机粒子样式
+const getParticleStyle = (index: number) => {
+  const size = Math.random() * 2 + 1
+  const duration = Math.random() * 25 + 15
+  const delay = Math.random() * 5
+  const x = Math.random() * 100
+  const y = Math.random() * 100
+
+  return {
+    width: `${size}px`,
+    height: `${size}px`,
+    left: `${x}%`,
+    top: `${y}%`,
+    animationDuration: `${duration}s`,
+    animationDelay: `${delay}s`
+  }
+}
+
+// 生成经线样式
+const getMeridianStyle = (index: number) => {
+  const rotation = (index - 1) * 11.25 // 每11.25度一条经线
+  return {
+    transform: `rotateY(${rotation}deg)`
+  }
+}
+
+// 生成纬线样式
+const getParallelStyle = (index: number) => {
+  const angle = (index - 5) * 15 // -60deg 到 +60deg
+  const scale = Math.cos((angle * Math.PI) / 180)
+  return {
+    transform: `rotateX(${angle}deg) scale(${scale})`,
+    opacity: Math.abs(scale) * 0.5
+  }
+}
+
+// 生成大陆轮廓点样式
+const getContinentDotStyle = (index: number) => {
+  // 模拟随机分布在地球表面的点
+  const theta = Math.random() * Math.PI * 2
+  const phi = Math.acos(2 * Math.random() - 1)
+
+  const x = 50 + 45 * Math.sin(phi) * Math.cos(theta)
+  const y = 50 + 45 * Math.sin(phi) * Math.sin(theta)
+  const z = 45 * Math.cos(phi)
+
+  const size = Math.random() * 3 + 1
+  const delay = Math.random() * 3
+
+  return {
+    left: `${x}%`,
+    top: `${y}%`,
+    width: `${size}px`,
+    height: `${size}px`,
+    transform: `translateZ(${z}px)`,
+    animationDelay: `${delay}s`
+  }
+}
+
+// 生成后排建筑样式
+const getBackBuildingStyle = (index: number) => {
+  const height = Math.random() * 80 + 40
+  const width = Math.random() * 40 + 30
+  const x = (index - 1) * 6.5
+
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    left: `${x}%`,
+    animationDelay: `${Math.random() * 2}s`
+  }
+}
+
+// 生成中排建筑样式
+const getMidBuildingStyle = (index: number) => {
+  const height = Math.random() * 120 + 60
+  const width = Math.random() * 45 + 35
+  const x = (index - 1) * 5
+
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    left: `${x}%`,
+    animationDelay: `${Math.random() * 2}s`
+  }
+}
+
+// 生成前排建筑样式
+const getFrontBuildingStyle = (index: number) => {
+  const height = Math.random() * 180 + 80
+  const width = Math.random() * 50 + 40
+  const x = (index - 1) * 4
+
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    left: `${x}%`,
+    animationDelay: `${Math.random() * 2}s`
+  }
+}
 </script>
 
 <style scoped>
+/* ==================== 基础布局 ==================== */
 .home {
+  position: relative;
   width: 100%;
-  background: var(--gray-100);
+  min-height: 100vh;
+  background: linear-gradient(180deg, #001447 0%, #002b7a 50%, #001447 100%);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  perspective: 1500px;
 }
 
-/* Hero区域 */
-.hero-section {
-  min-height: 500px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+/* ==================== 3D旋转地球 ==================== */
+.globe-container {
+  position: absolute;
+  top: 50%;
+  right: 8%;
+  transform: translateY(-50%);
+  width: 550px;
+  height: 550px;
+  perspective: 1500px;
+  z-index: 5;
+}
+
+.globe {
   position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: rotateGlobe 80s linear infinite;
+}
+
+@keyframes rotateGlobe {
+  0% { transform: rotateY(0deg) rotateX(-15deg); }
+  100% { transform: rotateY(360deg) rotateX(-15deg); }
+}
+
+/* 地球表面 */
+.globe-surface {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 450px;
+  height: 450px;
+  margin: -225px 0 0 -225px;
+  background: radial-gradient(circle at 30% 30%,
+    rgba(41, 128, 185, 0.15) 0%,
+    rgba(30, 90, 150, 0.1) 50%,
+    transparent 100%);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 50px rgba(41, 128, 185, 0.3),
+    0 0 50px rgba(41, 128, 185, 0.2);
+}
+
+/* 经线 */
+.meridian {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 450px;
+  height: 450px;
+  margin: -225px 0 0 -225px;
+  border: 1.5px solid rgba(52, 152, 219, 0.4);
+  border-radius: 50%;
+  transform-style: preserve-3d;
+}
+
+/* 纬线 */
+.parallel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 450px;
+  height: 450px;
+  margin: -225px 0 0 -225px;
+  border: 1.5px solid rgba(52, 152, 219, 0.35);
+  border-radius: 50%;
+  transform-style: preserve-3d;
+}
+
+/* 大陆轮廓点 */
+.continents {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.continent-dot {
+  position: absolute;
+  background: radial-gradient(circle, rgba(52, 152, 219, 0.9), rgba(41, 128, 185, 0.4));
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(52, 152, 219, 0.8);
+  animation: dotPulse 3s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+/* 地球核心光晕 */
+.globe-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  background: radial-gradient(circle,
+    rgba(52, 152, 219, 0.6) 0%,
+    rgba(41, 128, 185, 0.3) 40%,
+    transparent 70%);
+  border-radius: 50%;
+  box-shadow:
+    0 0 80px rgba(52, 152, 219, 0.6),
+    0 0 120px rgba(41, 128, 185, 0.4),
+    inset 0 0 40px rgba(52, 152, 219, 0.3);
+  animation: coreGlow 4s ease-in-out infinite;
+}
+
+@keyframes coreGlow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.7;
+    box-shadow:
+      0 0 80px rgba(52, 152, 219, 0.6),
+      0 0 120px rgba(41, 128, 185, 0.4);
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    box-shadow:
+      0 0 100px rgba(52, 152, 219, 0.8),
+      0 0 150px rgba(41, 128, 185, 0.6);
+  }
+}
+
+/* 轨道环 */
+.orbit-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 520px;
+  height: 520px;
+  margin: -260px 0 0 -260px;
+  border: 2px solid rgba(52, 152, 219, 0.2);
+  border-radius: 50%;
+  animation: orbitRotate 15s linear infinite;
+}
+
+.orbit-ring::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: radial-gradient(circle, rgba(52, 152, 219, 1), rgba(52, 152, 219, 0.3));
+  border-radius: 50%;
+  box-shadow: 0 0 15px rgba(52, 152, 219, 0.8);
+}
+
+@keyframes orbitRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ==================== 3D城市建筑剪影 ==================== */
+.city-silhouette {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 280px;
+  z-index: 2;
   overflow: hidden;
 }
 
-.hero-section::before {
+.building-layer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+}
+
+.building {
+  position: absolute;
+  bottom: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* 后排建筑层 */
+.back-layer .building {
+  background: linear-gradient(180deg,
+    rgba(20, 60, 120, 0.4) 0%,
+    rgba(15, 45, 90, 0.5) 100%);
+  opacity: 0.6;
+  animation: buildingGlow 4s ease-in-out infinite;
+}
+
+/* 中排建筑层 */
+.mid-layer .building {
+  background: linear-gradient(180deg,
+    rgba(25, 75, 140, 0.6) 0%,
+    rgba(20, 60, 110, 0.7) 100%);
+  opacity: 0.75;
+  animation: buildingGlow 4s ease-in-out infinite;
+}
+
+/* 前排建筑层 */
+.front-layer .building {
+  background: linear-gradient(180deg,
+    rgba(30, 90, 160, 0.8) 0%,
+    rgba(25, 75, 130, 0.9) 100%);
+  box-shadow:
+    0 -2px 20px rgba(52, 152, 219, 0.3),
+    inset 0 -3px 10px rgba(52, 152, 219, 0.2);
+  animation: buildingGlow 4s ease-in-out infinite;
+}
+
+/* 建筑顶部灯光 */
+.front-layer .building::before,
+.mid-layer .building::before {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 80% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
-  animation: float 20s infinite linear;
+  height: 4px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(52, 152, 219, 0.8) 50%,
+    transparent 100%);
+  box-shadow: 0 0 10px rgba(52, 152, 219, 0.8);
 }
 
-.hero-section::after {
+/* 建筑窗户 */
+.front-layer .building::after,
+.mid-layer .building::after {
   content: '';
   position: absolute;
+  top: 15%;
+  left: 15%;
+  right: 15%;
+  bottom: 20%;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 12px,
+      rgba(52, 152, 219, 0.15) 12px,
+      rgba(52, 152, 219, 0.15) 14px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 12px,
+      rgba(52, 152, 219, 0.15) 12px,
+      rgba(52, 152, 219, 0.15) 14px
+    );
+}
+
+@keyframes buildingGlow {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* ==================== 3D网格背景 ==================== */
+.grid-background {
+  position: absolute;
   inset: 0;
-  background: url('data:image/svg+xml,<svg width="60" height="60" xmlns="http://www.w3.org/2000/svg"><circle cx="30" cy="30" r="1.5" fill="white" opacity="0.15"/></svg>');
-  animation: floatReverse 30s infinite linear;
+  background-image:
+    linear-gradient(rgba(52, 152, 219, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(52, 152, 219, 0.08) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: gridMove 25s linear infinite;
+  opacity: 0.4;
+  z-index: 0;
+}
+
+@keyframes gridMove {
+  0% { transform: perspective(600px) rotateX(65deg) translateY(0); }
+  100% { transform: perspective(600px) rotateX(65deg) translateY(60px); }
+}
+
+/* ==================== 粒子效果 ==================== */
+.particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.particle {
+  position: absolute;
+  background: radial-gradient(circle, rgba(52, 152, 219, 0.9), transparent);
+  border-radius: 50%;
+  animation: float linear infinite;
 }
 
 @keyframes float {
-  from { transform: translateY(0) rotate(0deg); }
-  to { transform: translateY(-100px) rotate(360deg); }
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-100vh) translateX(calc((var(--random-x, 0) - 0.5) * 100px));
+    opacity: 0;
+  }
 }
 
-@keyframes floatReverse {
-  from { transform: translateX(0) translateY(0); }
-  to { transform: translateX(-60px) translateY(-60px); }
+/* ==================== 扫描线效果 ==================== */
+.scan-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(52, 152, 219, 0.9) 50%,
+    transparent
+  );
+  animation: scan 5s linear infinite;
+  box-shadow: 0 0 25px rgba(52, 152, 219, 0.8);
+  z-index: 3;
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* ==================== 主内容区 ==================== */
+.hero-container {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 1400px;
+  padding: 2rem;
 }
 
 .hero-content {
-  position: relative;
-  z-index: 1;
   text-align: center;
   color: white;
-  max-width: 800px;
-  padding: 2rem;
-  animation: fadeInUp 0.8s ease;
+  animation: fadeInUp 1.2s ease-out;
 }
 
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(50px);
   }
   to {
     opacity: 1;
@@ -242,338 +580,273 @@
   }
 }
 
-.badge-new {
-  display: inline-block;
-  padding: 0.5rem 1.2rem;
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-radius: var(--border-radius-full);
-  font-size: 0.85rem;
-  font-weight: 600;
+/* ==================== 标题 ==================== */
+.glitch-container {
   margin-bottom: 1.5rem;
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  animation: pulse 2s ease-in-out infinite;
 }
 
 .hero-title {
-  font-size: 3.5rem;
-  font-weight: 800;
-  margin: 0 0 1.5rem 0;
-  line-height: 1.2;
-  letter-spacing: -1.5px;
-  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.15);
-}
-
-.gradient-text {
-  background: linear-gradient(to right, #ffffff, #f0f0f0 50%, #ffffff);
+  font-size: clamp(3.5rem, 12vw, 8rem);
+  font-weight: 900;
+  margin: 0;
+  letter-spacing: 0.15em;
+  background: linear-gradient(135deg,
+    #3498db 0%,
+    #52a8e8 25%,
+    #74c0f4 50%,
+    #52a8e8 75%,
+    #3498db 100%);
+  background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  background-size: 200% auto;
-  animation: shimmerText 3s linear infinite;
+  animation: titleShine 6s linear infinite;
+  text-shadow:
+    0 0 40px rgba(52, 152, 219, 0.6),
+    0 0 80px rgba(41, 128, 185, 0.4);
+  position: relative;
 }
 
-@keyframes shimmerText {
-  to {
-    background-position: 200% center;
-  }
+@keyframes titleShine {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ==================== 副标题 ==================== */
+.subtitle-container {
+  margin-bottom: 2.5rem;
+  display: inline-block;
 }
 
 .hero-subtitle {
-  font-size: 1.25rem;
-  margin: 0 0 2.5rem 0;
-  opacity: 0.95;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(1.1rem, 3.5vw, 1.75rem);
+  font-weight: 300;
+  letter-spacing: 0.4em;
+  margin: 0 0 0.75rem 0;
+  color: rgba(116, 192, 244, 0.9);
+  text-transform: uppercase;
 }
 
+.subtitle-line {
+  height: 3px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(52, 152, 219, 0.9) 50%,
+    transparent
+  );
+  box-shadow: 0 0 10px rgba(52, 152, 219, 0.6);
+  animation: expandLine 2s ease-out;
+}
+
+@keyframes expandLine {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* ==================== 描述文字 ==================== */
+.hero-description {
+  font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+  line-height: 2.2;
+  color: rgba(200, 230, 255, 0.95);
+  margin: 0 auto 4rem;
+  max-width: 900px;
+  font-weight: 300;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.typed-text {
+  display: inline-block;
+  opacity: 0;
+  animation: typeIn 1s ease-out forwards;
+}
+
+.delay-1 { animation-delay: 0.4s; }
+.delay-2 { animation-delay: 0.8s; }
+
+@keyframes typeIn {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==================== 按钮样式 ==================== */
 .hero-actions {
   display: flex;
-  gap: 1rem;
   justify-content: center;
+  gap: 2rem;
+  margin: 4rem auto 0;
   flex-wrap: wrap;
+  animation: fadeIn 1.2s ease-out 1s backwards;
 }
 
-/* 按钮样式 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.875rem 2rem;
-  border-radius: var(--border-radius);
-  font-size: 1rem;
+  gap: 0.75rem;
+  padding: 1.4rem 3.5rem;
+  font-size: 1.15rem;
   font-weight: 600;
   text-decoration: none;
-  transition: all var(--transition-base);
-  box-shadow: var(--shadow-lg);
-  border: none;
-  cursor: pointer;
+  border-radius: 50px;
+  transition: all 0.4s ease;
+  overflow: hidden;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
 }
 
 .btn-icon {
-  font-size: 1.2rem;
+  font-size: 1.4rem;
+  transition: transform 0.4s ease;
+}
+
+.btn:hover .btn-icon {
+  transform: translateX(8px);
 }
 
 .btn-primary {
-  background: white;
-  color: #667eea;
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+  border: 2px solid rgba(52, 152, 219, 0.5);
+  box-shadow:
+    0 12px 35px rgba(52, 152, 219, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3);
+}
+
+.btn-glow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.7s ease;
+}
+
+.btn-primary:hover .btn-glow {
+  transform: translateX(100%);
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-xl);
+  transform: translateY(-4px);
+  box-shadow:
+    0 18px 45px rgba(52, 152, 219, 0.7),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3);
+  border-color: rgba(52, 152, 219, 0.8);
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 2px solid white;
+  background: transparent;
+  color: rgba(116, 192, 244, 1);
+  border: 2px solid rgba(52, 152, 219, 0.7);
   backdrop-filter: blur(10px);
+  box-shadow: 0 8px 25px rgba(52, 152, 219, 0.3);
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
-}
-
-/* 功能区域 */
-.features-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 4rem 2rem;
-}
-
-.section-title {
-  text-align: center;
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin: 0 0 3rem 0;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.features {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 2rem;
-}
-
-.feature-card-link {
-  text-decoration: none;
-  color: inherit;
-  display: block;
-}
-
-.feature-card {
-  background: white;
-  border-radius: var(--border-radius-lg);
-  padding: 2rem;
-  box-shadow: var(--shadow-md);
-  transition: all var(--transition-base);
-  border: 1px solid var(--border-color);
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-  height: 100%;
-}
-
-.feature-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: var(--gradient-primary-alt);
-  transform: scaleX(0);
-  transition: transform var(--transition-base);
-  transform-origin: left;
-}
-
-.feature-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.05), transparent 70%);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-}
-
-.feature-card:hover::before {
-  transform: scaleX(1);
-}
-
-.feature-card:hover::after {
-  opacity: 1;
-}
-
-.feature-card:hover {
-  transform: translateY(-10px) scale(1.02);
-  box-shadow: var(--shadow-2xl);
-  border-color: var(--primary-light);
-}
-
-.feature-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--border-radius-lg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
-  margin-bottom: 1.5rem;
-  position: relative;
-  transition: all var(--transition-base);
-}
-
-.feature-card:hover .feature-icon {
-  transform: scale(1.1) rotate(-5deg);
-}
-
-.gradient-bg-primary {
-  background: var(--gradient-primary);
-}
-
-.gradient-bg-success {
-  background: var(--gradient-success);
-}
-
-.gradient-bg-info {
-  background: var(--gradient-info);
-}
-
-.gradient-bg-warning {
-  background: var(--gradient-warning);
-}
-
-.feature-card h3 {
-  margin: 0 0 1rem 0;
-  color: var(--gray-900);
-  font-size: 1.5rem;
-  font-weight: 700;
-}
-
-.feature-card p {
-  margin: 0 0 1.5rem 0;
-  color: var(--gray-600);
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.feature-tags {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.5rem;
-}
-
-.tag {
-  padding: 0.35rem 0.75rem;
-  background: var(--gray-100);
-  color: var(--gray-700);
-  font-size: 0.8rem;
-  font-weight: 600;
-  border-radius: 50px;
-}
-
-.feature-link {
-  color: var(--primary-color);
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  transition: all var(--transition-base);
-}
-
-.feature-card:hover .feature-link {
-  gap: 0.5rem;
-  color: var(--primary-hover);
-}
-
-/* 统计区域 */
-.stats-section {
-  background: var(--gray-100);
-  padding: 3rem 2rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.stat-card {
-  text-align: center;
-  padding: 2rem;
-  background: white;
-  border-radius: var(--border-radius);
-  box-shadow: var(--shadow-sm);
-  transition: all var(--transition-base);
-}
-
-.stat-card:hover {
+  background: rgba(52, 152, 219, 0.15);
+  border-color: rgba(52, 152, 219, 1);
   transform: translateY(-4px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 12px 35px rgba(52, 152, 219, 0.5);
+  color: white;
 }
 
-.stat-value {
-  font-size: 2.5rem;
-  font-weight: 800;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 0.5rem;
+/* ==================== 响应式设计 ==================== */
+@media (max-width: 1200px) {
+  .globe-container {
+    width: 450px;
+    height: 450px;
+    right: 5%;
+  }
+
+  .globe-surface,
+  .meridian,
+  .parallel {
+    width: 370px;
+    height: 370px;
+    margin: -185px 0 0 -185px;
+  }
+
+  .orbit-ring {
+    width: 430px;
+    height: 430px;
+    margin: -215px 0 0 -215px;
+  }
 }
 
-.stat-label {
-  color: var(--gray-600);
-  font-size: 0.95rem;
-  font-weight: 500;
-}
-
-/* 响应式设计 */
 @media (max-width: 768px) {
-  .hero-title {
-    font-size: 2.5rem;
+  .hero-container {
+    padding: 1.5rem;
   }
 
-  .hero-subtitle {
-    font-size: 1rem;
+  .globe-container {
+    width: 320px;
+    height: 320px;
+    top: 15%;
+    right: -30px;
+    opacity: 0.3;
   }
 
-  .section-title {
-    font-size: 2rem;
+  .globe-surface,
+  .meridian,
+  .parallel {
+    width: 260px;
+    height: 260px;
+    margin: -130px 0 0 -130px;
   }
 
-  .features {
-    grid-template-columns: 1fr;
+  .city-silhouette {
+    height: 200px;
   }
 
-  .stats-section {
-    grid-template-columns: repeat(2, 1fr);
+  .hero-actions {
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .btn {
+    width: 100%;
+    max-width: 320px;
+    justify-content: center;
+    padding: 1.2rem 2.5rem;
   }
 }
 
 @media (max-width: 480px) {
-  .hero-title {
-    font-size: 2rem;
+  .hero-description {
+    font-size: 1rem;
+    line-height: 2;
   }
 
-  .btn {
-    padding: 0.75rem 1.5rem;
-    font-size: 0.9rem;
+  .grid-background {
+    background-size: 40px 40px;
   }
 
-  .stats-section {
-    grid-template-columns: 1fr;
+  .globe-container {
+    display: none;
   }
 
-  .stat-value {
-    font-size: 2rem;
+  .city-silhouette {
+    height: 150px;
+  }
+}
+
+/* ==================== 性能优化 ==================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 </style>
