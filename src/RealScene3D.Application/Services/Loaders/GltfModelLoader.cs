@@ -210,7 +210,8 @@ public class GltfModelLoader : ModelLoader
                 {
                     foreach (var uv in uvs)
                     {
-                        texCoords.Add(new Vertex2(uv.X, uv.Y));
+                        // 翻转 V 坐标：glTF 使用左上角原点（V 向下），OBJ/MeshT 使用左下角原点（V 向上）
+                        texCoords.Add(new Vertex2(uv.X, 1.0 - uv.Y));
                     }
                 }
                 else
