@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RealScene3D.Application.Services.Loaders;
 using RealScene3D.Application.Services.Generators;
@@ -23,6 +23,7 @@ class Program
         // 注册Loader和Generator
         services.AddTransient<ObjModelLoader>();
         services.AddTransient<OsgbModelLoader>();
+        services.AddTransient<GltfModelLoader>();
         services.AddTransient<GltfGenerator>();
 
         var serviceProvider = services.BuildServiceProvider();
@@ -33,9 +34,11 @@ class Program
         // 定义测试文件路径（请根据实际情况修改）
         string objFilePath = @"E:\Data\3D\odm_texturing\odm_textured_model_geo.obj";
         string osgbFilePath = @"E:\Data\3D\Tile_+005_+006\Tile_+005_+006.osgb";
+        string glbInputPath = @"E:\Data\3D\odm_texturing\odm_textured_model_geo.glb";
         string glbOutputPath1 = @"E:\Data\3D\test_output_loader.glb";
         string glbOutputPath2 = @"E:\Data\3D\test_output_meshutils.glb";
         string glbOutputPath3 = @"E:\Data\3D\Tile_+005_+006.glb";
+        string objOutputPath = @"E:\Data\3D\test_output_from_glb.obj";
 
         try
         {
@@ -53,6 +56,12 @@ class Program
 
             // 测试3: 使用 OsgbModelLoader
             await TestWithOsgbModelLoader(logger, serviceProvider, osgbFilePath, glbOutputPath3);
+
+            logger.LogInformation("");
+            logger.LogInformation("");
+
+            // 测试4: 使用 GltfModelLoader 加载 GLB 并生成 OBJ
+            await TestWithGltfModelLoader(logger, serviceProvider, glbInputPath, objOutputPath);
 
             logger.LogInformation("");
             logger.LogInformation("========================================");
@@ -212,6 +221,67 @@ class Program
             var fileInfo = new FileInfo(glbOutputPath);
             logger.LogInformation("  - 文件大小: {Size:N0} 字节 ({SizeKB:F2} KB)",
                 fileInfo.Length, fileInfo.Length / 1024.0);
+        }
+    }
+
+    /// <summary>
+    /// 测试4: 使用 GltfModelLoader 加载 GLB 文件，然后使用 IMesh.WriteObj 生成 OBJ
+    /// </summary>
+    static async Task TestWithGltfModelLoader(
+        ILogger<Program> logger,
+        ServiceProvider serviceProvider,
+        string glbFilePath,
+        string objOutputPath)
+    {
+        logger.LogInformation("========================================");
+        logger.LogInformation("测试4：使用 GltfModelLoader 加载 GLB -> OBJ生成");
+        logger.LogInformation("========================================");
+        logger.LogInformation("输入文件: {GlbPath}", glbFilePath);
+        logger.LogInformation("输出文件: {ObjPath}", objOutputPath);
+        logger.LogInformation("========================================");
+
+        // 步骤1: 使用GltfModelLoader加载GLB文件
+        logger.LogInformation("步骤1: 使用 GltfModelLoader 加载GLB文件...");
+        var gltfLoader = serviceProvider.GetRequiredService<GltfModelLoader>();
+        var (mesh, boundingBox) = await gltfLoader.LoadModelAsync(glbFilePath);
+
+        logger.LogInformation("GLB加载成功!");
+        logger.LogInformation("  - 网格类型: {MeshType}", mesh.GetType().Name);
+        logger.LogInformation("  - 顶点数: {VertexCount}", mesh.VertexCount);
+        logger.LogInformation("  - 面片数: {FaceCount}", mesh.FacesCount);
+        logger.LogInformation("  - 是否包含纹理: {HasTexture}", mesh.HasTexture);
+
+        if (mesh.Materials != null && mesh.Materials.Count > 0)
+        {
+            logger.LogInformation("  - 材质数量: {MaterialCount}", mesh.Materials.Count);
+        }
+
+        logger.LogInformation("  - 包围盒: [{MinX:F3}, {MinY:F3}, {MinZ:F3}] - [{MaxX:F3}, {MaxY:F3}, {MaxZ:F3}]",
+            boundingBox.Min.X, boundingBox.Min.Y, boundingBox.Min.Z,
+            boundingBox.Max.X, boundingBox.Max.Y, boundingBox.Max.Z);
+
+        // 步骤2: 使用IMesh.WriteObj生成OBJ文件
+        logger.LogInformation("");
+        logger.LogInformation("步骤2: 使用 IMesh.WriteObj 生成OBJ文件...");
+        mesh.WriteObj(objOutputPath, removeUnused: true);
+
+        logger.LogInformation("OBJ生成成功!");
+        logger.LogInformation("  - 输出路径: {Path}", objOutputPath);
+
+        if (File.Exists(objOutputPath))
+        {
+            var fileInfo = new FileInfo(objOutputPath);
+            logger.LogInformation("  - 文件大小: {Size:N0} 字节 ({SizeKB:F2} KB)",
+                fileInfo.Length, fileInfo.Length / 1024.0);
+        }
+
+        // 检查是否生成了MTL文件（当网格包含材质时）
+        var mtlPath = Path.ChangeExtension(objOutputPath, "mtl");
+        if (File.Exists(mtlPath))
+        {
+            var mtlFileInfo = new FileInfo(mtlPath);
+            logger.LogInformation("  - MTL文件: {Path} ({Size:N0} 字节)",
+                mtlPath, mtlFileInfo.Length);
         }
     }
 }

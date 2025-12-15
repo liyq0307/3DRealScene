@@ -435,12 +435,20 @@ const flyToPosition = async (position: number[], duration: number = APP_CONFIG.C
 
 // 使用防抖处理场景对象变化，避免频繁加载
 let sceneObjectsDebounceTimer: number | null = null
+let isInitialLoad = true  // 标记是否为初始加载
 
 watch(
   () => props.sceneObjects,
   (newObjects) => {
     if (!viewer) {
       console.warn('查看器尚未准备就绪，将在准备就绪时加载对象')
+      return
+    }
+
+    // ✅ 跳过初始加载（已在initCesium中处理）
+    if (isInitialLoad) {
+      isInitialLoad = false
+      console.log('[watch sceneObjects] 跳过初始加载，对象已在initCesium中加载')
       return
     }
 
@@ -452,6 +460,7 @@ watch(
     // 延迟执行，避免频繁调用
     sceneObjectsDebounceTimer = window.setTimeout(async () => {
       try {
+        console.log('[watch sceneObjects] 检测到场景对象变化，重新加载')
         await loadSceneObjects(newObjects || [])
       } catch (error) {
         console.error('[watch sceneObjects] 加载场景对象失败:', error)
@@ -662,9 +671,12 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
   console.log('[loadTileset] 开始加载 tileset，URL:', url)
 
   try {
-    // 创建Cesium.Resource对象来正确传递Authorization header
+    // 创建Cesium.Resource对象
+    // 注意：如果URL是MinIO签名URL（包含X-Amz-Signature），不应添加Authorization header，会导致400错误
     const token = authStore.token.value
-    const resource = token
+    const isSignedUrl = url.includes('X-Amz-Signature')
+
+    const resource = (token && !isSignedUrl)
       ? new Cesium.Resource({
           url: url,
           headers: {
@@ -673,7 +685,9 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
         })
       : url
 
-    console.log('[loadTileset] Resource配置:', token ? '已添加Authorization header' : '无token')
+    console.log('[loadTileset] Resource配置:',
+      isSignedUrl ? '使用MinIO签名URL，跳过Authorization header' :
+      (token ? '已添加Authorization header' : '无token'))
 
     // 创建带超时的Promise来避免异步响应消息通道关闭问题
     const loadTilesetPromise = Cesium.Cesium3DTileset.fromUrl(resource, createTilesetOptions())
@@ -722,8 +736,14 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
 
     console.log('[loadTileset] BoundingSphere有效性:', boundingSphereIsValid)
 
-    // 如果有自定义变换或包围盒无效，强制应用modelMatrix
-    if (customTransform || !boundingSphereIsValid) {
+    // ✅ 对于本地坐标系的切片模型（position为[0,0,0]），不应强制应用modelMatrix
+    const isLocalCoordinates = obj.position.every(coord => coord === 0)
+
+    if (isLocalCoordinates) {
+      console.log('[loadTileset] 检测到本地坐标系模型，使用tileset自带的transform')
+      // 不应用modelMatrix，让tileset使用自己的transform
+    } else if (customTransform || !boundingSphereIsValid) {
+      // 如果有自定义变换或包围盒无效，应用modelMatrix
       const modelMatrix = createModelMatrix(obj.position, parsedRotation, parsedScale)
       tileset.modelMatrix = modelMatrix
       console.log('[loadTileset] 强制应用modelMatrix（自定义变换或包围盒无效）')
@@ -757,8 +777,25 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     let actualPosition: number[]
     let center: Cesium.Cartesian3
 
-    // 如果包围盒无效或者强制应用了modelMatrix，直接使用对象位置
-    if (!boundingSphereIsValid || customTransform) {
+    // ✅ 对于本地坐标系模型，直接使用tileset的包围球中心
+    if (isLocalCoordinates && boundingSphereIsValid) {
+      const bsCenter = tileset.boundingSphere.center
+      center = bsCenter
+      const cartographic = Cesium.Cartographic.fromCartesian(bsCenter)
+      if (cartographic) {
+        actualPosition = [
+          Cesium.Math.toDegrees(cartographic.longitude),
+          Cesium.Math.toDegrees(cartographic.latitude),
+          cartographic.height
+        ]
+        console.log('[loadTileset] 本地坐标系模型，使用tileset包围球中心:', actualPosition)
+      } else {
+        // 包围球中心无法转换为地理坐标，使用笛卡尔坐标
+        actualPosition = [0, 0, 0]
+        console.log('[loadTileset] 本地坐标系模型，使用笛卡尔坐标中心:', bsCenter)
+      }
+    } else if (!boundingSphereIsValid || customTransform) {
+      // 如果包围盒无效或者强制应用了modelMatrix，直接使用对象位置
       actualPosition = obj.position
       center = Cesium.Cartesian3.fromDegrees(obj.position[0], obj.position[1], obj.position[2])
       console.log('[loadTileset] 使用对象位置作为中心:', actualPosition)
@@ -915,9 +952,12 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
     const modelMatrix = createModelMatrix(obj.position, parsedRotation, parsedScale)
     console.log('[loadGltfModel] ModelMatrix 创建完成')
 
-    // 创建Cesium.Resource对象来正确传递Authorization header
+    // 创建Cesium.Resource对象
+    // 注意：如果URL是MinIO签名URL（包含X-Amz-Signature），不应添加Authorization header，会导致400错误
     const token = authStore.token.value
-    const resource = token
+    const isSignedUrl = url.includes('X-Amz-Signature')
+
+    const resource = (token && !isSignedUrl)
       ? new Cesium.Resource({
           url: url,
           headers: {
@@ -926,7 +966,9 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
         })
       : url
 
-    console.log('[loadGltfModel] Resource配置:', token ? '已添加Authorization header' : '无token')
+    console.log('[loadGltfModel] Resource配置:',
+      isSignedUrl ? '使用MinIO签名URL，跳过Authorization header' :
+      (token ? '已添加Authorization header' : '无token'))
     console.log('[loadGltfModel] 开始从 URL 加载模型...')
     const model = await Cesium.Model.fromGltfAsync(createModelOptions(resource, modelMatrix))
 
@@ -1050,7 +1092,13 @@ const validateSceneObject = (obj: SceneObject): { isValid: boolean; error?: stri
 const normalizeObjectPosition = (obj: SceneObject): [number, number, number] => {
   const position = obj.position
 
-  // 检查位置是否有效
+  // ✅ 对于切片后的模型，[0,0,0]是有效的本地坐标系位置，不应替换
+  if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
+    console.log(`[normalizeObjectPosition] 切片模型保留原始位置 [${position}]（本地坐标系）`)
+    return position
+  }
+
+  // 检查位置是否有效（仅对非切片模型）
   if (position.every(coord => coord === 0)) {
     console.warn(`对象 ${obj.name} 的位置无效 [0,0,0]，使用默认位置`)
     return [
@@ -1118,6 +1166,30 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
 
     // 规范化位置
     obj.position = normalizeObjectPosition(obj)
+
+    // ✅ 优先检查是否有完成的切片输出（适用于所有格式，包括GLB/GLTF）
+    if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
+      console.log('[CesiumViewer] 检测到已完成的切片任务，使用切片输出')
+      let tilesetPath = obj.slicingOutputPath
+
+      // 确保路径指向tileset.json
+      if (!tilesetPath.endsWith('tileset.json')) {
+        tilesetPath = tilesetPath.replace(/\/$|\\$/, '') + '/tileset.json'
+      }
+
+      // 使用resolveObjectUrl处理路径（支持本地路径和MinIO路径）
+      const fullTilesetPath = resolveObjectUrl(tilesetPath)
+
+      console.log('[CesiumViewer] 使用切片输出:', {
+        original: obj.slicingOutputPath,
+        tilesetPath,
+        fullTilesetPath
+      })
+
+      // 加载3D Tiles
+      await loadTileset(obj, fullTilesetPath)
+      return
+    }
 
     // 解析URL
     const fullPath = resolveObjectUrl(obj.displayPath)
