@@ -14,11 +14,11 @@
 
   <!-- Copy native dependencies -->
   <ItemGroup>
-    <Content Include="..\..\bin\Release\net8.0\*.dll" Condition="Exists('..\..\bin\Release\net8.0')">
+    <Content Include="..\..\bin\Release\net9.0\*.dll" Condition="Exists('..\..\bin\Release\net9.0')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(Filename)%(Extension)</Link>
     </Content>
-    <Content Include="..\..\bin\Release\net8.0\osgPlugins-3.6.5\**\*.*" Condition="Exists('..\..\bin\Release\net8.0\osgPlugins-3.6.5')">
+    <Content Include="..\..\bin\Release\net9.0\osgPlugins-3.6.5\**\*.*" Condition="Exists('..\..\bin\Release\net9.0\osgPlugins-3.6.5')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>osgPlugins-3.6.5\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
@@ -31,7 +31,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

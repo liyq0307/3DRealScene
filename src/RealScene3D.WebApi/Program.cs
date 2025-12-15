@@ -18,6 +18,7 @@ using RealScene3D.Infrastructure.Repositories;
 using RealScene3D.Infrastructure.Workflow;
 using RealScene3D.Infrastructure.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
@@ -94,6 +95,23 @@ builder.Services.AddSwaggerGen(c =>
 
     // 配置文件上传支持
     c.OperationFilter<FileUploadOperationFilter>();
+    
+    // 配置IFormFile类型映射，解决Swagger生成问题
+    c.MapType<IFormFile>(() => new OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary"
+    });
+    
+    c.MapType<IFormFileCollection>(() => new OpenApiSchema
+    {
+        Type = "array",
+        Items = new OpenApiSchema
+        {
+            Type = "string",
+            Format = "binary"
+        }
+    });
 });
 
 // 配置CORS - 允许前端访问

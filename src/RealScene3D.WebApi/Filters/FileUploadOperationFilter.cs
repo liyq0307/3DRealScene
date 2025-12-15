@@ -30,8 +30,8 @@ public class FileUploadOperationFilter : IOperationFilter
             .GetCustomAttributes<Microsoft.AspNetCore.Mvc.ConsumesAttribute>()
             .Any(x => x.ContentTypes.Contains("multipart/form-data"));
 
-        if (!hasMultipartConsumes)
-            return;
+        // 即使没有明确的 [Consumes] 属性，如果有 IFormFile 参数，我们也应该处理
+        // 因为 IFormFile 参数通常用于文件上传
 
         // 构建 multipart/form-data 请求体
         var properties = new Dictionary<string, OpenApiSchema>();
@@ -46,8 +46,8 @@ public class FileUploadOperationFilter : IOperationFilter
                 Description = param.ModelMetadata?.Description
             };
 
-            // 如果参数不可为空，则标记为必需
-            if (!param.IsRequired && param.ModelMetadata?.IsRequired == true)
+            // 如果参数是必需的，则标记为必需
+            if (param.IsRequired || param.ModelMetadata?.IsRequired == true)
             {
                 requiredParams.Add(param.Name);
             }

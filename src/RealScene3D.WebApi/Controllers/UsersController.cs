@@ -177,7 +177,7 @@ public class UsersController : ControllerBase
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(AvatarUploadResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar([FromForm] IFormFile avatar)
+    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar(IFormFile avatar)
     {
         try
         {
