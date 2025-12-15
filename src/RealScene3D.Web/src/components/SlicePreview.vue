@@ -135,7 +135,7 @@ const sceneObject = computed(() => {
     id: `slice_preview_${props.taskId}`,
     name: `切片预览`,
     displayPath: tilesetPath,
-    position: [116.39, 39.91, 100], // 默认位置：北京，高度100米（避免在地面以下）
+    position: [116.39, 39.91, 100] as [number, number, number], // 默认位置：北京，高度100米（避免在地面以下）
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     slicingTaskId: props.taskId,
@@ -153,7 +153,7 @@ const initialCameraPosition = computed(() => {
   return {
     longitude: 116.39,
     latitude: 39.91,
-    height: 15000000 // 15000km 高度，可以看到整个地球
+    height: 10000 // 10km 高度，适合查看切片数据
   }
 })
 

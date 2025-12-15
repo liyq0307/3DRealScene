@@ -83,6 +83,7 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useMessage } from '@/composables/useMessage'
 import * as Cesium from 'cesium'
+import authStore from '@/stores/auth'
 
 // ==================== 类型定义 ====================
 
@@ -578,6 +579,7 @@ const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
 
 /**
  * 创建3D Tiles数据集的配置选项
+ * 注意：Authorization header通过Cesium.Resource对象传递，不在此处配置
  */
 const createTilesetOptions = () => ({
   // 设置最大屏幕空间误差，优化加载性能（降低值以强制加载更多瓦片）
@@ -660,8 +662,21 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
   console.log('[loadTileset] 开始加载 tileset，URL:', url)
 
   try {
+    // 创建Cesium.Resource对象来正确传递Authorization header
+    const token = authStore.token.value
+    const resource = token
+      ? new Cesium.Resource({
+          url: url,
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        })
+      : url
+
+    console.log('[loadTileset] Resource配置:', token ? '已添加Authorization header' : '无token')
+
     // 创建带超时的Promise来避免异步响应消息通道关闭问题
-    const loadTilesetPromise = Cesium.Cesium3DTileset.fromUrl(url, createTilesetOptions())
+    const loadTilesetPromise = Cesium.Cesium3DTileset.fromUrl(resource, createTilesetOptions())
     console.log('[loadTileset] 等待 tileset 加载...')
 
     // 添加超时控制
@@ -675,7 +690,11 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     // 在开发环境下获取tileset.json的元数据用于调试
     if (import.meta.env.DEV) {
       try {
-        const response = await fetch(url)
+        const fetchHeaders: HeadersInit = {}
+        if (token) {
+          fetchHeaders['Authorization'] = `Bearer ${token}`
+        }
+        const response = await fetch(url, { headers: fetchHeaders })
         const tilesetJson = await response.json()
         console.log('[loadTileset] Tileset.json内容:', tilesetJson)
         console.log('[loadTileset] Root content URI:', tilesetJson.root?.content?.uri)
@@ -792,9 +811,12 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
 
 /**
  * 创建GLTF模型的加载选项
+ * 注意：Authorization header通过Cesium.Resource对象传递，不在此处配置
+ * @param urlOrResource - URL字符串或Cesium.Resource对象
+ * @param modelMatrix - 模型变换矩阵
  */
-const createModelOptions = (url: string, modelMatrix: Cesium.Matrix4) => ({
-  url,
+const createModelOptions = (urlOrResource: string | Cesium.Resource, modelMatrix: Cesium.Matrix4) => ({
+  url: urlOrResource,
   modelMatrix,
   // 混合模式
   colorBlendMode: Cesium.ColorBlendMode.MIX,
@@ -893,8 +915,20 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
     const modelMatrix = createModelMatrix(obj.position, parsedRotation, parsedScale)
     console.log('[loadGltfModel] ModelMatrix 创建完成')
 
+    // 创建Cesium.Resource对象来正确传递Authorization header
+    const token = authStore.token.value
+    const resource = token
+      ? new Cesium.Resource({
+          url: url,
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        })
+      : url
+
+    console.log('[loadGltfModel] Resource配置:', token ? '已添加Authorization header' : '无token')
     console.log('[loadGltfModel] 开始从 URL 加载模型...')
-    const model = await Cesium.Model.fromGltfAsync(createModelOptions(url, modelMatrix))
+    const model = await Cesium.Model.fromGltfAsync(createModelOptions(resource, modelMatrix))
 
     console.log('[loadGltfModel] 模型加载成功:', model)
 

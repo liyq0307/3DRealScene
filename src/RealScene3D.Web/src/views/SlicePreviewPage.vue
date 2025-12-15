@@ -166,7 +166,7 @@ const sceneObject = computed(() => {
     id: `slice_preview_${taskInfo.value.id}`,
     name: taskInfo.value.modelFileName || '切片预览',
     displayPath: tilesetPath,
-    position: [116.39, 39.91, 100], // 默认位置：北京，高度100米
+    position: [116.39, 39.91, 100] as [number, number, number], // 默认位置：北京，高度100米
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     slicingTaskId: taskInfo.value.id,
@@ -205,9 +205,20 @@ const loadTaskDetails = async () => {
     taskInfo.value = await slicingService.getSlicingTask(taskId)
     console.log('[SlicePreviewPage] 任务信息:', taskInfo.value)
 
-    // 检查任务状态
+    // 检查任务是否有输出数据（更宽松的检查）
+    // 只要有outputPath就允许预览，不严格依赖status字段
+    if (!taskInfo.value.outputPath || taskInfo.value.outputPath.trim() === '') {
+      error.value = '切片任务暂无输出数据，无法预览'
+      showError('切片任务暂无输出数据，无法预览')
+      loading.value = false
+      return
+    }
+
+    // 如果状态不是已完成，给出警告但不阻止预览
     if (taskInfo.value.status !== 'Completed') {
-      showError('切片任务尚未完成，无法预览')
+      console.warn('[SlicePreviewPage] 任务状态为:', taskInfo.value.status, '，但存在输出数据，允许预览')
+      // 可选：显示一个提示信息
+      // showSuccess('检测到切片数据，正在加载预览...')
     }
 
     loading.value = false
