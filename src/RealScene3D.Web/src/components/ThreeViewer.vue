@@ -16,6 +16,9 @@
       <button class="btn" @click="toggleGrid" title="切换网格">
         <span class="icon">＃</span>
       </button>
+      <button v-if="hasTilesModels" class="btn" @click="toggleBoundingBox" title="切换包围盒">
+        <span class="icon">{{ boundingBoxVisible ? '📦' : '⬛' }}</span>
+      </button>
       <button class="btn" @click="takeScreenshot" title="截图">
         <span class="icon">📷</span>
       </button>
@@ -88,7 +91,7 @@
  * 作者: liyq
  * 创建时间: 2025-12-08
  */
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useMessage } from '@/composables/useMessage'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -100,6 +103,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
+import { DebugTilesPlugin } from '3d-tiles-renderer/src/three/plugins/DebugTilesPlugin.js'
 
 // ==================== 类型定义 ====================
 
@@ -169,12 +173,21 @@ const threeContainer = ref<HTMLDivElement | null>(null)
 const loading = ref(true)
 const loadingMessage = ref('初始化Three.js场景...')
 const wireframeMode = ref(false)
+const boundingBoxVisible = ref(false) // 默认隐藏包围盒
 const fps = ref(60)
 const loadedObjectsCount = ref(0)
 const trianglesCount = ref(0)
 const cameraPosition = ref({ x: 0, y: 0, z: 0 })
+const tilesCount = ref(0) // 追踪3D Tiles切片数量（响应式）
 
-// Three.js核心对象
+// ==================== 计算属性 ====================
+
+/** 是否有3D Tiles切片（用于控制包围盒按钮显示） */
+const hasTilesModels = computed(() => {
+  return tilesCount.value > 0
+})
+
+// ==================== Three.js核心对象 ====================
 let scene: THREE.Scene | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let renderer: THREE.WebGLRenderer | null = null
@@ -201,6 +214,9 @@ const loaders = {
 
 // 3D Tiles渲染器集合（每个tileset一个实例）
 const tilesRenderers = new Map<string, TilesRenderer>()
+
+// 调试插件集合（用于显示包围盒）
+const debugPlugins = new Map<string, DebugTilesPlugin>()
 
 // ==================== 业务逻辑方法 ====================
 
@@ -589,6 +605,18 @@ const loadTileset = (
     // 创建TilesRenderer实例
     const tilesRenderer = new TilesRenderer(proxyTilesetPath)
 
+    // 创建调试插件（用于显示包围盒）
+    const debugPlugin = new DebugTilesPlugin({
+      displayBoxBounds: boundingBoxVisible.value,
+      displaySphereBounds: false,
+      enabled: true
+    })
+
+    // 将插件添加到TilesRenderer（registerPlugin只接受一个参数：plugin对象）
+    tilesRenderer.registerPlugin(debugPlugin)
+
+    console.log('[ThreeViewer] DebugTilesPlugin已创建并注册，初始状态:', boundingBoxVisible.value)
+
     // 先添加到场景
     scene.add(tilesRenderer.group)
 
@@ -621,6 +649,11 @@ const loadTileset = (
     // 监听tileset加载完成
     tilesRenderer.addEventListener('load-tile-set', () => {
       console.log('[ThreeViewer] ✅ Tileset加载成功')
+
+      // 同步调试插件显示状态
+      debugPlugin.displayBoxBounds = boundingBoxVisible.value
+      debugPlugin.displaySphereBounds = false
+      console.log('[ThreeViewer] 包围盒显示状态已同步:', boundingBoxVisible.value)
 
       // 获取包围盒并调整相机
       const box = new THREE.Box3()
@@ -677,7 +710,7 @@ const loadTileset = (
     })
 
     // 监听瓦片加载
-    tilesRenderer.addEventListener('load-model', (event: any) => {
+    tilesRenderer.addEventListener('load-model', () => {
       console.log('[ThreeViewer] ✅ 加载了一个瓦片')
     })
 
@@ -694,13 +727,16 @@ const loadTileset = (
     tilesRenderer.setCamera(camera)
     tilesRenderer.setResolutionFromRenderer(camera, renderer)
 
-    // 存储渲染器实例
+    // 存储渲染器实例和调试插件
     tilesRenderers.set(obj.id, tilesRenderer)
+    debugPlugins.set(obj.id, debugPlugin)
 
-    // 更新对象计数
+    // 更新对象计数和切片计数
     loadedObjectsCount.value++
+    tilesCount.value = tilesRenderers.size // 更新切片数量（触发hasTilesModels计算属性）
 
     console.log('[ThreeViewer] ✅ TilesRenderer已创建并添加到场景')
+    console.log('[ThreeViewer] 当前切片数量:', tilesCount.value)
     console.log('[ThreeViewer] ======================================')
 
     resolve()
@@ -984,6 +1020,32 @@ const toggleGrid = () => {
 }
 
 /**
+ * 切换包围盒显示（显示每个瓦片的包围盒）
+ */
+const toggleBoundingBox = () => {
+  if (!scene) return
+
+  boundingBoxVisible.value = !boundingBoxVisible.value
+
+  console.log('[ThreeViewer] 切换包围盒显示状态:', boundingBoxVisible.value)
+  console.log('[ThreeViewer] DebugPlugin数量:', debugPlugins.size)
+
+  // 遍历所有调试插件，更新每个瓦片的包围盒显示状态
+  debugPlugins.forEach((debugPlugin, key) => {
+    console.log(`[ThreeViewer] 更新DebugPlugin[${key}]:`)
+    console.log('  - displayBoxBounds 设置前:', debugPlugin.displayBoxBounds)
+
+    debugPlugin.displayBoxBounds = boundingBoxVisible.value
+    debugPlugin.displaySphereBounds = false // 只显示盒状包围体
+
+    console.log('  - displayBoxBounds 设置后:', debugPlugin.displayBoxBounds)
+    console.log('  - enabled:', debugPlugin.enabled)
+  })
+
+  showSuccess(boundingBoxVisible.value ? '包围盒已显示' : '包围盒已隐藏')
+}
+
+/**
  * 截图
  */
 const takeScreenshot = () => {
@@ -1038,12 +1100,14 @@ const cleanup = () => {
     controls = null
   }
 
-  // 释放3D Tiles渲染器
+  // 释放3D Tiles渲染器和调试插件
   tilesRenderers.forEach((tilesRenderer, key) => {
     tilesRenderer.dispose()
     console.log(`[ThreeViewer] 释放TilesRenderer: ${key}`)
   })
   tilesRenderers.clear()
+  debugPlugins.clear()
+  tilesCount.value = 0 // 重置切片计数
 
   // 释放场景中的资源
   if (scene) {

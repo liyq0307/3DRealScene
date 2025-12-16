@@ -16,6 +16,9 @@
       <button class="btn" @click="toggleGrid" title="切换网格">
         <span class="icon">＃</span>
       </button>
+      <button v-if="hasTilesModels" class="btn" @click="toggleBoundingBox" title="切换包围盒">
+        <span class="icon">{{ boundingBoxVisible ? '📦' : '⬛' }}</span>
+      </button>
       <button class="btn" @click="takeScreenshot" title="截图">
         <span class="icon">📷</span>
       </button>
@@ -321,6 +324,8 @@ const loadedObjectsCount = ref(0)
 const wireframeMode = ref(false)
 const axesVisible = ref(true)
 const gridVisible = ref(true)
+const boundingBoxVisible = ref(false) // 默认隐藏包围盒
+const tilesCount = ref(0) // 追踪3D Tiles切片数量（响应式）
 const cameraInfo = ref<CameraInfo>({
   longitude: 0,
   latitude: 0,
@@ -333,6 +338,11 @@ const cameraInfo = ref<CameraInfo>({
 const apiBaseUrl = computed(() => {
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
   return baseUrl.replace('/api', '')
+})
+
+/** 是否有3D Tiles切片（用于控制包围盒按钮显示） */
+const hasTilesModels = computed(() => {
+  return tilesCount.value > 0
 })
 
 // ==================== Cesium对象 ====================
@@ -396,12 +406,16 @@ const parseTransformParams = (rotation: SceneObject['rotation'], scale: SceneObj
 
 /**
  * 创建模型矩阵
+ * 注意：为了与切片模型保持一致，GLB模型默认添加+90度X轴旋转（从竖立变为平放）
  */
 const createModelMatrix = (position: number[], rotation: { x: number; y: number; z: number }, scale: { x: number; y: number; z: number }): Cesium.Matrix4 => {
   const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
+
+  // 添加默认旋转，让GLB模型平放（与切片保持一致）
+  const pitch = Cesium.Math.toRadians(rotation.x + 90)
   const heading = Cesium.Math.toRadians(rotation.y)
-  const pitch = Cesium.Math.toRadians(rotation.x)
   const roll = Cesium.Math.toRadians(rotation.z)
+
   const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll)
   const orientation = Cesium.Transforms.headingPitchRollQuaternion(cartesian, hpr)
 
@@ -607,9 +621,9 @@ const createTilesetOptions = () => ({
   immediatelyLoadDesiredLevelOfDetail: true,
   // 加载兄弟节点
   loadSiblings: true,
-  // 调试选项
-  debugShowBoundingVolume: import.meta.env.DEV,
-  debugShowContentBoundingVolume: import.meta.env.DEV
+  // 调试选项 - 使用响应式变量控制包围盒显示
+  debugShowBoundingVolume: boundingBoxVisible.value,
+  debugShowContentBoundingVolume: boundingBoxVisible.value
 })
 
 /**
@@ -619,46 +633,6 @@ const hasCustomTransform = (obj: SceneObject, parsedRotation: any, parsedScale: 
   return (obj.position && (obj.position[0] !== 116.39 || obj.position[1] !== 39.91 || obj.position[2] !== 100)) ||
          (parsedRotation.x !== 0 || parsedRotation.y !== 0 || parsedRotation.z !== 0) ||
          (parsedScale.x !== 1 || parsedScale.y !== 1 || parsedScale.z !== 1)
-}
-
-/**
- * 处理本地坐标系的tileset
- */
-const handleLocalCoordinateTileset = async (
-  tileset: Cesium.Cesium3DTileset,
-  obj: SceneObject,
-  parsedRotation: any,
-  parsedScale: any
-): Promise<number[]> => {
-  const originalRadius = tileset.boundingSphere?.radius ?? 0
-  console.log('[loadTileset] 模型原始包围球半径:', originalRadius)
-
-  // 如果模型太小（半径小于10米），自动放大
-  let adjustedScale = { ...parsedScale }
-  if (originalRadius > 0 && originalRadius < 10) {
-    const scaleFactor = APP_CONFIG.PERFORMANCE.SCALE_FACTOR / originalRadius
-    adjustedScale = {
-      x: parsedScale.x * scaleFactor,
-      y: parsedScale.y * scaleFactor,
-      z: parsedScale.z * scaleFactor
-    }
-    console.log('[loadTileset] 模型太小，自动放大scale:', scaleFactor, '倍，新scale:', adjustedScale)
-  }
-
-  // 对于本地坐标系的模型，强制应用modelMatrix
-  const modelMatrix = createModelMatrix(obj.position, parsedRotation, adjustedScale)
-  tileset.modelMatrix = modelMatrix
-  console.log('[loadTileset] 已强制应用modelMatrix')
-
-  // 确保tileset可见性设置
-  tileset.show = true
-  tileset.style = new Cesium.Cesium3DTileStyle({ show: true })
-  console.log('[loadTileset] 已设置tileset可见性')
-
-  // 等待一下让boundingSphere更新
-  await new Promise(resolve => setTimeout(resolve, 200))
-
-  return obj.position
 }
 
 
@@ -820,8 +794,10 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     const cartesian = center
     loadedModels.set(obj.id, { type: '3dtiles', object: tileset, position: cartesian })
 
-    // 更新对象计数
+    // 更新对象计数和切片计数
     loadedObjectsCount.value = loadedModels.size
+    tilesCount.value = Array.from(loadedModels.values()).filter(item => item.type === '3dtiles').length
+    console.log('[loadTileset] 当前切片数量:', tilesCount.value)
 
     // 强制加载所有瓦片（设置为0以绕过LOD检查）
     tileset.maximumScreenSpaceError = 0
@@ -1342,6 +1318,7 @@ const clearLoadedObjects = (): void => {
 
   // 重置计数器
   loadedObjectsCount.value = 0
+  tilesCount.value = 0 // 重置切片计数
 
   // 清除所有Entity标记
   viewer!.entities.removeAll()
@@ -1843,6 +1820,29 @@ const toggleGrid = (): void => {
   }
 
   showSuccess(gridVisible.value ? '网格已显示' : '网格已隐藏')
+}
+
+/**
+ * 切换包围盒显示
+ */
+const toggleBoundingBox = (): void => {
+  if (!viewer) return
+
+  boundingBoxVisible.value = !boundingBoxVisible.value
+
+  // 遍历所有已加载的3D Tiles对象，更新其包围盒显示状态
+  loadedModels.forEach((item) => {
+    if (item.type === '3dtiles') {
+      const tileset = item.object as Cesium.Cesium3DTileset
+      tileset.debugShowBoundingVolume = boundingBoxVisible.value
+      tileset.debugShowContentBoundingVolume = boundingBoxVisible.value
+    }
+  })
+
+  // 请求重新渲染场景
+  viewer.scene.requestRender()
+
+  showSuccess(boundingBoxVisible.value ? '包围盒已显示' : '包围盒已隐藏')
 }
 
 // ==================== FPS监控 ====================
