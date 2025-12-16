@@ -576,10 +576,10 @@ public class FilesController : ControllerBase
                 using (var fs = System.IO.File.OpenRead(fullPath))
                 {
                     var header = new byte[2];
-                    fs.Read(header, 0, 2);
+                    var bytesRead = fs.Read(header, 0, 2);
 
                     // 检查gzip魔数 (0x1f 0x8b)
-                    if (header[0] == 0x1f && header[1] == 0x8b)
+                    if (bytesRead == 2 && header[0] == 0x1f && header[1] == 0x8b)
                     {
                         _logger.LogInformation("检测到gzip压缩的b3dm文件，进行解压: {FilePath}", fullPath);
 
