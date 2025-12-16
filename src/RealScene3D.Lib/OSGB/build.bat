@@ -162,7 +162,7 @@ echo ========================================
 echo.
 
 REM 设置路径
-set TargetPath=..\..\..\bin\%Configuration%\net8.0
+set TargetPath=..\..\..\bin\%Configuration%\net9.0
 set SourceDll=..\..\..\bin\%Configuration%\RealScene3D.Lib.OSGB.dll
 set OsgBinPath=%OSG_ROOT%\bin
 
