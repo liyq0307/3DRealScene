@@ -74,8 +74,8 @@ npm install && npm run dev
 
 **访问地址：**
 - 前端：http://localhost:5173
-- 后端API：http://localhost:5177
-- Swagger：http://localhost:5177/swagger
+- 后端API：http://localhost:5000
+- Swagger：http://localhost:5000/swagger
 - MinIO Console：http://localhost:9001
 
 ## 📐 系统架构

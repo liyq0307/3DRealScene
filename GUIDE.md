@@ -324,10 +324,10 @@ dotnet watch run
 ```
 
 **后端访问地址:**
-- HTTP API: `http://localhost:5177`
+- HTTP API: `http://localhost:5000`
 - HTTPS API: `https://localhost:7149`
-- Swagger文档: `http://localhost:5177/swagger`
-- 根路径: `http://localhost:5177/` (自动重定向到Swagger)
+- Swagger文档: `http://localhost:5000/swagger`
+- 根路径: `http://localhost:5000/` (自动重定向到Swagger)
 
 #### 5. 运行前端
 
@@ -353,7 +353,7 @@ npm run build
 
 ```bash
 # 测试API健康状态
-curl http://localhost:5177/swagger
+curl http://localhost:5000/swagger
 
 # 测试PostgreSQL连接
 docker exec realscene3d-postgres pg_isready -U postgres
@@ -1744,7 +1744,7 @@ server {
     server_name api.yourdomain.com;
 
     location / {
-        proxy_pass http://localhost:5177;
+        proxy_pass http://localhost:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection keep-alive;
@@ -1783,7 +1783,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://localhost:5177;
+        proxy_pass http://localhost:5000;
     }
 }
 ```
@@ -2403,7 +2403,7 @@ A: 1. 重新计算切片哈希值；2. 重建增量更新索引；3. 检查模�
 ### 相关文档
 
 - [README.md](./README.md) - 项目概览和快速入门
-- [Swagger API](http://localhost:5177/swagger) - API在线文档
+- [Swagger API](http://localhost:5000/swagger) - API在线文档
 - [3D Tiles 规范](https://github.com/CesiumGS/3d-tiles) - 3D Tiles标准文档
 - [GLTF 规范](https://github.com/KhronosGroup/glTF) - GLTF格式文档
 
