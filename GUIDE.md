@@ -2,9 +2,9 @@
 
 本文档整合了编译、部署、存储架构等所有详细说明。基于实际代码库更新，确保与项目实现保持一致。
 
-**最后更新**: 2025-11-25
+**最后更新**: 2025-12-16
 **版本**: v1.0
-**技术栈**: ASP.NET Core 8.0 + Vue 3 + PostgreSQL/PostGIS + MongoDB + Redis + MinIO
+**技术栈**: ASP.NET Core 9.0 + Vue 3 + PostgreSQL/PostGIS + MongoDB + Redis + MinIO
 
 ---
 
@@ -40,7 +40,7 @@
 └────────────────────────────┬────────────────────────────────┘
                              │ HTTP/REST API
 ┌────────────────────────────▼────────────────────────────────┐
-│              API层 (ASP.NET Core 8.0 WebAPI)                │
+│              API层 (ASP.NET Core 9.0 WebAPI)                │
 │  Controllers: Scenes, Slicing, Workflows, Monitoring        │
 └────────────────────────────┬────────────────────────────────┘
                              │
@@ -227,7 +227,7 @@ src/
 
 ### 前提条件
 
-- **.NET 8.0 SDK** 或更高版本
+- **.NET 9.0 SDK** 或更高版本
 - **Node.js 18+** 和 npm
 - **Docker & Docker Compose** (用于运行存储服务)
 - **Git** (用于克隆代码库)
@@ -668,6 +668,99 @@ var url = await _minioService.GetPresignedUrlAsync(
 
 ---
 
+## 几何库和材质系统
+
+### 几何库概述
+
+RealScene3D包含完整的几何处理库，支持3D模型的加载、处理和渲染优化：
+
+#### 核心几何类
+
+1. **向量类**：
+   - `Vector2`, `Vector2d`, `Vector2i` - 2D向量（浮点、双精度、整数）
+   - `Vector3`, `Vector3d`, `Vector3i` - 3D向量（浮点、双精度、整数）
+   - `Vector4`, `Vector4d`, `Vector4i` - 4D向量（浮点、双精度、整数）
+
+2. **几何体类**：
+   - `Box2`, `Box3` - 2D/3D包围盒
+   - `Rectangle` - 矩形
+   - `Edge`, `Face` - 边和面
+
+3. **网格系统**：
+   - `IMesh` - 网格接口，定义网格基本操作
+   - `Mesh`, `MeshT` - 网格实现类
+   - `Vertex2`, `Vertex3` - 2D/3D顶点
+
+#### 网格分割算法
+
+系统使用IMesh.Split方法进行网格分割，支持两种分割策略：
+
+```csharp
+// 使用IMesh.Split方法进行网格分割
+int Split(IVertexUtils utils, double q, out IMesh left, out IMesh right);
+
+// 获取顶点重心
+Vertex3 GetVertexBaricenter();
+```
+
+**分割点策略**：
+- `AbsoluteCenter`：使用网格边界框的中心点作为分割点
+- `VertexBaricenter`：使用网格顶点的重心作为分割点
+
+### 材质系统
+
+系统包含完整的材质管理系统，支持复杂的材质和纹理处理：
+
+#### 核心材质类
+
+1. **Material** - 基础材质类
+   - 支持环境光、漫反射、镜面反射颜色
+   - 支持透明度、折射率、光泽度等参数
+   - 支持纹理映射和UV坐标
+
+2. **MaterialEx** - 扩展材质类
+   - 支持更复杂的材质属性
+   - 支持多层材质叠加
+   - 支持自定义着色器参数
+
+3. **IlluminationModel** - 光照模型
+   - 支持多种光照计算模型
+   - 支持环境光、点光源、方向光、聚光灯
+
+#### 纹理缓存系统
+
+`TexturesCache` 类提供纹理缓存管理：
+- 自动加载和缓存纹理文件
+- 支持纹理压缩和格式转换
+- 内存优化，避免重复加载
+
+#### RGB颜色系统
+
+`RGB` 类提供颜色处理功能：
+- RGB颜色表示和转换
+- 颜色混合和插值
+- 颜色空间转换（RGB、HSV、HSL）
+
+### 网格简化算法
+
+系统使用FastQuadricMesh算法进行网格简化：
+
+```csharp
+// 创建简化算法实例
+var algorithm = MeshDecimation.CreateAlgorithm(Algorithm.FastQuadricMesh);
+
+// 执行网格简化
+var simplifiedMesh = algorithm.DecimateMesh(originalMesh, targetTriangleCount);
+```
+
+**算法特点**：
+- 基于二次误差度量的网格简化
+- 保持几何特征和纹理坐标
+- 支持多级LOD生成
+- 高性能，适合大规模模型处理
+
+---
+
 ## 3D切片功能
 
 ### 切片功能概述
@@ -791,13 +884,11 @@ var config = new SlicingConfig
 | `EnableMeshDecimation` | bool | true | 是否启用网格简化（LOD生成） |
 | `GenerateTileset` | bool | true | 是否生成 tileset.json 索引文件 |
 | `OutputFormat` | string | "b3dm" | 输出格式：b3dm、gltf |
-| `CompressOutput` | bool | true | 是否压缩输出文件 |
-| `TextureQuality` | double | 0.8 | 纹理质量（0-1之间），仅用于压缩时 |
-| `TextureStrategy` | enum | Repack | 纹理处理策略：Repack、KeepOriginal、RepackCompressed |
+| `TextureStrategy` | enum | Repack | 纹理处理策略：KeepOriginal、Compress、Repack、RepackCompressed |
 | `EnableIncrementalUpdates` | bool | false | 是否启用增量更新支持 |
 | `StorageLocation` | enum | MinIO | 存储位置：MinIO 或 LocalFileSystem |
 | `GeometricErrorThreshold` | double | 0.001 | LOD切换的几何误差阈值 |
-| `CompressionLevel` | int | 6 | 压缩级别（0-9，越高压缩率越大但速度越慢） |
+| `SplitPointStrategy` | enum | AbsoluteCenter | 分割点策略：AbsoluteCenter（绝对中心）、VertexBaricenter（顶点重心） |
 
 ### 瓦片生成流水线
 
@@ -819,7 +910,7 @@ var config = new SlicingConfig
 #### Stage 1: Decimation（网格简化）
 
 **功能**：
-- 使用QEM（二次误差度量）算法对整个模型进行网格简化
+- 使用FastQuadricMesh算法（快速四元网格简化）对模型进行网格简化
 - 生成多级LOD（Level of Detail）
 - 每个LOD级别保持视觉质量的同时减少三角形数量
 
@@ -833,27 +924,26 @@ var config = new SlicingConfig
 - `LodLevels`：控制生成的LOD级别数量
 - `EnableMeshDecimation`：是否启用网格简化
 
-#### Stage 2 & 3: Quadtree Splitting & Tile Generation
+#### Stage 2 & 3: 空间分割与切片生成
 
 **功能**：
-- 对每个LOD级别的网格进行递归四叉树空间分割
-- 每次递归同时沿X和Y轴分割，产生4个子节点
-- 使用精确的三角面-AABB相交测试筛选每个空间单元的三角形
-- 每个空间单元只包含实际使用的材质，减小切片大小
-- 为每个非空空间单元生成切片文件
+- 使用IMesh.Split方法进行递归空间分割
+- 根据SplitPointStrategy选择分割点（绝对中心或顶点重心）
+- 对每个分割后的网格生成切片文件
+- 应用纹理处理策略（KeepOriginal、Compress、Repack、RepackCompressed）
 
 **空间分割过程**：
 1. 计算模型的整体包围盒
 2. 根据 `Divisions` 参数递归分割空间
-3. 对每个空间单元，使用SAT算法测试三角形相交
-4. 筛选出相交的三角形，生成子网格
-5. 应用纹理重打包策略（可选）
-6. 输出B3DM或GLTF格式文件
+3. 使用IMesh.Split方法进行网格分割
+4. 应用纹理处理策略
+5. 输出B3DM或GLTF格式文件
 
 **参数控制**：
 - `Divisions`：控制空间分割深度
 - `TextureStrategy`：纹理处理策略
 - `OutputFormat`：输出文件格式
+- `SplitPointStrategy`：分割点策略
 
 #### Stage 4: 生成 tileset.json
 
@@ -1105,14 +1195,15 @@ B3DM文件 = Header + Feature Table + Batch Table + GLB (Binary glTF)
 ### 切片任务实体结构
 
 ```csharp
-// 来自 Domain/Entities/Slicing.cs
 public class SlicingTask
 {
     public Guid Id { get; set; }                      // 任务唯一标识符
-    public string Name { get; set; }                  // 任务名称
-    public string SourceModelPath { get; set; }       // 源模型路径（MinIO）
-    public string ModelType { get; set; }             // 模型类型
-    public string SlicingConfig { get; set; }         // 切片配置JSON
+    public string Name { get; set; } = string.Empty;  // 任务名称
+    public string SourceModelPath { get; set; } = string.Empty; // 源模型路径（MinIO）
+    public Guid? SceneObjectId { get; set; }          // 关联的场景对象ID
+    public SceneObject? SceneObject { get; set; }     // 关联的场景对象
+    public string ModelType { get; set; } = string.Empty; // 模型类型
+    public string SlicingConfig { get; set; } = string.Empty; // 切片配置JSON
     public SlicingTaskStatus Status { get; set; }     // 任务状态
     public int Progress { get; set; }                 // 进度 0-100
     public string? OutputPath { get; set; }           // 输出路径
@@ -1143,8 +1234,8 @@ public class Slice
     public int X { get; set; }                        // X坐标
     public int Y { get; set; }                        // Y坐标
     public int Z { get; set; }                        // Z坐标
-    public string FilePath { get; set; }              // 文件路径
-    public string BoundingBox { get; set; }           // 包围盒JSON
+    public string FilePath { get; set; } = string.Empty; // 文件路径
+    public string BoundingBox { get; set; } = string.Empty; // 包围盒JSON
     public long FileSize { get; set; }                // 文件大小（字节）
     public DateTime CreatedAt { get; set; }           // 创建时间
 }
@@ -1168,68 +1259,47 @@ RealScene3D内置了强大的工作流引擎，用于编排和执行复杂的业
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│              WorkflowService (应用服务)              │
-│  - CreateWorkflowAsync()                            │
-│  - StartWorkflowAsync()                             │
-│  - GetWorkflowInstanceAsync()                       │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
 │              WorkflowEngine (引擎核心)               │
-│  - ExecuteWorkflowAsync()                           │
-│  - ExecuteNodeAsync()                               │
-│  - 节点路由和状态转换                                 │
+│  - StartWorkflowAsync()                             │
+│  - SuspendWorkflowAsync()                           │
+│  - ResumeWorkflowAsync()                            │
+│  - CancelWorkflowAsync()                            │
+│  - GetWorkflowInstanceAsync()                       │
 └──────────────────────┬──────────────────────────────┘
                        │
         ┌──────────────┴────────────────┐
         │                               │
 ┌───────▼────────────┐        ┌─────────▼────────────┐
-│ DelayNodeExecutor  │        │ConditionNodeExecutor │
-│  - 延迟执行         │        │  - 条件判断           │
+│ IWorkflowNodeExecutor[] │        │ 自定义节点执行器   │
+│  - 节点执行器数组       │        │  - 支持扩展        │
 └────────────────────┘        └──────────────────────┘
 ```
 
-### 内置节点执行器
+### 节点执行器系统
 
-#### 1. DelayNodeExecutor - 延迟节点
+工作流引擎支持通过 `IWorkflowNodeExecutor` 接口扩展节点类型。系统通过依赖注入注册节点执行器：
 
-延迟节点用于在工作流中引入等待时间，适用于需要定时执行或暂停的场景。
+```csharp
+// 在Program.cs中注册节点执行器
+builder.Services.AddScoped<IWorkflowNodeExecutor, CustomNodeExecutor>();
+```
 
-**使用场景**：
-- 定时任务
-- 批处理等待
-- 限流控制
-
-**配置示例**：
-```json
+**节点执行器接口**：
+```csharp
+public interface IWorkflowNodeExecutor
 {
-  "nodeType": "Delay",
-  "config": {
-    "delaySeconds": 60
-  }
+    Task<WorkflowNodeExecutionResult> ExecuteAsync(
+        WorkflowNode node, 
+        WorkflowInstance instance, 
+        CancellationToken cancellationToken);
 }
 ```
 
-#### 2. ConditionNodeExecutor - 条件节点
-
-条件节点根据条件表达式决定工作流的分支走向。
-
-**使用场景**：
-- 条件分支
-- 审批流程
-- 异常处理
-
-**配置示例**：
-```json
-{
-  "nodeType": "Condition",
-  "config": {
-    "condition": "status == 'approved'",
-    "trueNextNode": "node-approve",
-    "falseNextNode": "node-reject"
-  }
-}
-```
+**支持自定义节点类型**：
+- 业务逻辑节点
+- 数据处理节点
+- 外部服务调用节点
+- 条件判断节点
 
 ### 工作流API接口
 
