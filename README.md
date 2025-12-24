@@ -1,7 +1,7 @@
 # 3D Real Scene - 企业级3D场景管理系统
 
 基于 ASP.NET Core 9.0、Vue 3 和 Three.js 的企业级3D真实场景管理系统，采用DDD分层架构和异构融合存储。
-<img width="922" height="597" alt="image" src="https://github.com/user-attachments/assets/7f54fc47-fb1a-48be-845f-2d55deaf0904" />
+<img width="900" height="597" alt="image" src="https://github.com/user-attachments/assets/7f54fc47-fb1a-48be-845f-2d55deaf0904" />
 
 ## ⭐ 核心特性
 
