@@ -59,9 +59,9 @@ public class OsgbModelLoader : ModelLoader
                     "\n\n详细信息请参阅：src/RealScene3D.Lib/OSGB/README.md");
             }
 
-            // 使用原生读取器直接加载
+            // 使用原生读取器直接加载(默认加载所有层级)
             var nativeReader = ActivatorUtilities.CreateInstance<OsgbNativeReader>(_serviceProvider);
-            var result = await nativeReader.LoadModelAsync(modelPath, cancellationToken);
+            var result = await nativeReader.LoadModelAsync(modelPath, false, 0, cancellationToken);
 
             var elapsed = DateTime.UtcNow - startTime;
             _logger.LogInformation(
@@ -107,19 +107,25 @@ public class OsgbNativeReader
 
     /// <summary>
     /// 直接加载 OSGB 文件并转换为 IMesh
-    /// 无需 osgconv，完全使用原生 OpenSceneGraph 库
+    /// 无需 osgconv,完全使用原生 OpenSceneGraph 库
     /// </summary>
+    /// <param name="osgbPath">OSGB文件路径</param>
+    /// <param name="loadAllLevels">是否递归加载所有LOD层级(默认true,加载完整模型)</param>
+    /// <param name="maxDepth">最大递归深度(0=无限制,默认0)</param>
+    /// <param name="cancellationToken">取消令牌</param>
     public async Task<(IMesh Mesh, Box3 BoundingBox)> LoadModelAsync(
         string osgbPath,
+        bool loadAllLevels = true,
+        int maxDepth = 0,
         CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => LoadModel(osgbPath), cancellationToken);
+        return await Task.Run(() => LoadModel(osgbPath, loadAllLevels, maxDepth), cancellationToken);
     }
 
     /// <summary>
     /// 同步加载模型
     /// </summary>
-    private (IMesh Mesh, Box3 BoundingBox) LoadModel(string osgbPath)
+    private (IMesh Mesh, Box3 BoundingBox) LoadModel(string osgbPath, bool loadAllLevels = true, int maxDepth = 0)
     {
         var startTime = DateTime.UtcNow;
         _logger.LogInformation("开始使用原生 OpenSceneGraph 读取 OSGB: {Path}", osgbPath);
@@ -135,8 +141,11 @@ public class OsgbNativeReader
             // 创建 C++/CLI 读取器
             using var reader = new OsgbReaderWrapper();
 
-            // 直接读取并转换为网格数据
-            var managedMeshData = reader.LoadAndConvertToMesh(osgbPath);
+            // 直接读取并转换为网格数据(支持递归加载所有LOD层级)
+            _logger.LogInformation("加载设置: loadAllLevels={LoadAll}, maxDepth={MaxDepth}",
+                loadAllLevels, maxDepth);
+
+            var managedMeshData = reader.LoadAndConvertToMesh(osgbPath, loadAllLevels, maxDepth);
 
             if (managedMeshData == null || managedMeshData.VertexCount == 0)
             {

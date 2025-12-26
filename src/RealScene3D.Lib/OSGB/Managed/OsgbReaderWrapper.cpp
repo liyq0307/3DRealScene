@@ -1,234 +1,255 @@
 #include "OsgbReaderWrapper.h"
 
-namespace RealScene3D {
-namespace Managed {
+namespace RealScene3D
+{
+    namespace Managed
+    {
 
-OsgbReaderWrapper::OsgbReaderWrapper() {
-    m_nativeReader = new Native::OsgbReader();
-}
+        OsgbReaderWrapper::OsgbReaderWrapper()
+        {
+            m_nativeReader = new Native::OsgbReader();
+        }
 
-OsgbReaderWrapper::~OsgbReaderWrapper() {
-    this->!OsgbReaderWrapper();
-}
+        OsgbReaderWrapper::~OsgbReaderWrapper()
+        {
+            this->!OsgbReaderWrapper();
+        }
 
-OsgbReaderWrapper::!OsgbReaderWrapper() {
-    if (m_nativeReader != nullptr) {
-        delete m_nativeReader;
-        m_nativeReader = nullptr;
-    }
-}
+        OsgbReaderWrapper::!OsgbReaderWrapper()
+        {
+            if (m_nativeReader != nullptr)
+            {
+                delete m_nativeReader;
+                m_nativeReader = nullptr;
+            }
+        }
 
-ManagedMeshData^ OsgbReaderWrapper::LoadAndConvertToMesh(String^ filePath) {
-    msclr::interop::marshal_context context;
-    std::string nativePath = context.marshal_as<std::string>(filePath);
+        ManagedMeshData ^ OsgbReaderWrapper::LoadAndConvertToMesh(String ^ filePath, bool loadAllLevels, int maxDepth)
+        {
+            msclr::interop::marshal_context context;
+            std::string nativePath = context.marshal_as<std::string>(filePath);
 
-    // 直接调用原生读取器，一次性完成转换
-    auto nativeMesh = m_nativeReader->LoadAndConvertToMesh(nativePath);
+            // 直接调用原生读取器，一次性完成转换
+            auto nativeMesh = m_nativeReader->LoadAndConvertToMesh(nativePath, loadAllLevels, maxDepth);
 
-    // 转换为托管类型
-    return ConvertMesh(nativeMesh);
-}
+            // 转换为托管类型
+            return ConvertMesh(nativeMesh);
+        }
 
-List<ManagedTextureData^>^ OsgbReaderWrapper::ExtractTexturesOnly(String^ filePath) {
-    msclr::interop::marshal_context context;
-    std::string nativePath = context.marshal_as<std::string>(filePath);
+        ManagedMeshData ^ OsgbReaderWrapper::LoadAndConvertToMesh(String ^ filePath)
+        {
+            return LoadAndConvertToMesh(filePath, false, 0);
+        }
 
-    auto nativeTextures = m_nativeReader->ExtractTexturesOnly(nativePath);
-    auto managedTextures = gcnew List<ManagedTextureData^>();
+        List<ManagedTextureData ^> ^ OsgbReaderWrapper::ExtractTexturesOnly(String ^ filePath)
+        {
+            msclr::interop::marshal_context context;
+            std::string nativePath = context.marshal_as<std::string>(filePath);
 
-    for (const auto& nativeTexture : nativeTextures) {
-        managedTextures->Add(ConvertTexture(nativeTexture));
-    }
+            auto nativeTextures = m_nativeReader->ExtractTexturesOnly(nativePath);
+            auto managedTextures = gcnew List<ManagedTextureData ^>();
 
-    return managedTextures;
-}
+            for (const auto &nativeTexture : nativeTextures)
+            {
+                managedTextures->Add(ConvertTexture(nativeTexture));
+            }
 
-bool OsgbReaderWrapper::SaveTexture(ManagedTextureData^ texture, String^ outputPath) {
-    msclr::interop::marshal_context context;
-    std::string nativePath = context.marshal_as<std::string>(outputPath);
+            return managedTextures;
+        }
 
-    // 转换托管纹理数据为原生数据
-    Native::TextureData nativeTexture;
-    nativeTexture.Width = texture->Width;
-    nativeTexture.Height = texture->Height;
-    nativeTexture.Components = texture->Components;
-    nativeTexture.Format = context.marshal_as<std::string>(texture->Format);
-    nativeTexture.Name = context.marshal_as<std::string>(texture->Name);
-    nativeTexture.IsCompressed = texture->IsCompressed;
-    nativeTexture.CompressionType = texture->CompressionType;
+        bool OsgbReaderWrapper::SaveTexture(ManagedTextureData ^ texture, String ^ outputPath)
+        {
+            msclr::interop::marshal_context context;
+            std::string nativePath = context.marshal_as<std::string>(outputPath);
 
-    // 复制图像数据
-    nativeTexture.ImageData.resize(texture->ImageData->Length);
-    Marshal::Copy(
-        texture->ImageData,
-        0,
-        IntPtr((void*)nativeTexture.ImageData.data()),
-        texture->ImageData->Length
-    );
+            // 转换托管纹理数据为原生数据
+            Native::TextureData nativeTexture;
+            nativeTexture.Width = texture->Width;
+            nativeTexture.Height = texture->Height;
+            nativeTexture.Components = texture->Components;
+            nativeTexture.Format = context.marshal_as<std::string>(texture->Format);
+            nativeTexture.Name = context.marshal_as<std::string>(texture->Name);
+            nativeTexture.IsCompressed = texture->IsCompressed;
+            nativeTexture.CompressionType = texture->CompressionType;
 
-    return m_nativeReader->SaveTexture(nativeTexture, nativePath);
-}
+            // 复制图像数据
+            nativeTexture.ImageData.resize(texture->ImageData->Length);
+            Marshal::Copy(
+                texture->ImageData,
+                0,
+                IntPtr((void *)nativeTexture.ImageData.data()),
+                texture->ImageData->Length);
 
-String^ OsgbReaderWrapper::GetLastError() {
-    return gcnew String(m_nativeReader->GetLastError().c_str());
-}
+            return m_nativeReader->SaveTexture(nativeTexture, nativePath);
+        }
 
-// 私有转换方法实现
+        String ^ OsgbReaderWrapper::GetLastError()
+        {
+            return gcnew String(m_nativeReader->GetLastError().c_str());
+        }
 
-ManagedTextureData^ OsgbReaderWrapper::ConvertTexture(const Native::TextureData& nativeTexture) {
-    auto managedTexture = gcnew ManagedTextureData();
+        // 私有转换方法实现
 
-    managedTexture->Width = nativeTexture.Width;
-    managedTexture->Height = nativeTexture.Height;
-    managedTexture->Components = nativeTexture.Components;
-    managedTexture->Format = gcnew String(nativeTexture.Format.c_str());
-    managedTexture->Name = gcnew String(nativeTexture.Name.c_str());
-    managedTexture->IsCompressed = nativeTexture.IsCompressed;
-    managedTexture->CompressionType = nativeTexture.CompressionType;
+        ManagedTextureData ^ OsgbReaderWrapper::ConvertTexture(const Native::TextureData &nativeTexture)
+        {
+            auto managedTexture = gcnew ManagedTextureData();
 
-    // 复制图像数据
-    managedTexture->ImageData = gcnew array<Byte>((int)nativeTexture.ImageData.size());
-    Marshal::Copy(
-        IntPtr((void*)nativeTexture.ImageData.data()),
-        managedTexture->ImageData,
-        0,
-        managedTexture->ImageData->Length
-    );
+            managedTexture->Width = nativeTexture.Width;
+            managedTexture->Height = nativeTexture.Height;
+            managedTexture->Components = nativeTexture.Components;
+            managedTexture->Format = gcnew String(nativeTexture.Format.c_str());
+            managedTexture->Name = gcnew String(nativeTexture.Name.c_str());
+            managedTexture->IsCompressed = nativeTexture.IsCompressed;
+            managedTexture->CompressionType = nativeTexture.CompressionType;
 
-    return managedTexture;
-}
+            // 复制图像数据
+            managedTexture->ImageData = gcnew array<Byte>((int)nativeTexture.ImageData.size());
+            Marshal::Copy(
+                IntPtr((void *)nativeTexture.ImageData.data()),
+                managedTexture->ImageData,
+                0,
+                managedTexture->ImageData->Length);
 
-ManagedMaterialData^ OsgbReaderWrapper::ConvertMaterial(const Native::MaterialData& nativeMaterial) {
-    auto managedMaterial = gcnew ManagedMaterialData();
+            return managedTexture;
+        }
 
-    managedMaterial->Name = gcnew String(nativeMaterial.Name.c_str());
+        ManagedMaterialData ^ OsgbReaderWrapper::ConvertMaterial(const Native::MaterialData &nativeMaterial)
+        {
+            auto managedMaterial = gcnew ManagedMaterialData();
 
-    // 环境光
-    managedMaterial->AmbientR = nativeMaterial.AmbientR;
-    managedMaterial->AmbientG = nativeMaterial.AmbientG;
-    managedMaterial->AmbientB = nativeMaterial.AmbientB;
-    managedMaterial->AmbientA = nativeMaterial.AmbientA;
+            managedMaterial->Name = gcnew String(nativeMaterial.Name.c_str());
 
-    // 漫反射
-    managedMaterial->DiffuseR = nativeMaterial.DiffuseR;
-    managedMaterial->DiffuseG = nativeMaterial.DiffuseG;
-    managedMaterial->DiffuseB = nativeMaterial.DiffuseB;
-    managedMaterial->DiffuseA = nativeMaterial.DiffuseA;
+            // 环境光
+            managedMaterial->AmbientR = nativeMaterial.AmbientR;
+            managedMaterial->AmbientG = nativeMaterial.AmbientG;
+            managedMaterial->AmbientB = nativeMaterial.AmbientB;
+            managedMaterial->AmbientA = nativeMaterial.AmbientA;
 
-    // 镜面反射
-    managedMaterial->SpecularR = nativeMaterial.SpecularR;
-    managedMaterial->SpecularG = nativeMaterial.SpecularG;
-    managedMaterial->SpecularB = nativeMaterial.SpecularB;
-    managedMaterial->SpecularA = nativeMaterial.SpecularA;
+            // 漫反射
+            managedMaterial->DiffuseR = nativeMaterial.DiffuseR;
+            managedMaterial->DiffuseG = nativeMaterial.DiffuseG;
+            managedMaterial->DiffuseB = nativeMaterial.DiffuseB;
+            managedMaterial->DiffuseA = nativeMaterial.DiffuseA;
 
-    // 自发光
-    managedMaterial->EmissionR = nativeMaterial.EmissionR;
-    managedMaterial->EmissionG = nativeMaterial.EmissionG;
-    managedMaterial->EmissionB = nativeMaterial.EmissionB;
-    managedMaterial->EmissionA = nativeMaterial.EmissionA;
+            // 镜面反射
+            managedMaterial->SpecularR = nativeMaterial.SpecularR;
+            managedMaterial->SpecularG = nativeMaterial.SpecularG;
+            managedMaterial->SpecularB = nativeMaterial.SpecularB;
+            managedMaterial->SpecularA = nativeMaterial.SpecularA;
 
-    // 光泽度和纹理索引
-    managedMaterial->Shininess = nativeMaterial.Shininess;
-    managedMaterial->TextureIndex = nativeMaterial.TextureIndex;
+            // 自发光
+            managedMaterial->EmissionR = nativeMaterial.EmissionR;
+            managedMaterial->EmissionG = nativeMaterial.EmissionG;
+            managedMaterial->EmissionB = nativeMaterial.EmissionB;
+            managedMaterial->EmissionA = nativeMaterial.EmissionA;
 
-    return managedMaterial;
-}
+            // 光泽度和纹理索引
+            managedMaterial->Shininess = nativeMaterial.Shininess;
+            managedMaterial->TextureIndex = nativeMaterial.TextureIndex;
 
-ManagedMeshData^ OsgbReaderWrapper::ConvertMesh(const Native::MeshData& nativeMesh) {
-    auto managedMesh = gcnew ManagedMeshData();
+            return managedMaterial;
+        }
 
-    // 转换顶点
-    if (!nativeMesh.Vertices.empty()) {
-        managedMesh->Vertices = gcnew array<float>((int)nativeMesh.Vertices.size());
-        Marshal::Copy(
-            IntPtr((void*)nativeMesh.Vertices.data()),
-            managedMesh->Vertices,
-            0,
-            managedMesh->Vertices->Length
-        );
-    }
+        ManagedMeshData ^ OsgbReaderWrapper::ConvertMesh(const Native::MeshData &nativeMesh)
+        {
+            auto managedMesh = gcnew ManagedMeshData();
 
-    // 转换法线
-    if (!nativeMesh.Normals.empty()) {
-        managedMesh->Normals = gcnew array<float>((int)nativeMesh.Normals.size());
-        Marshal::Copy(
-            IntPtr((void*)nativeMesh.Normals.data()),
-            managedMesh->Normals,
-            0,
-            managedMesh->Normals->Length
-        );
-    }
+            // 转换顶点
+            if (!nativeMesh.Vertices.empty())
+            {
+                managedMesh->Vertices = gcnew array<float>((int)nativeMesh.Vertices.size());
+                Marshal::Copy(
+                    IntPtr((void *)nativeMesh.Vertices.data()),
+                    managedMesh->Vertices,
+                    0,
+                    managedMesh->Vertices->Length);
+            }
 
-    // 转换纹理坐标
-    if (!nativeMesh.TexCoords.empty()) {
-        managedMesh->TexCoords = gcnew array<float>((int)nativeMesh.TexCoords.size());
-        Marshal::Copy(
-            IntPtr((void*)nativeMesh.TexCoords.data()),
-            managedMesh->TexCoords,
-            0,
-            managedMesh->TexCoords->Length
-        );
-    }
+            // 转换法线
+            if (!nativeMesh.Normals.empty())
+            {
+                managedMesh->Normals = gcnew array<float>((int)nativeMesh.Normals.size());
+                Marshal::Copy(
+                    IntPtr((void *)nativeMesh.Normals.data()),
+                    managedMesh->Normals,
+                    0,
+                    managedMesh->Normals->Length);
+            }
 
-    // 转换索引
-    if (!nativeMesh.Indices.empty()) {
-        managedMesh->Indices = gcnew array<unsigned int>((int)nativeMesh.Indices.size());
-        // Marshal::Copy 不支持 unsigned int，使用 pin_ptr 手动复制
-        pin_ptr<unsigned int> pinnedIndices = &managedMesh->Indices[0];
-        memcpy(pinnedIndices, nativeMesh.Indices.data(), nativeMesh.Indices.size() * sizeof(unsigned int));
-    }
+            // 转换纹理坐标
+            if (!nativeMesh.TexCoords.empty())
+            {
+                managedMesh->TexCoords = gcnew array<float>((int)nativeMesh.TexCoords.size());
+                Marshal::Copy(
+                    IntPtr((void *)nativeMesh.TexCoords.data()),
+                    managedMesh->TexCoords,
+                    0,
+                    managedMesh->TexCoords->Length);
+            }
 
-    // 转换面材质索引（方案B修复）
-    if (!nativeMesh.FaceMaterialIndices.empty()) {
-        managedMesh->FaceMaterialIndices = gcnew array<int>((int)nativeMesh.FaceMaterialIndices.size());
-        Marshal::Copy(
-            IntPtr((void*)nativeMesh.FaceMaterialIndices.data()),
-            managedMesh->FaceMaterialIndices,
-            0,
-            managedMesh->FaceMaterialIndices->Length
-        );
-    }
+            // 转换索引
+            if (!nativeMesh.Indices.empty())
+            {
+                managedMesh->Indices = gcnew array<unsigned int>((int)nativeMesh.Indices.size());
+                // Marshal::Copy 不支持 unsigned int，使用 pin_ptr 手动复制
+                pin_ptr<unsigned int> pinnedIndices = &managedMesh->Indices[0];
+                memcpy(pinnedIndices, nativeMesh.Indices.data(), nativeMesh.Indices.size() * sizeof(unsigned int));
+            }
 
-    // 转换纹理
-    for (const auto& nativeTexture : nativeMesh.Textures) {
-        managedMesh->Textures->Add(ConvertTexture(nativeTexture));
-    }
+            // 转换面材质索引（方案B修复）
+            if (!nativeMesh.FaceMaterialIndices.empty())
+            {
+                managedMesh->FaceMaterialIndices = gcnew array<int>((int)nativeMesh.FaceMaterialIndices.size());
+                Marshal::Copy(
+                    IntPtr((void *)nativeMesh.FaceMaterialIndices.data()),
+                    managedMesh->FaceMaterialIndices,
+                    0,
+                    managedMesh->FaceMaterialIndices->Length);
+            }
 
-    // 转换材质
-    for (const auto& nativeMaterial : nativeMesh.Materials) {
-        managedMesh->Materials->Add(ConvertMaterial(nativeMaterial));
-    }
+            // 转换纹理
+            for (const auto &nativeTexture : nativeMesh.Textures)
+            {
+                managedMesh->Textures->Add(ConvertTexture(nativeTexture));
+            }
 
-    // 复制包围盒
-    managedMesh->BBoxMinX = nativeMesh.BBoxMinX;
-    managedMesh->BBoxMinY = nativeMesh.BBoxMinY;
-    managedMesh->BBoxMinZ = nativeMesh.BBoxMinZ;
-    managedMesh->BBoxMaxX = nativeMesh.BBoxMaxX;
-    managedMesh->BBoxMaxY = nativeMesh.BBoxMaxY;
-    managedMesh->BBoxMaxZ = nativeMesh.BBoxMaxZ;
+            // 转换材质
+            for (const auto &nativeMaterial : nativeMesh.Materials)
+            {
+                managedMesh->Materials->Add(ConvertMaterial(nativeMaterial));
+            }
 
-    // 复制统计信息
-    managedMesh->VertexCount = nativeMesh.VertexCount;
-    managedMesh->FaceCount = nativeMesh.FaceCount;
-    managedMesh->TextureCount = nativeMesh.TextureCount;
-    managedMesh->MaterialCount = nativeMesh.MaterialCount;
+            // 复制包围盒
+            managedMesh->BBoxMinX = nativeMesh.BBoxMinX;
+            managedMesh->BBoxMinY = nativeMesh.BBoxMinY;
+            managedMesh->BBoxMinZ = nativeMesh.BBoxMinZ;
+            managedMesh->BBoxMaxX = nativeMesh.BBoxMaxX;
+            managedMesh->BBoxMaxY = nativeMesh.BBoxMaxY;
+            managedMesh->BBoxMaxZ = nativeMesh.BBoxMaxZ;
 
-    // 复制内存使用统计
-    managedMesh->VerticesMemory = nativeMesh.VerticesMemory;
-    managedMesh->NormalsMemory = nativeMesh.NormalsMemory;
-    managedMesh->TexCoordsMemory = nativeMesh.TexCoordsMemory;
-    managedMesh->IndicesMemory = nativeMesh.IndicesMemory;
-    managedMesh->TexturesMemory = nativeMesh.TexturesMemory;
-    managedMesh->TotalMemory = nativeMesh.TotalMemory;
+            // 复制统计信息
+            managedMesh->VertexCount = nativeMesh.VertexCount;
+            managedMesh->FaceCount = nativeMesh.FaceCount;
+            managedMesh->TextureCount = nativeMesh.TextureCount;
+            managedMesh->MaterialCount = nativeMesh.MaterialCount;
 
-    // 复制变换信息
-    managedMesh->Transform->HasTransform = nativeMesh.Transform.HasTransform;
-    for (int i = 0; i < 16; i++) {
-        managedMesh->Transform->Matrix[i] = nativeMesh.Transform.Matrix[i];
-    }
+            // 复制内存使用统计
+            managedMesh->VerticesMemory = nativeMesh.VerticesMemory;
+            managedMesh->NormalsMemory = nativeMesh.NormalsMemory;
+            managedMesh->TexCoordsMemory = nativeMesh.TexCoordsMemory;
+            managedMesh->IndicesMemory = nativeMesh.IndicesMemory;
+            managedMesh->TexturesMemory = nativeMesh.TexturesMemory;
+            managedMesh->TotalMemory = nativeMesh.TotalMemory;
 
-    return managedMesh;
-}
+            // 复制变换信息
+            managedMesh->Transform->HasTransform = nativeMesh.Transform.HasTransform;
+            for (int i = 0; i < 16; i++)
+            {
+                managedMesh->Transform->Matrix[i] = nativeMesh.Transform.Matrix[i];
+            }
 
-} // namespace Managed
+            return managedMesh;
+        }
+
+    } // namespace Managed
 } // namespace RealScene3D
