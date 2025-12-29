@@ -442,6 +442,16 @@ builder.Services.AddScoped<IWorkflowNodeExecutor, ConditionNodeExecutor>(sp => s
 // === 核心切片服务 ===
 // 注意：网格分割功能已集成到 MeshT 类中，无需单独的服务
 
+// 3D Tiles 生成器（各个生成器单独注册，供工厂和直接注入使用）
+builder.Services.AddScoped<B3dmGenerator>();
+builder.Services.AddScoped<GltfGenerator>();
+builder.Services.AddScoped<TilesetGenerator>();
+
+// OSGB PagedLOD 分层切片服务（用于 OSGB 数据按精细层切片）
+builder.Services.AddScoped<OsgbLODSlicingService>();
+builder.Services.AddScoped<OsgbTiledDatasetSlicingService>();
+builder.Services.AddScoped<RealScene3D.Application.Services.Parsers.OsgbMetadataParser>();
+
 // 独立功能服务（依赖其他注册的服务，需要通过DI注入）
 builder.Services.AddScoped<IncrementalUpdateService>();
 builder.Services.AddScoped<SlicingDataService>();

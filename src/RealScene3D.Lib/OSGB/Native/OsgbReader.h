@@ -147,6 +147,22 @@ namespace RealScene3D
         };
 
         /// <summary>
+        /// PagedLOD 层次节点数据（用于 OSGB 分层切片）
+        /// 每个节点对应一个 OSGB 精细层文件
+        /// </summary>
+        struct PagedLODNodeData
+        {
+            std::string FileName;                         // OSGB 文件路径（绝对路径）
+            std::string RelativePath;                     // 相对于根文件的路径
+            int Level;                                    // LOD 层级（从文件名提取，如 Tile_L17_X_Y.osgb -> 17）
+            MeshData MeshData;                            // 该层级的网格数据
+            std::vector<PagedLODNodeData> Children;       // 子层级节点
+            double GeometricError;                        // 几何误差（从 PagedLOD 节点提取）
+
+            PagedLODNodeData() : Level(-1), GeometricError(0.0) {}
+        };
+
+        /// <summary>
         /// OSGB 文件读取器（C++ 原生实现 - 增强版）
         /// 完整封装 OpenSceneGraph，提供直接读取 OSGB 为网格数据的功能
         ///
@@ -172,6 +188,15 @@ namespace RealScene3D
             /// <param name="maxDepth">最大递归深度（0=无限制，默认0）</param>
             /// <returns>网格数据，如果失败则返回空数据</returns>
             MeshData LoadAndConvertToMesh(const std::string &filePath, bool loadAllLevels = false, int maxDepth = 0);
+
+            /// <summary>
+            /// 加载 OSGB 文件的 PagedLOD 层次结构（用于 3DTiles 分层切片）
+            /// 每个精细层作为独立节点返回，保持层次关系
+            /// </summary>
+            /// <param name="filePath">根 OSGB 文件路径</param>
+            /// <param name="maxDepth">最大递归深度（0=无限制，默认0）</param>
+            /// <returns>层次节点数据，根节点在第一个元素</returns>
+            std::vector<PagedLODNodeData> LoadWithLODHierarchy(const std::string &filePath, int maxDepth = 0);
 
             /// <summary>
             /// 仅提取纹理数据（如果只需要纹理）

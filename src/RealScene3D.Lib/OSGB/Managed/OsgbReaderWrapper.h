@@ -122,6 +122,30 @@ namespace RealScene3D
         };
 
         /// <summary>
+        /// 托管 PagedLOD 层次节点数据（用于 OSGB 分层切片）
+        /// 每个节点对应一个 OSGB 精细层文件
+        /// </summary>
+    public
+        ref class ManagedPagedLODNode
+        {
+        public:
+            String ^ FileName;                                  // OSGB 文件路径（绝对路径）
+            String ^ RelativePath;                              // 相对于根文件的路径
+            int Level;                                          // LOD 层级（从文件名提取）
+            ManagedMeshData ^ MeshData;                         // 该层级的网格数据
+            List<ManagedPagedLODNode ^> ^ Children;             // 子层级节点
+            double GeometricError;                              // 几何误差
+
+            ManagedPagedLODNode()
+            {
+                Level = -1;
+                GeometricError = 0.0;
+                Children = gcnew List<ManagedPagedLODNode ^>();
+                MeshData = gcnew ManagedMeshData();
+            }
+        };
+
+        /// <summary>
         /// OSGB 读取器托管封装
         /// 提供直接读取 OSGB 文件为网格数据的功能，无需 osgconv 转换
         /// </summary>
@@ -148,6 +172,15 @@ namespace RealScene3D
             ManagedMeshData ^ LoadAndConvertToMesh(String ^ filePath);
 
             /// <summary>
+            /// 加载 OSGB 文件的 PagedLOD 层次结构（用于 3DTiles 分层切片）
+            /// 每个精细层作为独立节点返回，保持层次关系
+            /// </summary>
+            /// <param name="filePath">根 OSGB 文件路径</param>
+            /// <param name="maxDepth">最大递归深度（0=无限制，默认0）</param>
+            /// <returns>层次节点列表，根节点在第一个元素</returns>
+            List<ManagedPagedLODNode ^> ^ LoadWithLODHierarchy(String ^ filePath, int maxDepth);
+
+            /// <summary>
             /// 仅提取纹理数据（如果只需要纹理）
             /// </summary>
             List<ManagedTextureData ^> ^ ExtractTexturesOnly(String ^ filePath);
@@ -169,6 +202,7 @@ namespace RealScene3D
             ManagedTextureData ^ ConvertTexture(const Native::TextureData &nativeTexture);
             ManagedMaterialData ^ ConvertMaterial(const Native::MaterialData &nativeMaterial);
             ManagedMeshData ^ ConvertMesh(const Native::MeshData &nativeMesh);
+            ManagedPagedLODNode ^ ConvertPagedLODNode(const Native::PagedLODNodeData &nativeNode);
         };
 
     } // namespace Managed

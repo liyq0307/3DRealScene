@@ -20,6 +20,7 @@
 #include <set>
 #include <locale>
 #include <filesystem>
+#include <functional>
 
 // 包含所有PrimitiveSet类型
 #include <osg/PrimitiveSet>
@@ -1394,6 +1395,279 @@ namespace RealScene3D
                 m_lastError = std::string("Exception saving texture: ") + e.what();
                 return false;
             }
+        }
+
+        // ==================== PagedLOD 层次结构加载功能 ====================
+
+        /// <summary>
+        /// 辅助函数：从 OSGB 文件名提取 LOD 层级编号
+        /// 参考 E:\Code\3dtiles\src\osgb23dtile.cpp 的 get_lvl_num 实现
+        /// 示例：Tile_L17_X123_Y456.osgb -> 17
+        ///       Data/Tile_L02_X0_Y0.osgb -> 2
+        ///       Tile.osgb -> -1 (未找到)
+        /// </summary>
+        static int ExtractLODLevel(const std::string &filePath)
+        {
+            // 提取文件名（不含路径）
+            std::filesystem::path path(filePath);
+            std::string filename = path.stem().string(); // 不含扩展名
+
+            // 查找 "_L" 标记
+            size_t p0 = filename.find("_L");
+            if (p0 == std::string::npos)
+            {
+                // 如果没有找到 "_L"，返回 -1
+                return -1;
+            }
+
+            // 查找下一个 "_" 标记
+            size_t p1 = filename.find("_", p0 + 2);
+            if (p1 == std::string::npos)
+            {
+                return -1;
+            }
+
+            // 提取 "_L" 和下一个 "_" 之间的数字
+            std::string substr = filename.substr(p0 + 2, p1 - p0 - 2);
+
+            try
+            {
+                return std::stol(substr);
+            }
+            catch (...)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// PagedLOD 层次结构访问器
+        /// 收集 PagedLOD 节点的子文件引用和几何误差信息
+        /// </summary>
+        class PagedLODHierarchyVisitor : public osg::NodeVisitor
+        {
+        public:
+            struct LODNodeInfo
+            {
+                std::string fileName;       // 子文件路径
+                double geometricError;      // 几何误差
+                double minRange;            // 最小可见距离
+                double maxRange;            // 最大可见距离
+            };
+
+            std::vector<LODNodeInfo> childNodes;
+            std::string basePath;
+
+            PagedLODHierarchyVisitor(const std::string &baseDir)
+                : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN),
+                  basePath(baseDir) {}
+
+            void apply(osg::PagedLOD &node) override
+            {
+                // 遍历 PagedLOD 的子文件
+                for (unsigned int i = 0; i < node.getNumFileNames(); ++i)
+                {
+                    std::string filename = node.getFileName(i);
+                    if (!filename.empty())
+                    {
+                        // 构造完整路径
+                        std::filesystem::path fullPath = std::filesystem::path(basePath) / filename;
+                        std::string fullPathStr = fullPath.string();
+
+                        // 检查文件是否存在
+                        if (std::filesystem::exists(fullPath))
+                        {
+                            LODNodeInfo info;
+                            info.fileName = fullPathStr;
+
+                            // 提取范围信息
+                            if (i < node.getNumRanges())
+                            {
+                                info.minRange = node.getMinRange(i);
+                                info.maxRange = node.getMaxRange(i);
+
+                                // 几何误差使用 maxRange（参考 osgb23dtile.cpp）
+                                info.geometricError = info.maxRange;
+                            }
+                            else
+                            {
+                                info.minRange = 0.0;
+                                info.maxRange = 0.0;
+                                info.geometricError = 0.0;
+                            }
+
+                            childNodes.push_back(info);
+                        }
+                    }
+                }
+
+                // 继续遍历
+                traverse(node);
+            }
+        };
+
+        /// <summary>
+        /// 递归加载 PagedLOD 层次结构
+        /// 参考 E:\Code\3dtiles\src\osgb23dtile.cpp 的 get_all_tree 实现
+        /// </summary>
+        static PagedLODNodeData LoadLODNodeRecursive(
+            const std::string &filePath,
+            const std::string &rootPath,
+            int currentDepth,
+            int maxDepth,
+            Charset charset,
+            std::string &lastError,
+            std::set<std::string> &visitedFiles)
+        {
+            PagedLODNodeData nodeData;
+            nodeData.FileName = filePath;
+
+            // 检查循环引用
+            std::filesystem::path absPath = std::filesystem::absolute(filePath);
+            std::string absPathStr = absPath.string();
+            if (visitedFiles.find(absPathStr) != visitedFiles.end())
+            {
+                lastError = "Detected circular reference: " + absPathStr;
+                return nodeData;
+            }
+            visitedFiles.insert(absPathStr);
+
+            // 计算相对路径
+            std::filesystem::path rootAbsPath = std::filesystem::absolute(rootPath);
+            nodeData.RelativePath = std::filesystem::relative(absPath, rootAbsPath.parent_path()).string();
+
+            // 提取 LOD 层级
+            nodeData.Level = ExtractLODLevel(filePath);
+
+            // 检查递归深度（maxDepth=0 表示无限制）
+            if (maxDepth > 0 && currentDepth >= maxDepth)
+            {
+                return nodeData;
+            }
+
+            // 加载当前文件的网格数据
+            try
+            {
+#ifdef WIN32
+                // 保存当前 locale
+                std::locale oldLocale;
+
+                // 根据字符编码设置 locale（用于处理中文路径等）
+                if (charset == Charset::GB18030)
+                {
+                    oldLocale = std::locale::global(std::locale(".936"));
+                }
+                else if (charset == Charset::ShiftJIS)
+                {
+                    oldLocale = std::locale::global(std::locale(".932"));
+                }
+#endif
+
+                // 读取文件
+                osg::ref_ptr<osgDB::Options> options = new osgDB::Options();
+                options->setOptionString("noTriStripPolygons");
+
+                osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(filePath, options.get());
+
+                if (!node)
+                {
+                    lastError = "Failed to load file: " + filePath;
+#ifdef WIN32
+                    std::locale::global(oldLocale);
+#endif
+                    return nodeData;
+                }
+
+                // 提取网格数据
+                MeshExtractorVisitor visitor;
+                node->accept(visitor);
+                visitor.finalize();
+
+                nodeData.MeshData = visitor.meshData;
+                nodeData.MeshData.CalculateMemoryUsage();
+
+                // 收集 PagedLOD 子节点信息
+                std::filesystem::path parentPath = std::filesystem::path(filePath).parent_path();
+                PagedLODHierarchyVisitor lodVisitor(parentPath.string());
+                node->accept(lodVisitor);
+
+                // 递归加载子节点
+                for (const auto &childInfo : lodVisitor.childNodes)
+                {
+                    PagedLODNodeData childNode = LoadLODNodeRecursive(
+                        childInfo.fileName,
+                        rootPath,
+                        currentDepth + 1,
+                        maxDepth,
+                        charset,
+                        lastError,
+                        visitedFiles);
+
+                    // 几何误差使用 maxRange（参考 osgb23dtile.cpp）
+                    childNode.GeometricError = childInfo.maxRange;
+                    nodeData.Children.push_back(childNode);
+                }
+
+#ifdef WIN32
+                std::locale::global(oldLocale);
+#endif
+            }
+            catch (const std::exception &e)
+            {
+                lastError = std::string("Exception loading LOD node: ") + e.what();
+            }
+
+            return nodeData;
+        }
+
+        /// <summary>
+        /// 加载 OSGB 文件的 PagedLOD 层次结构（用于 3DTiles 分层切片）
+        /// 参考 E:\Code\3dtiles\src\osgb23dtile.cpp 的 get_all_tree 实现
+        /// </summary>
+        std::vector<PagedLODNodeData> OsgbReader::LoadWithLODHierarchy(
+            const std::string &filePath,
+            int maxDepth)
+        {
+            std::vector<PagedLODNodeData> result;
+            std::set<std::string> visitedFiles; // 用于检测循环引用
+
+            // 验证文件
+            if (!ValidateFile(filePath))
+            {
+                return result;
+            }
+
+            try
+            {
+                // 递归加载层次结构
+                PagedLODNodeData rootNode = LoadLODNodeRecursive(
+                    filePath,
+                    filePath,
+                    0,
+                    maxDepth,
+                    m_charset,
+                    m_lastError,
+                    visitedFiles);
+
+                // 将层次结构展开为扁平列表（前序遍历）
+                std::function<void(const PagedLODNodeData &)> flattenHierarchy;
+                flattenHierarchy = [&](const PagedLODNodeData &node)
+                {
+                    result.push_back(node);
+                    for (const auto &child : node.Children)
+                    {
+                        flattenHierarchy(child);
+                    }
+                };
+
+                flattenHierarchy(rootNode);
+            }
+            catch (const std::exception &e)
+            {
+                m_lastError = std::string("Exception loading LOD hierarchy: ") + e.what();
+            }
+
+            return result;
         }
 
     } // namespace Native

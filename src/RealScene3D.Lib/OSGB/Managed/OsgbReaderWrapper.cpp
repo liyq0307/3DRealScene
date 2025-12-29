@@ -251,5 +251,46 @@ namespace RealScene3D
             return managedMesh;
         }
 
+        List<ManagedPagedLODNode ^> ^ OsgbReaderWrapper::LoadWithLODHierarchy(String ^ filePath, int maxDepth)
+        {
+            msclr::interop::marshal_context context;
+            std::string nativePath = context.marshal_as<std::string>(filePath);
+
+            // 调用原生 C++ 接口加载层次结构
+            auto nativeNodes = m_nativeReader->LoadWithLODHierarchy(nativePath, maxDepth);
+
+            // 转换为托管类型
+            auto managedNodes = gcnew List<ManagedPagedLODNode ^>();
+
+            for (const auto &nativeNode : nativeNodes)
+            {
+                managedNodes->Add(ConvertPagedLODNode(nativeNode));
+            }
+
+            return managedNodes;
+        }
+
+        ManagedPagedLODNode ^ OsgbReaderWrapper::ConvertPagedLODNode(const Native::PagedLODNodeData &nativeNode)
+        {
+            auto managedNode = gcnew ManagedPagedLODNode();
+
+            // 基本信息
+            managedNode->FileName = gcnew String(nativeNode.FileName.c_str());
+            managedNode->RelativePath = gcnew String(nativeNode.RelativePath.c_str());
+            managedNode->Level = nativeNode.Level;
+            managedNode->GeometricError = nativeNode.GeometricError;
+
+            // 转换网格数据
+            managedNode->MeshData = ConvertMesh(nativeNode.MeshData);
+
+            // 递归转换子节点
+            for (const auto &nativeChild : nativeNode.Children)
+            {
+                managedNode->Children->Add(ConvertPagedLODNode(nativeChild));
+            }
+
+            return managedNode;
+        }
+
     } // namespace Managed
 } // namespace RealScene3D

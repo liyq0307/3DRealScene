@@ -80,6 +80,14 @@ public class OsgbModelLoader : ModelLoader
         }
     }
 
+    /// <summary>
+    /// 检查是否支持 PagedLOD 分层加载
+    /// </summary>
+    public bool SupportsLODHierarchy()
+    {
+        return true; // OSGB 格式支持 PagedLOD 层次结构
+    }
+
     public override bool SupportsFormat(string extension)
     {
         return SupportedFormats.Contains(extension.ToLowerInvariant());
