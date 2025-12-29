@@ -335,19 +335,15 @@ public class OsgbLODSlicingService
         // 生成当前节点的切片
         if (node.Mesh != null && node.Mesh.FacesCount > 0)
         {
-            // 创建层级目录
-            string levelDir = Path.Combine(outputDir, $"LOD-{node.Level}");
-            Directory.CreateDirectory(levelDir);
-
-            // 生成切片文件名
+            // 生成切片文件名（直接使用原始文件名，不创建子目录）
             string fileName = Path.GetFileNameWithoutExtension(node.FileName);
-            string tilePath = Path.Combine(levelDir, $"{fileName}.b3dm");
+            string tilePath = Path.Combine(outputDir, $"{fileName}.b3dm");
 
-            // 更新 RelativePath 为生成的 B3DM 文件相对于 outputDir 的路径
-            node.RelativePath = $"LOD-{node.Level}/{fileName}.b3dm";
+            // 更新 RelativePath 为生成的 B3DM 文件名（相对于 outputDir）
+            node.RelativePath = $"{fileName}.b3dm";
 
-            _logger.LogInformation("生成切片: LOD-{Level}, 文件={File}, 面数={FaceCount}",
-                node.Level, fileName, node.Mesh.FacesCount);
+            _logger.LogInformation("生成切片: 文件={File}, 面数={FaceCount}",
+                fileName, node.Mesh.FacesCount);
 
             // 生成 B3DM 文件
             await _b3dmGenerator.SaveTileAsync(node.Mesh, tilePath);
