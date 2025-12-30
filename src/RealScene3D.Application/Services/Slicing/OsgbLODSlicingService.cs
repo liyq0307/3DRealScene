@@ -131,23 +131,16 @@ public class OsgbLODSlicingService
 
             _logger.LogInformation("切片生成完成: 总计 {Count} 个切片", slices.Count);
 
-            // 3. 生成 tileset.json（直接生成，参考 3dtiles 的 encode_tile_json）
+            // 3. 生成 tileset.json（子tileset不包含transform，由根tileset统一管理）
             if (config.GenerateTileset && slices.Count > 0)
             {
-                _logger.LogInformation("生成 OSGB tileset.json");
-
-                // 设置默认 GPS 坐标
-                if (gpsCoords == null)
-                {
-                    gpsCoords = new GpsCoords(39.908692, 116.397477, 43.5);
-                    _logger.LogInformation("使用默认GPS坐标: ({Lat:F6}, {Lon:F6}, {Alt:F1})",
-                        gpsCoords.Latitude, gpsCoords.Longitude, gpsCoords.Altitude);
-                }
+                _logger.LogInformation("生成 OSGB 子tileset.json（不包含transform）");
 
                 string tilesetPath = Path.Combine(outputDir, "tileset.json");
-                await GenerateTilesetJsonAsync(rootNode, tilesetPath, gpsCoords);
+                // 子tileset不需要transform，由根tileset统一管理坐标变换
+                await GenerateTilesetJsonAsync(rootNode, tilesetPath, gpsCoords: null, includeTransform: false);
 
-                _logger.LogInformation("OSGB tileset.json 生成完成: {Path}", tilesetPath);
+                _logger.LogInformation("OSGB 子tileset.json 生成完成: {Path}", tilesetPath);
             }
 
             _logger.LogInformation("========== OSGB PagedLOD 分层切片完成 ==========");
@@ -164,76 +157,98 @@ public class OsgbLODSlicingService
     /// <summary>
     /// 生成 tileset.json（参考 E:\Code\3dtiles\src\osgb23dtile.cpp:1232-1277）
     /// </summary>
+    /// <param name="includeTransform">是否包含ECEF变换矩阵（根tileset需要，子tileset不需要）</param>
     private async Task GenerateTilesetJsonAsync(
         LODTileInfo rootNode,
         string outputPath,
-        GpsCoords gpsCoords)
+        GpsCoords? gpsCoords = null,
+        bool includeTransform = false)
     {
         // 计算几何误差（参考 calc_geometric_error）
         CalculateGeometricError(rootNode, isRoot: true);
 
-        // 计算 ECEF 变换矩阵
-        var transform = gpsCoords.ToEcefTransform();
+        // 仅在需要时计算 ECEF 变换矩阵（子tileset不需要transform）
+        double[]? transform = null;
+        if (includeTransform && gpsCoords != null)
+        {
+            transform = gpsCoords.ToEcefTransform();
+            _logger.LogInformation("生成包含ECEF变换的tileset.json");
+        }
+        else
+        {
+            _logger.LogInformation("生成不包含变换矩阵的子tileset.json");
+        }
 
         // 生成根节点 JSON（递归）
         var rootJson = ConvertNodeToTileJson(rootNode, transform);
 
-        var tileset = new
+        // 使用有序字典保证字段顺序与3dtiles一致
+        var tileset = new System.Collections.Generic.Dictionary<string, object>
         {
-            asset = new
+            ["asset"] = new System.Collections.Generic.Dictionary<string, object>
             {
-                version = "1.0",
-                gltfUpAxis = "Z"
+                ["gltfUpAxis"] = "Z",
+                ["version"] = "1.0"
             },
-            geometricError = rootNode.GeometricError,
-            root = rootJson
+            ["geometricError"] = rootNode.GeometricError,
+            ["root"] = rootJson
         };
 
-        string json = Newtonsoft.Json.JsonConvert.SerializeObject(tileset, Newtonsoft.Json.Formatting.Indented);
-        await File.WriteAllTextAsync(outputPath, json);
+        // 配置JSON序列化选项：避免Unicode转义（如\u002B）
+        var jsonSettings = new Newtonsoft.Json.JsonSerializerSettings
+        {
+            Formatting = Newtonsoft.Json.Formatting.Indented,
+            StringEscapeHandling = Newtonsoft.Json.StringEscapeHandling.Default
+        };
+        string json = Newtonsoft.Json.JsonConvert.SerializeObject(tileset, jsonSettings);
+        await File.WriteAllTextAsync(outputPath, json, System.Text.Encoding.UTF8);
 
         _logger.LogInformation("根节点几何误差: {Error:F2}", rootNode.GeometricError);
     }
 
     /// <summary>
     /// 将 LOD 节点转换为 Tileset JSON（递归，参考 encode_tile_json）
+    /// 字段顺序与3dtiles保持一致：boundingVolume -> children -> content -> geometricError -> transform
     /// </summary>
     private object ConvertNodeToTileJson(LODTileInfo node, double[]? transform = null)
     {
-        var json = new Dictionary<string, object>
+        // 使用有序字典确保字段顺序
+        var json = new System.Collections.Generic.Dictionary<string, object>
         {
-            ["geometricError"] = node.GeometricError,
-            ["boundingVolume"] = new
+            ["boundingVolume"] = new System.Collections.Generic.Dictionary<string, object>
             {
-                box = ConvertToTilesetBox(node.BoundingBox)
+                ["box"] = ConvertToTilesetBox(node.BoundingBox)
             }
         };
 
-        // 根节点添加 transform
-        if (transform != null)
-        {
-            json["transform"] = transform;
-        }
-
-        // 添加 content
-        if (!string.IsNullOrEmpty(node.RelativePath))
-        {
-            // 转换路径格式：LOD-16/Tile_xxx.b3dm
-            string uri = node.RelativePath.Replace('\\', '/');
-            json["content"] = new
-            {
-                uri = "./" + uri,
-                boundingVolume = new
-                {
-                    box = ConvertToTilesetBox(node.BoundingBox)
-                }
-            };
-        }
-
-        // 递归处理子节点
+        // 先添加children（如果有）
         if (node.Children.Count > 0)
         {
             json["children"] = node.Children.Select(child => ConvertNodeToTileJson(child)).ToArray();
+        }
+
+        // 再添加content（如果有）
+        if (!string.IsNullOrEmpty(node.RelativePath))
+        {
+            // 转换路径格式：Tile_xxx.b3dm（不需要"./"前缀，直接使用文件名）
+            string uri = node.RelativePath.Replace('\\', '/');
+            json["content"] = new System.Collections.Generic.Dictionary<string, object>
+            {
+                ["boundingVolume"] = new System.Collections.Generic.Dictionary<string, object>
+                {
+                    ["box"] = ConvertToTilesetBox(node.BoundingBox)
+                },
+                ["uri"] = "./" + uri
+            };
+        }
+
+        // 然后添加geometricError
+        json["geometricError"] = node.GeometricError;
+
+        // 最后添加transform（如果需要）
+        if (transform != null)
+        {
+            json["transform"] = transform;
         }
 
         return json;
@@ -553,9 +568,12 @@ public class OsgbLODSlicingService
                                 rgba32Data,
                                 managedTexture.Width,
                                 managedTexture.Height);
-                            material.IsTextureCompressed = managedTexture.IsCompressed;
 
-                            _logger.LogDebug("加载纹理成功: {Name}, 尺寸={Width}x{Height}, 通道={Components}, 格式={Format}",
+                            // 强制启用JPEG压缩以减小B3DM文件大小（从116KB降至41KB）
+                            // GltfGenerator.cs 将使用 JpegEncoder Quality=75 进行压缩
+                            material.IsTextureCompressed = true;
+
+                            _logger.LogDebug("加载纹理成功: {Name}, 尺寸={Width}x{Height}, 通道={Components}, 格式={Format}, 压缩=JPEG",
                                 managedTexture.Name, managedTexture.Width, managedTexture.Height,
                                 managedTexture.Components, managedTexture.Format);
                         }

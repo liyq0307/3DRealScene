@@ -13,6 +13,7 @@
 #include <osg/ComputeBoundsVisitor>
 #include <osg/PagedLOD>
 #include <osg/ProxyNode>
+#include <osgUtil/SmoothingVisitor>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -238,26 +239,27 @@ namespace RealScene3D
                 // 记录当前几何体开始前的面数量（用于材质索引映射）
                 unsigned int startFaceIndex = meshData.Indices.size() / 3;
 
-                // 提取顶点（应用变换矩阵）
+                // 提取顶点（不应用变换矩阵，变换由tileset.json的transform管理）
+                // IMPORTANT: 3D Tiles规范要求顶点保持原始局部坐标，变换通过tileset节点的transform属性应用
                 for (const auto &v : *vertices)
                 {
-                    // 应用当前变换矩阵
-                    osg::Vec3 transformedV = v * currentTransform;
+                    // 直接使用原始顶点坐标，不应用currentTransform
+                    meshData.Vertices.emplace_back(v.x());
+                    meshData.Vertices.emplace_back(v.y());
+                    meshData.Vertices.emplace_back(v.z());
 
-                    meshData.Vertices.push_back(transformedV.x());
-                    meshData.Vertices.push_back(transformedV.y());
-                    meshData.Vertices.push_back(transformedV.z());
-
-                    meshData.BBoxMinX = std::min(meshData.BBoxMinX, transformedV.x());
-                    meshData.BBoxMinY = std::min(meshData.BBoxMinY, transformedV.y());
-                    meshData.BBoxMinZ = std::min(meshData.BBoxMinZ, transformedV.z());
-                    meshData.BBoxMaxX = std::max(meshData.BBoxMaxX, transformedV.x());
-                    meshData.BBoxMaxY = std::max(meshData.BBoxMaxY, transformedV.y());
-                    meshData.BBoxMaxZ = std::max(meshData.BBoxMaxZ, transformedV.z());
+                    meshData.BBoxMinX = std::min(meshData.BBoxMinX, v.x());
+                    meshData.BBoxMinY = std::min(meshData.BBoxMinY, v.y());
+                    meshData.BBoxMinZ = std::min(meshData.BBoxMinZ, v.z());
+                    meshData.BBoxMaxX = std::max(meshData.BBoxMaxX, v.x());
+                    meshData.BBoxMaxY = std::max(meshData.BBoxMaxY, v.y());
+                    meshData.BBoxMaxZ = std::max(meshData.BBoxMaxZ, v.z());
                 }
 
-                // 提取法线 - 正确处理绑定模式
+                // 提取法线 - 正确处理绑定模式（不应用变换）
+                // IMPORTANT: 法线也保持原始方向，变换由tileset.json的transform管理
                 osg::Vec3Array *normals = dynamic_cast<osg::Vec3Array *>(geom->getNormalArray());
+
                 if (normals && !normals->empty())
                 {
                     osg::Geometry::AttributeBinding normalBinding = geom->getNormalBinding();
@@ -269,9 +271,10 @@ namespace RealScene3D
                         {
                             for (const auto &n : *normals)
                             {
-                                meshData.Normals.push_back(n.x());
-                                meshData.Normals.push_back(n.y());
-                                meshData.Normals.push_back(n.z());
+                                // 直接使用原始法线，不应用变换
+                                meshData.Normals.emplace_back(n.x());
+                                meshData.Normals.emplace_back(n.y());
+                                meshData.Normals.emplace_back(n.z());
                             }
                         }
                         else
@@ -281,17 +284,17 @@ namespace RealScene3D
                             {
                                 if (i < normals->size())
                                 {
-                                    const osg::Vec3 &n = (*normals)[i];
-                                    meshData.Normals.push_back(n.x());
-                                    meshData.Normals.push_back(n.y());
-                                    meshData.Normals.push_back(n.z());
+                                    osg::Vec3 n = (*normals)[i];
+                                    meshData.Normals.emplace_back(n.x());
+                                    meshData.Normals.emplace_back(n.y());
+                                    meshData.Normals.emplace_back(n.z());
                                 }
                                 else
                                 {
                                     // 默认法线 (0, 1, 0)
-                                    meshData.Normals.push_back(0.0f);
-                                    meshData.Normals.push_back(1.0f);
-                                    meshData.Normals.push_back(0.0f);
+                                    meshData.Normals.emplace_back(0.0f);
+                                    meshData.Normals.emplace_back(1.0f);
+                                    meshData.Normals.emplace_back(0.0f);
                                 }
                             }
                         }
@@ -299,12 +302,12 @@ namespace RealScene3D
                     else if (normalBinding == osg::Geometry::BIND_OVERALL && normals->size() > 0)
                     {
                         // 整个geometry共用一个法线，需要扩展到所有顶点
-                        const osg::Vec3 &n = (*normals)[0];
+                        osg::Vec3 n = (*normals)[0];
                         for (unsigned int i = 0; i < vertexCount; ++i)
                         {
-                            meshData.Normals.push_back(n.x());
-                            meshData.Normals.push_back(n.y());
-                            meshData.Normals.push_back(n.z());
+                            meshData.Normals.emplace_back(n.x());
+                            meshData.Normals.emplace_back(n.y());
+                            meshData.Normals.emplace_back(n.z());
                         }
                     }
                     else if (normalBinding == osg::Geometry::BIND_PER_PRIMITIVE_SET)
@@ -314,12 +317,12 @@ namespace RealScene3D
                         // 为简化处理，这里使用第一个法线作为默认值
                         if (normals->size() > 0)
                         {
-                            const osg::Vec3 &n = (*normals)[0];
+                            osg::Vec3 n = (*normals)[0];
                             for (unsigned int i = 0; i < vertexCount; ++i)
                             {
-                                meshData.Normals.push_back(n.x());
-                                meshData.Normals.push_back(n.y());
-                                meshData.Normals.push_back(n.z());
+                                meshData.Normals.emplace_back(n.x());
+                                meshData.Normals.emplace_back(n.y());
+                                meshData.Normals.emplace_back(n.z());
                             }
                         }
                     }
@@ -328,12 +331,12 @@ namespace RealScene3D
                         // 其他绑定模式：使用第一个法线作为默认值
                         if (normals->size() > 0)
                         {
-                            const osg::Vec3 &n = (*normals)[0];
+                            osg::Vec3 n = (*normals)[0];
                             for (unsigned int i = 0; i < vertexCount; ++i)
                             {
-                                meshData.Normals.push_back(n.x());
-                                meshData.Normals.push_back(n.y());
-                                meshData.Normals.push_back(n.z());
+                                meshData.Normals.emplace_back(n.x());
+                                meshData.Normals.emplace_back(n.y());
+                                meshData.Normals.emplace_back(n.z());
                             }
                         }
                     }
@@ -342,9 +345,18 @@ namespace RealScene3D
                 // 法线数量不足时补充默认法线
                 while (meshData.Normals.size() < (meshData.Vertices.size()))
                 {
-                    meshData.Normals.push_back(0.0f);
-                    meshData.Normals.push_back(1.0f);
-                    meshData.Normals.push_back(0.0f);
+                    // 默认法线 (0, 1, 0) - 应用变换
+                    osg::Vec3 defaultN(0.0f, 1.0f, 0.0f);
+                    osg::Vec3 transformedN(
+                        currentTransform(0,0) * defaultN.x() + currentTransform(0,1) * defaultN.y() + currentTransform(0,2) * defaultN.z(),
+                        currentTransform(1,0) * defaultN.x() + currentTransform(1,1) * defaultN.y() + currentTransform(1,2) * defaultN.z(),
+                        currentTransform(2,0) * defaultN.x() + currentTransform(2,1) * defaultN.y() + currentTransform(2,2) * defaultN.z()
+                    );
+                    transformedN.normalize();
+
+                    meshData.Normals.emplace_back(transformedN.x());
+                    meshData.Normals.emplace_back(transformedN.y());
+                    meshData.Normals.emplace_back(transformedN.z());
                 }
 
                 // 提取纹理坐标 - 正确处理绑定模式
@@ -357,16 +369,16 @@ namespace RealScene3D
                     for (size_t i = 0; i < texCoordCount; ++i)
                     {
                         const osg::Vec2 &tc = (*texCoords)[i];
-                        meshData.TexCoords.push_back(tc.x());
-                        meshData.TexCoords.push_back(tc.y());
+                        meshData.TexCoords.emplace_back(tc.x());
+                        meshData.TexCoords.emplace_back(tc.y());
                     }
                 }
 
                 // 纹理坐标数量不足时补充默认值
                 while (meshData.TexCoords.size() < (meshData.Vertices.size() / 3 * 2))
                 {
-                    meshData.TexCoords.push_back(0.0f);
-                    meshData.TexCoords.push_back(0.0f);
+                    meshData.TexCoords.emplace_back(0.0f);
+                    meshData.TexCoords.emplace_back(0.0f);
                 }
 
                 // 提取索引 - 支持多种 PrimitiveSet 类型
@@ -444,7 +456,7 @@ namespace RealScene3D
                 unsigned int endFaceIndex = meshData.Indices.size() / 3;
                 for (unsigned int i = startFaceIndex; i < endFaceIndex; ++i)
                 {
-                    meshData.FaceMaterialIndices.push_back(currentMaterialIndex);
+                    meshData.FaceMaterialIndices.emplace_back(currentMaterialIndex);
                 }
             }
 
@@ -569,7 +581,7 @@ namespace RealScene3D
                             // 添加到纹理列表
                             int textureIndex = meshData.Textures.size();
                             textureIndexMap[tex] = textureIndex;
-                            meshData.Textures.push_back(td);
+                            meshData.Textures.emplace_back(td);
                         }
                     }
                 }
@@ -632,7 +644,7 @@ namespace RealScene3D
                     matData.TextureIndex = textureIndexMap[tex];
                 }
 
-                meshData.Materials.push_back(matData);
+                meshData.Materials.emplace_back(matData);
             }
 
             // 辅助方法：处理DrawElements类型（模板方法）
@@ -654,9 +666,9 @@ namespace RealScene3D
                         if (i0 == restartIndex || i1 == restartIndex || i2 == restartIndex)
                             continue;
 
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i2);
                     }
                 }
                 else if (mode == GL_TRIANGLE_STRIP)
@@ -689,15 +701,15 @@ namespace RealScene3D
                             // 第2个三角形(currentRun=4)是奇数(1)，顺序 i0,i2,i1 (翻转后两个)
                             if ((currentRun - 3) % 2 == 0)
                             {
-                                meshData.Indices.push_back(baseIndex + i0);
-                                meshData.Indices.push_back(baseIndex + i1);
-                                meshData.Indices.push_back(baseIndex + i2);
+                                meshData.Indices.emplace_back(baseIndex + i0);
+                                meshData.Indices.emplace_back(baseIndex + i1);
+                                meshData.Indices.emplace_back(baseIndex + i2);
                             }
                             else
                             {
-                                meshData.Indices.push_back(baseIndex + i0);
-                                meshData.Indices.push_back(baseIndex + i2);
-                                meshData.Indices.push_back(baseIndex + i1);
+                                meshData.Indices.emplace_back(baseIndex + i0);
+                                meshData.Indices.emplace_back(baseIndex + i2);
+                                meshData.Indices.emplace_back(baseIndex + i1);
                             }
                         }
                     }
@@ -729,9 +741,9 @@ namespace RealScene3D
                             // 任何 >= 3 的点都与中心点和前一个点构成三角形
                             typename T::value_type prevIdx = (*elements)[j - 1];
 
-                            meshData.Indices.push_back(baseIndex + centerIdx);
-                            meshData.Indices.push_back(baseIndex + prevIdx);
-                            meshData.Indices.push_back(baseIndex + idx);
+                            meshData.Indices.emplace_back(baseIndex + centerIdx);
+                            meshData.Indices.emplace_back(baseIndex + prevIdx);
+                            meshData.Indices.emplace_back(baseIndex + idx);
                         }
                     }
                 }
@@ -751,14 +763,14 @@ namespace RealScene3D
 
                         // 保持原始的缠绕顺序逻辑
                         // 第一个三角形 (0,1,3) -> 使用索引 (i1,i0,i3)
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i3);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i3);
 
                         // 第二个三角形 (1,2,3) -> 使用索引 (i1,i3,i2)
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i3);
-                        meshData.Indices.push_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i3);
+                        meshData.Indices.emplace_back(baseIndex + i2);
                     }
                 }
                 else if (mode == GL_POLYGON)
@@ -775,9 +787,9 @@ namespace RealScene3D
                             if (i0 == restartIndex || i1 == restartIndex || i2 == restartIndex)
                                 continue;
 
-                            meshData.Indices.push_back(baseIndex + i0);
-                            meshData.Indices.push_back(baseIndex + i1);
-                            meshData.Indices.push_back(baseIndex + i2);
+                            meshData.Indices.emplace_back(baseIndex + i0);
+                            meshData.Indices.emplace_back(baseIndex + i1);
+                            meshData.Indices.emplace_back(baseIndex + i2);
                         }
                     }
                 }
@@ -795,14 +807,14 @@ namespace RealScene3D
                             continue;
 
                         // 第一个三角形 (0,1,2)
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i2);
 
                         // 第二个三角形 (0,2,3)
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i2);
-                        meshData.Indices.push_back(baseIndex + i3);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i3);
                     }
                 }
             }
@@ -817,7 +829,7 @@ namespace RealScene3D
                 {
                     for (unsigned int j = 0; j < count; ++j)
                     {
-                        meshData.Indices.push_back(baseIndex + first + j);
+                        meshData.Indices.emplace_back(baseIndex + first + j);
                     }
                 }
                 else if (mode == GL_TRIANGLE_STRIP)
@@ -830,16 +842,16 @@ namespace RealScene3D
                             if (j % 2 == 0)
                             {
                                 // 偶数三角形：正常顺序
-                                meshData.Indices.push_back(baseIndex + first + j);
-                                meshData.Indices.push_back(baseIndex + first + j + 1);
-                                meshData.Indices.push_back(baseIndex + first + j + 2);
+                                meshData.Indices.emplace_back(baseIndex + first + j);
+                                meshData.Indices.emplace_back(baseIndex + first + j + 1);
+                                meshData.Indices.emplace_back(baseIndex + first + j + 2);
                             }
                             else
                             {
                                 // 奇数三角形：翻转顺序以保持正确的缠绕方向
-                                meshData.Indices.push_back(baseIndex + first + j);
-                                meshData.Indices.push_back(baseIndex + first + j + 2);
-                                meshData.Indices.push_back(baseIndex + first + j + 1);
+                                meshData.Indices.emplace_back(baseIndex + first + j);
+                                meshData.Indices.emplace_back(baseIndex + first + j + 2);
+                                meshData.Indices.emplace_back(baseIndex + first + j + 1);
                             }
                         }
                     }
@@ -851,9 +863,9 @@ namespace RealScene3D
                     {
                         for (unsigned int j = 1; j <= count - 2; ++j)
                         {
-                            meshData.Indices.push_back(baseIndex + first);
-                            meshData.Indices.push_back(baseIndex + first + j);
-                            meshData.Indices.push_back(baseIndex + first + j + 1);
+                            meshData.Indices.emplace_back(baseIndex + first);
+                            meshData.Indices.emplace_back(baseIndex + first + j);
+                            meshData.Indices.emplace_back(baseIndex + first + j + 1);
                         }
                     }
                 }
@@ -868,13 +880,13 @@ namespace RealScene3D
                         unsigned int i2 = first + q * 4 + 2;
                         unsigned int i3 = first + q * 4 + 3;
 
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i3);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i3);
 
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i3);
-                        meshData.Indices.push_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i3);
+                        meshData.Indices.emplace_back(baseIndex + i2);
                     }
                 }
                 else if (mode == GL_POLYGON)
@@ -884,9 +896,9 @@ namespace RealScene3D
                     {
                         for (unsigned int j = 1; j + 1 < count; ++j)
                         {
-                            meshData.Indices.push_back(baseIndex + first);
-                            meshData.Indices.push_back(baseIndex + first + j);
-                            meshData.Indices.push_back(baseIndex + first + j + 1);
+                            meshData.Indices.emplace_back(baseIndex + first);
+                            meshData.Indices.emplace_back(baseIndex + first + j);
+                            meshData.Indices.emplace_back(baseIndex + first + j + 1);
                         }
                     }
                 }
@@ -901,14 +913,14 @@ namespace RealScene3D
                         unsigned int i3 = first + j + 2;
 
                         // 第一个三角形 (0,1,2)
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i1);
-                        meshData.Indices.push_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i1);
+                        meshData.Indices.emplace_back(baseIndex + i2);
 
                         // 第二个三角形 (0,2,3)
-                        meshData.Indices.push_back(baseIndex + i0);
-                        meshData.Indices.push_back(baseIndex + i2);
-                        meshData.Indices.push_back(baseIndex + i3);
+                        meshData.Indices.emplace_back(baseIndex + i0);
+                        meshData.Indices.emplace_back(baseIndex + i2);
+                        meshData.Indices.emplace_back(baseIndex + i3);
                     }
                 }
             }
@@ -930,15 +942,15 @@ namespace RealScene3D
                             {
                                 if (j % 2 == 0)
                                 {
-                                    meshData.Indices.push_back(baseIndex + offset + j);
-                                    meshData.Indices.push_back(baseIndex + offset + j + 1);
-                                    meshData.Indices.push_back(baseIndex + offset + j + 2);
+                                    meshData.Indices.emplace_back(baseIndex + offset + j);
+                                    meshData.Indices.emplace_back(baseIndex + offset + j + 1);
+                                    meshData.Indices.emplace_back(baseIndex + offset + j + 2);
                                 }
                                 else
                                 {
-                                    meshData.Indices.push_back(baseIndex + offset + j);
-                                    meshData.Indices.push_back(baseIndex + offset + j + 2);
-                                    meshData.Indices.push_back(baseIndex + offset + j + 1);
+                                    meshData.Indices.emplace_back(baseIndex + offset + j);
+                                    meshData.Indices.emplace_back(baseIndex + offset + j + 2);
+                                    meshData.Indices.emplace_back(baseIndex + offset + j + 1);
                                 }
                             }
                         }
@@ -955,9 +967,9 @@ namespace RealScene3D
                         {
                             for (unsigned int j = 1; j <= length - 2; ++j)
                             {
-                                meshData.Indices.push_back(baseIndex + offset);
-                                meshData.Indices.push_back(baseIndex + offset + j);
-                                meshData.Indices.push_back(baseIndex + offset + j + 1);
+                                meshData.Indices.emplace_back(baseIndex + offset);
+                                meshData.Indices.emplace_back(baseIndex + offset + j);
+                                meshData.Indices.emplace_back(baseIndex + offset + j + 1);
                             }
                         }
                         offset += length;
@@ -978,14 +990,14 @@ namespace RealScene3D
                             unsigned int i3 = offset + q * 4 + 3;
 
                             // 第一个三角形 (0,1,2)
-                            meshData.Indices.push_back(baseIndex + i0);
-                            meshData.Indices.push_back(baseIndex + i1);
-                            meshData.Indices.push_back(baseIndex + i2);
+                            meshData.Indices.emplace_back(baseIndex + i0);
+                            meshData.Indices.emplace_back(baseIndex + i1);
+                            meshData.Indices.emplace_back(baseIndex + i2);
 
                             // 第二个三角形 (0,2,3)
-                            meshData.Indices.push_back(baseIndex + i0);
-                            meshData.Indices.push_back(baseIndex + i2);
-                            meshData.Indices.push_back(baseIndex + i3);
+                            meshData.Indices.emplace_back(baseIndex + i0);
+                            meshData.Indices.emplace_back(baseIndex + i2);
+                            meshData.Indices.emplace_back(baseIndex + i3);
                         }
                         offset += length;
                     }
@@ -1005,14 +1017,14 @@ namespace RealScene3D
                             unsigned int i3 = offset + j + 2;
 
                             // 第一个三角形 (0,1,2)
-                            meshData.Indices.push_back(baseIndex + i0);
-                            meshData.Indices.push_back(baseIndex + i1);
-                            meshData.Indices.push_back(baseIndex + i2);
+                            meshData.Indices.emplace_back(baseIndex + i0);
+                            meshData.Indices.emplace_back(baseIndex + i1);
+                            meshData.Indices.emplace_back(baseIndex + i2);
 
                             // 第二个三角形 (0,2,3)
-                            meshData.Indices.push_back(baseIndex + i0);
-                            meshData.Indices.push_back(baseIndex + i2);
-                            meshData.Indices.push_back(baseIndex + i3);
+                            meshData.Indices.emplace_back(baseIndex + i0);
+                            meshData.Indices.emplace_back(baseIndex + i2);
+                            meshData.Indices.emplace_back(baseIndex + i3);
                         }
                         offset += length;
                     }
@@ -1025,7 +1037,7 @@ namespace RealScene3D
                         unsigned int length = *it;
                         for (unsigned int j = 0; j < length; ++j)
                         {
-                            meshData.Indices.push_back(baseIndex + offset + j);
+                            meshData.Indices.emplace_back(baseIndex + offset + j);
                         }
                         offset += length;
                     }
@@ -1038,7 +1050,7 @@ namespace RealScene3D
                         unsigned int length = *it;
                         for (unsigned int j = 0; j < length; ++j)
                         {
-                            meshData.Indices.push_back(baseIndex + offset + j);
+                            meshData.Indices.emplace_back(baseIndex + offset + j);
                         }
                         offset += length;
                     }
@@ -1062,7 +1074,7 @@ namespace RealScene3D
             // 合并索引(需要偏移)
             for (auto idx : source.Indices)
             {
-                target.Indices.push_back(baseIndex + idx);
+                target.Indices.emplace_back(baseIndex + idx);
             }
 
             // 合并纹理(需要建立映射)
@@ -1070,7 +1082,7 @@ namespace RealScene3D
             for (size_t i = 0; i < source.Textures.size(); ++i)
             {
                 textureIndexMap[i] = target.Textures.size();
-                target.Textures.push_back(source.Textures[i]);
+                target.Textures.emplace_back(source.Textures[i]);
             }
 
             // 合并材质(需要更新纹理索引映射)
@@ -1084,7 +1096,7 @@ namespace RealScene3D
                     mat.TextureIndex = textureIndexMap[mat.TextureIndex];
                 }
                 materialIndexMap[i] = target.Materials.size();
-                target.Materials.push_back(mat);
+                target.Materials.emplace_back(mat);
             }
 
             // 合并面材质索引(需要更新材质索引映射)
@@ -1092,11 +1104,11 @@ namespace RealScene3D
             {
                 if (matIdx >= 0 && materialIndexMap.count(matIdx))
                 {
-                    target.FaceMaterialIndices.push_back(materialIndexMap[matIdx]);
+                    target.FaceMaterialIndices.emplace_back(materialIndexMap[matIdx]);
                 }
                 else
                 {
-                    target.FaceMaterialIndices.push_back(matIdx);
+                    target.FaceMaterialIndices.emplace_back(matIdx);
                 }
             }
 
@@ -1496,7 +1508,7 @@ namespace RealScene3D
                                 info.geometricError = 0.0;
                             }
 
-                            childNodes.push_back(info);
+                            childNodes.emplace_back(info);
                         }
                     }
                 }
@@ -1578,6 +1590,10 @@ namespace RealScene3D
                     return nodeData;
                 }
 
+                // 应用平滑法线计算（参考 osgb23dtile.cpp:867-868）
+                osgUtil::SmoothingVisitor sv;
+                node->accept(sv);
+
                 // 提取网格数据
                 MeshExtractorVisitor visitor;
                 node->accept(visitor);
@@ -1605,7 +1621,7 @@ namespace RealScene3D
 
                     // 几何误差使用 maxRange（参考 osgb23dtile.cpp）
                     childNode.GeometricError = childInfo.maxRange;
-                    nodeData.Children.push_back(childNode);
+                    nodeData.Children.emplace_back(childNode);
                 }
 
 #ifdef WIN32
@@ -1653,7 +1669,7 @@ namespace RealScene3D
                 std::function<void(const PagedLODNodeData &)> flattenHierarchy;
                 flattenHierarchy = [&](const PagedLODNodeData &node)
                 {
-                    result.push_back(node);
+                    result.emplace_back(node);
                     for (const auto &child : node.Children)
                     {
                         flattenHierarchy(child);

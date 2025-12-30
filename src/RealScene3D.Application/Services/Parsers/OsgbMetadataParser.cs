@@ -114,13 +114,63 @@ public class OsgbMetadataParser
             return;
         }
 
-        // 解析 SRS 原点
-        if (TryParseVector3(srsElement, "SRSOrigin", out var srsOrigin))
+        // 解析 SRSOrigin（兄弟节点）
+        XElement? srsOriginElement = root.Descendants("SRSOrigin").FirstOrDefault();
+        if (srsOriginElement != null)
         {
-            metadata.SrsOrigin = srsOrigin;
+            // SRSOrigin 格式: "x,y,z"
+            string? originText = srsOriginElement.Value?.Trim();
+            if (!string.IsNullOrEmpty(originText))
+            {
+                string[] parts = originText.Split(',');
+                if (parts.Length >= 2)
+                {
+                    double.TryParse(parts[0], out double x);
+                    double.TryParse(parts[1], out double y);
+                    double z = parts.Length >= 3 && double.TryParse(parts[2], out double zVal) ? zVal : 0;
+                    metadata.SrsOrigin = (x, y, z);
+                }
+            }
         }
 
-        // 检查是否为 ENU 坐标系
+        // 获取 SRS 文本内容
+        string? srsValue = srsElement.Value?.Trim();
+        if (string.IsNullOrEmpty(srsValue))
+        {
+            _logger.LogWarning("SRS 节点内容为空");
+            return;
+        }
+
+        // 检查是否为 ENU 格式: "ENU:lat,lon"
+        if (srsValue.StartsWith("ENU:", StringComparison.OrdinalIgnoreCase))
+        {
+            metadata.IsENU = true;
+            metadata.SrsType = "ENU";
+
+            // 解析 ENU:lat,lon
+            string coordsPart = srsValue.Substring(4); // 跳过 "ENU:"
+            string[] coords = coordsPart.Split(',');
+            if (coords.Length >= 2)
+            {
+                if (double.TryParse(coords[0], out double lat) &&
+                    double.TryParse(coords[1], out double lon))
+                {
+                    // 注意：3dtiles 格式是 lat,lon，我们存储为 lon,lat,height
+                    double height = coords.Length >= 3 && double.TryParse(coords[2], out double h) ? h : 0.0;
+                    metadata.GeoOrigin = (lon, lat, height);
+
+                    _logger.LogInformation(
+                        "检测到 ENU 坐标系（文本格式）: 经度={Lon}, 纬度={Lat}, 高度={Height}",
+                        lon, lat, height);
+                    return;
+                }
+            }
+
+            _logger.LogWarning("无法解析 ENU 坐标: {SrsValue}", srsValue);
+            return;
+        }
+
+        // 检查 XML 子元素格式的 ENU
         XElement? enuElement = srsElement.Element("ENU");
         if (enuElement != null)
         {
@@ -132,35 +182,49 @@ public class OsgbMetadataParser
             {
                 metadata.GeoOrigin = (geoCenter.X, geoCenter.Y, geoCenter.Z);
                 _logger.LogInformation(
-                    "检测到 ENU 坐标系: 中心=({Lon}, {Lat}, {Height})",
+                    "检测到 ENU 坐标系（XML格式）: 中心=({Lon}, {Lat}, {Height})",
                     geoCenter.X, geoCenter.Y, geoCenter.Z);
             }
+            return;
         }
-        else
-        {
-            // EPSG 或 WKT
-            metadata.IsENU = false;
 
-            // 尝试 EPSG
-            string? epsgStr = srsElement.Element("EPSG")?.Value;
-            if (!string.IsNullOrEmpty(epsgStr) && int.TryParse(epsgStr, out int epsgCode))
+        // EPSG 或 WKT
+        metadata.IsENU = false;
+
+        // 检查文本格式的 EPSG: "EPSG:4326"
+        if (srsValue.StartsWith("EPSG:", StringComparison.OrdinalIgnoreCase))
+        {
+            string epsgPart = srsValue.Substring(5); // 跳过 "EPSG:"
+            if (int.TryParse(epsgPart, out int epsgCode))
             {
                 metadata.SrsType = "EPSG";
                 metadata.EpsgCode = epsgCode;
-                _logger.LogInformation("检测到 EPSG 坐标系: {EpsgCode}", epsgCode);
-            }
-            else
-            {
-                // 尝试 WKT
-                string? wkt = srsElement.Element("WKT")?.Value;
-                if (!string.IsNullOrEmpty(wkt))
-                {
-                    metadata.SrsType = "WKT";
-                    metadata.WktString = wkt;
-                    _logger.LogInformation("检测到 WKT 坐标系: {Length} 字符", wkt.Length);
-                }
+                _logger.LogInformation("检测到 EPSG 坐标系（文本格式）: {EpsgCode}", epsgCode);
+                return;
             }
         }
+
+        // 尝试 XML 子元素格式的 EPSG
+        string? epsgStr = srsElement.Element("EPSG")?.Value;
+        if (!string.IsNullOrEmpty(epsgStr) && int.TryParse(epsgStr, out int epsgCodeXml))
+        {
+            metadata.SrsType = "EPSG";
+            metadata.EpsgCode = epsgCodeXml;
+            _logger.LogInformation("检测到 EPSG 坐标系（XML格式）: {EpsgCode}", epsgCodeXml);
+            return;
+        }
+
+        // 尝试 WKT
+        string? wkt = srsElement.Element("WKT")?.Value;
+        if (!string.IsNullOrEmpty(wkt))
+        {
+            metadata.SrsType = "WKT";
+            metadata.WktString = wkt;
+            _logger.LogInformation("检测到 WKT 坐标系: {Length} 字符", wkt.Length);
+            return;
+        }
+
+        _logger.LogWarning("无法识别的 SRS 格式: {SrsValue}", srsValue);
     }
 
     /// <summary>

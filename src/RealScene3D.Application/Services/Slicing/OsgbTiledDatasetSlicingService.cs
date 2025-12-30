@@ -5,6 +5,7 @@ using RealScene3D.Domain.Entities;
 using RealScene3D.Domain.Geometry;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace RealScene3D.Application.Services.Slicing;
 
@@ -234,11 +235,13 @@ public class OsgbTiledDatasetSlicingService
             // tileset.json 已经由 OsgbLODSlicingService 生成（通过 config.GenerateTileset）
             string tilesetPath = Path.Combine(tileOutputDir, "tileset.json");
             var globalBounds = CalculateGlobalBounds(
-                slices.Select(s => JsonSerializer.Deserialize<Box3>(s.BoundingBox)!)
+                slices.Select(s => System.Text.Json.JsonSerializer.Deserialize<Box3>(s.BoundingBox)!)
                        .Where(b => b != null)
                        .ToList());
 
-            double geometricError = CalculateGeometricError(globalBounds);
+            // 使用固定的 geometricError = 1000（与 3dtiles 一致）
+            // 子瓦片的 geometricError 应该与根节点保持一致
+            double geometricError = 1000.0;
 
             _logger.LogDebug("瓦片 tileset.json 路径: {Path}", tilesetPath);
 
@@ -277,47 +280,51 @@ public class OsgbTiledDatasetSlicingService
         var allBounds = tileResults.Select(t => t.BoundingBox).ToList();
         var globalBounds = CalculateGlobalBounds(allBounds);
 
-        // 构建根 tileset JSON
-        var rootTileset = new
+        // 构建根 tileset JSON，使用有序字典确保字段顺序与3dtiles一致
+        // 根tileset字段顺序：asset -> geometricError -> root
+        // root节点字段顺序：boundingVolume -> children -> geometricError -> transform
+        var rootTileset = new System.Collections.Generic.Dictionary<string, object>
         {
-            asset = new
+            ["asset"] = new System.Collections.Generic.Dictionary<string, object>
             {
-                version = "1.0",
-                gltfUpAxis = "Z",
-                generator = "RealScene3D.Application"
+                ["gltfUpAxis"] = "Z",
+                ["version"] = "1.0"
             },
-            geometricError = 2000.0,
-            root = new
+            ["geometricError"] = 2000.0,
+            ["root"] = new System.Collections.Generic.Dictionary<string, object>
             {
-                transform = GenerateTransformMatrix(metadata, globalBounds),
-                boundingVolume = new
+                ["boundingVolume"] = new System.Collections.Generic.Dictionary<string, object>
                 {
-                    box = ConvertToTilesetBox(globalBounds)
+                    ["box"] = ConvertToTilesetBox(globalBounds)
                 },
-                geometricError = 2000.0,
-                refine = "ADD",
-                children = tileResults.Select(tile => new
+                ["children"] = tileResults.Select(tile => new System.Collections.Generic.Dictionary<string, object>
                 {
-                    boundingVolume = new
+                    ["boundingVolume"] = new System.Collections.Generic.Dictionary<string, object>
                     {
-                        box = ConvertToTilesetBox(tile.BoundingBox)
+                        ["box"] = ConvertToTilesetBox(tile.BoundingBox)
                     },
-                    geometricError = tile.GeometricError,
-                    content = new
+                    ["content"] = new System.Collections.Generic.Dictionary<string, object>
                     {
-                        uri = $"./Data/{tile.TileName}/tileset.json"
-                    }
-                }).ToArray()
+                        ["uri"] = $"./Data/{tile.TileName}/tileset.json"
+                    },
+                    ["geometricError"] = tile.GeometricError
+                }).ToArray(),
+                ["geometricError"] = 2000.0,
+                ["transform"] = GenerateTransformMatrix(metadata, globalBounds)
             }
         };
 
         string rootTilesetPath = Path.Combine(outputDir, "tileset.json");
-        string json = JsonSerializer.Serialize(rootTileset, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
 
-        await File.WriteAllTextAsync(rootTilesetPath, json);
+        // 使用Newtonsoft.Json并配置StringEscapeHandling避免Unicode转义（如\u002B）
+        var jsonSettings = new Newtonsoft.Json.JsonSerializerSettings
+        {
+            Formatting = Newtonsoft.Json.Formatting.Indented,
+            StringEscapeHandling = Newtonsoft.Json.StringEscapeHandling.Default
+        };
+        string json = Newtonsoft.Json.JsonConvert.SerializeObject(rootTileset, jsonSettings);
+
+        await File.WriteAllTextAsync(rootTilesetPath, json, System.Text.Encoding.UTF8);
         _logger.LogInformation("根 tileset.json 生成完成: {Path}", rootTilesetPath);
     }
 
@@ -332,7 +339,18 @@ public class OsgbTiledDatasetSlicingService
         {
             // 使用 metadata 中的地理原点
             var (lon, lat, height) = metadata.GeoOrigin.Value;
-            return TransformXYZ(lon, lat, height);
+
+            // 对于 ENU 系统，使用高度 0.0（与 3dtiles 一致）
+            // SRSOrigin 的偏移已经烘焙到瓦片几何坐标中
+            if (metadata.IsENU)
+            {
+                _logger.LogInformation("ENU 系统：使用高度 0.0 进行根变换（经度={Lon}, 纬度={Lat}）", lon, lat);
+                return TransformXYZ(lon, lat, 0.0);
+            }
+            else
+            {
+                return TransformXYZ(lon, lat, height);
+            }
         }
         else
         {
