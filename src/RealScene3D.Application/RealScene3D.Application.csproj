@@ -7,18 +7,18 @@
 
   <ItemGroup>
     <Reference Include="RealScene3D.Lib.OSGB">
-      <HintPath>..\..\bin\Release\RealScene3D.Lib.OSGB.dll</HintPath>
+      <HintPath>..\..\bin\$(Configuration)\RealScene3D.Lib.OSGB.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>
 
   <!-- Copy native dependencies -->
   <ItemGroup>
-    <Content Include="..\..\bin\Release\net9.0\*.dll" Condition="Exists('..\..\bin\Release\net9.0')">
+    <Content Include="..\..\bin\$(Configuration)\net9.0\*.dll" Condition="Exists('..\..\bin\$(Configuration)\net9.0')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(Filename)%(Extension)</Link>
     </Content>
-    <Content Include="..\..\bin\Release\net9.0\osgPlugins-3.6.5\**\*.*" Condition="Exists('..\..\bin\Release\net9.0\osgPlugins-3.6.5')">
+    <Content Include="..\..\bin\$(Configuration)\net9.0\osgPlugins-3.6.5\**\*.*" Condition="Exists('..\..\bin\$(Configuration)\net9.0\osgPlugins-3.6.5')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>osgPlugins-3.6.5\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>

@@ -467,6 +467,7 @@ public class GltfGenerator : TileGenerator
     /// <summary>
     /// 创建有纹理的网格构建器列表（MeshT）
     /// 创建单个Mesh包含多个Primitives，每个Primitive对应一个材质（符合3D Tiles规范）
+    /// CRITICAL FIX: 分离有纹理和无纹理的primitive，避免无纹理的primitive包含TEXCOORD_0
     /// </summary>
     private List<IMeshBuilder<MaterialBuilder>> CreateMeshBuildersWithTexture(
         ModelRoot model,
@@ -478,8 +479,14 @@ public class GltfGenerator : TileGenerator
 
         _logger.LogDebug("开始创建单个Mesh，包含 {MaterialCount} 个材质的Primitives", mesh.Materials.Count);
 
-        // 创建一个MeshBuilder（使用VertexPositionNormal和VertexTexture1）
-        var meshBuilder = new MeshBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(mesh.Name ?? "Mesh");
+        // CRITICAL FIX: 创建两个MeshBuilder：有纹理和无纹理
+        // 有纹理的primitive使用VertexTexture1（包含TEXCOORD_0）
+        var meshBuilderWithTexture = new MeshBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(mesh.Name ?? "Mesh");
+        // 无纹理的primitive使用VertexEmpty（不包含TEXCOORD_0）
+        var meshBuilderWithoutTexture = new MeshBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>((mesh.Name ?? "Mesh") + "_NoTexture");
+
+        bool hasTexturedFaces = false;
+        bool hasNonTexturedFaces = false;
 
         for (int matIdx = 0; matIdx < facesByMaterial.Count; matIdx++)
         {
@@ -493,17 +500,20 @@ public class GltfGenerator : TileGenerator
             // 检查是否是最后一个分组（无材质面，MaterialIndex=-1）
             bool isNoMaterialGroup = (matIdx == facesByMaterial.Count - 1) && (matIdx >= mesh.Materials.Count);
 
+            //  CRITICAL FIX: 判断该材质是否有纹理
+            bool materialHasTexture = false;
             MaterialBuilder gltfMaterial;
 
             if (isNoMaterialGroup)
             {
                 // 无材质分组：创建默认PBR材质（白色，完全粗糙，参考glTF 2.0默认材质）
                 // 注意：不添加到model，让SharpGLTF在导出时自动处理
-                _logger.LogDebug("处理无材质分组: 面数={FaceCount}，使用glTF默认材质", faces.Count);
+                _logger.LogDebug("处理无材质分组: 面数={FaceCount}，使用glTF默认材质（无纹理坐标）", faces.Count);
                 gltfMaterial = new MaterialBuilder()
                     .WithMetallicRoughnessShader()
                     .WithBaseColor(new SysVector4(1f, 1f, 1f, 1f))
                     .WithMetallicRoughness(0.0f, 1.0f);  // 粗糙度1.0，完全粗糙（glTF 2.0默认）
+                materialHasTexture = false;
             }
             else
             {
@@ -511,17 +521,18 @@ public class GltfGenerator : TileGenerator
 
                 // 检查是否有纹理
                 bool hasTexture = material.TextureImage != null || (!string.IsNullOrEmpty(material.Texture) && File.Exists(material.Texture));
+                materialHasTexture = hasTexture;
 
                 if (hasTexture)
                 {
-                    _logger.LogDebug("处理材质 {MatIdx}: Name={Name}, Faces={FaceCount}, 有纹理",
+                    _logger.LogDebug("处理材质 {MatIdx}: Name={Name}, Faces={FaceCount}, 有纹理（包含TEXCOORD_0）",
                         matIdx, material.Name, faces.Count);
                     gltfMaterial = CreateMaterial(model, material);
                 }
                 else
                 {
                     // 无纹理但有材质对象：创建默认材质
-                    _logger.LogDebug("材质索引 {MatIdx} 无纹理，创建默认材质（面数={FaceCount}）", matIdx, faces.Count);
+                    _logger.LogDebug("材质索引 {MatIdx} 无纹理，创建默认材质（面数={FaceCount}，无TEXCOORD_0）", matIdx, faces.Count);
                     gltfMaterial = new MaterialBuilder($"default_{matIdx}")
                         .WithMetallicRoughnessShader()
                         .WithBaseColor(new SysVector4(0.7f, 0.7f, 0.7f, 1.0f))
@@ -529,60 +540,106 @@ public class GltfGenerator : TileGenerator
                 }
             }
 
-            // 在同一个MeshBuilder上创建新的Primitive
-            var primitive = meshBuilder.UsePrimitive(gltfMaterial);
-
-            // 添加该材质的所有面到这个Primitive
-            foreach (var face in faces)
+            // CRITICAL FIX: 根据是否有纹理使用不同的MeshBuilder
+            if (materialHasTexture)
             {
-                var v0 = mesh.Vertices[face.IndexA];
-                var v1 = mesh.Vertices[face.IndexB];
-                var v2 = mesh.Vertices[face.IndexC];
+                // 有纹理：使用包含TEXCOORD_0的MeshBuilder
+                hasTexturedFaces = true;
+                var primitive = meshBuilderWithTexture.UsePrimitive(gltfMaterial);
 
-                var n0 = normals[face.IndexA];
-                var n1 = normals[face.IndexB];
-                var n2 = normals[face.IndexC];
-
-                // 获取纹理坐标（翻转V坐标）
-                SysVector2 t0, t1, t2;
-                if (face.TextureIndexA < mesh.TextureVertices.Count &&
-                    face.TextureIndexB < mesh.TextureVertices.Count &&
-                    face.TextureIndexC < mesh.TextureVertices.Count)
+                // 添加该材质的所有面到这个Primitive
+                foreach (var face in faces)
                 {
-                    var tv0 = mesh.TextureVertices[face.TextureIndexA];
-                    var tv1 = mesh.TextureVertices[face.TextureIndexB];
-                    var tv2 = mesh.TextureVertices[face.TextureIndexC];
+                    var v0 = mesh.Vertices[face.IndexA];
+                    var v1 = mesh.Vertices[face.IndexB];
+                    var v2 = mesh.Vertices[face.IndexC];
 
-                    t0 = new SysVector2((float)tv0.X, 1.0f - (float)tv0.Y);
-                    t1 = new SysVector2((float)tv1.X, 1.0f - (float)tv1.Y);
-                    t2 = new SysVector2((float)tv2.X, 1.0f - (float)tv2.Y);
+                    var n0 = normals[face.IndexA];
+                    var n1 = normals[face.IndexB];
+                    var n2 = normals[face.IndexC];
+
+                    // 获取纹理坐标（翻转V坐标）
+                    SysVector2 t0, t1, t2;
+                    if (face.TextureIndexA < mesh.TextureVertices.Count &&
+                        face.TextureIndexB < mesh.TextureVertices.Count &&
+                        face.TextureIndexC < mesh.TextureVertices.Count)
+                    {
+                        var tv0 = mesh.TextureVertices[face.TextureIndexA];
+                        var tv1 = mesh.TextureVertices[face.TextureIndexB];
+                        var tv2 = mesh.TextureVertices[face.TextureIndexC];
+
+                        t0 = new SysVector2((float)tv0.X, 1.0f - (float)tv0.Y);
+                        t1 = new SysVector2((float)tv1.X, 1.0f - (float)tv1.Y);
+                        t2 = new SysVector2((float)tv2.X, 1.0f - (float)tv2.Y);
+                    }
+                    else
+                    {
+                        t0 = new SysVector2(0f, 0f);
+                        t1 = new SysVector2(1f, 0f);
+                        t2 = new SysVector2(0f, 1f);
+                    }
+
+                    // 创建顶点（包含位置+法线+纹理坐标）
+                    var vertexBuilder0 = new VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(
+                        new VertexPositionNormal(new SysVector3((float)v0.X, (float)v0.Y, (float)v0.Z), n0),
+                        new VertexTexture1(t0));
+
+                    var vertexBuilder1 = new VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(
+                        new VertexPositionNormal(new SysVector3((float)v1.X, (float)v1.Y, (float)v1.Z), n1),
+                        new VertexTexture1(t1));
+
+                    var vertexBuilder2 = new VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(
+                        new VertexPositionNormal(new SysVector3((float)v2.X, (float)v2.Y, (float)v2.Z), n2),
+                        new VertexTexture1(t2));
+
+                    primitive.AddTriangle(vertexBuilder0, vertexBuilder1, vertexBuilder2);
                 }
-                else
+            }
+            else
+            {
+                // 无纹理：使用不包含TEXCOORD_0的MeshBuilder
+                hasNonTexturedFaces = true;
+                var primitive = meshBuilderWithoutTexture.UsePrimitive(gltfMaterial);
+
+                // 添加该材质的所有面到这个Primitive（不包含纹理坐标）
+                foreach (var face in faces)
                 {
-                    t0 = new SysVector2(0f, 0f);
-                    t1 = new SysVector2(1f, 0f);
-                    t2 = new SysVector2(0f, 1f);
+                    var v0 = mesh.Vertices[face.IndexA];
+                    var v1 = mesh.Vertices[face.IndexB];
+                    var v2 = mesh.Vertices[face.IndexC];
+
+                    var n0 = normals[face.IndexA];
+                    var n1 = normals[face.IndexB];
+                    var n2 = normals[face.IndexC];
+
+                    // 创建顶点（仅包含位置+法线，无纹理坐标）
+                    var vertexBuilder0 = new VertexBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>(
+                        new VertexPositionNormal(new SysVector3((float)v0.X, (float)v0.Y, (float)v0.Z), n0));
+
+                    var vertexBuilder1 = new VertexBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>(
+                        new VertexPositionNormal(new SysVector3((float)v1.X, (float)v1.Y, (float)v1.Z), n1));
+
+                    var vertexBuilder2 = new VertexBuilder<VertexPositionNormal, VertexEmpty, VertexEmpty>(
+                        new VertexPositionNormal(new SysVector3((float)v2.X, (float)v2.Y, (float)v2.Z), n2));
+
+                    primitive.AddTriangle(vertexBuilder0, vertexBuilder1, vertexBuilder2);
                 }
-
-                // 创建顶点（包含位置+法线）
-                var vertexBuilder0 = new VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(
-                    new VertexPositionNormal(new SysVector3((float)v0.X, (float)v0.Y, (float)v0.Z), n0),
-                    new VertexTexture1(t0));
-
-                var vertexBuilder1 = new VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(
-                    new VertexPositionNormal(new SysVector3((float)v1.X, (float)v1.Y, (float)v1.Z), n1),
-                    new VertexTexture1(t1));
-
-                var vertexBuilder2 = new VertexBuilder<VertexPositionNormal, VertexTexture1, VertexEmpty>(
-                    new VertexPositionNormal(new SysVector3((float)v2.X, (float)v2.Y, (float)v2.Z), n2),
-                    new VertexTexture1(t2));
-
-                primitive.AddTriangle(vertexBuilder0, vertexBuilder1, vertexBuilder2);
             }
         }
 
-        allMeshBuilders.Add(meshBuilder);
-        _logger.LogDebug("Mesh创建完成：1个Mesh，包含 {Count} 个Primitive", meshBuilder.Primitives.Count());
+        // CRITICAL FIX: 只添加非空的MeshBuilder
+        if (hasTexturedFaces)
+        {
+            allMeshBuilders.Add(meshBuilderWithTexture);
+            _logger.LogDebug("添加有纹理Mesh：包含 {Count} 个Primitive", meshBuilderWithTexture.Primitives.Count());
+        }
+        if (hasNonTexturedFaces)
+        {
+            allMeshBuilders.Add(meshBuilderWithoutTexture);
+            _logger.LogDebug("添加无纹理Mesh：包含 {Count} 个Primitive", meshBuilderWithoutTexture.Primitives.Count());
+        }
+
+        _logger.LogDebug("Mesh创建完成：共 {Count} 个Mesh", allMeshBuilders.Count);
         return allMeshBuilders;
     }
 
