@@ -1,0 +1,12 @@
+# vcpkg安装目录
+vcpkg/
+vcpkg_installed/
+
+# 构建产物
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+vcpkg_cache/
+osg-prebuilt/

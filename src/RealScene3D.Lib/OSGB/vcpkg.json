@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "realscene3d-lib-osgb",
+  "version": "1.0.0",
+  "description": "OSGB to GLB converter library for RealScene3D",
+  "dependencies": [],
+  "features": {
+    "core-osg": {
+      "description": "Build OpenSceneGraph with vcpkg",
+      "dependencies": [
+        {
+          "name": "osg",
+          "default-features": false,
+          "features": ["freetype", "plugins"]
+        }
+      ]
+    },
+    "texture-compression": {
+      "description": "Enable KTX2 texture compression support",
+      "dependencies": ["basisu"]
+    },
+    "mesh-optimization": {
+      "description": "Enable mesh optimization support",
+      "dependencies": ["meshoptimizer"]
+    },
+    "draco-compression": {
+      "description": "Enable Draco mesh compression support",
+      "dependencies": ["draco"]
+    },
+    "coordinate-transform": {
+      "description": "Enable coordinate transformation (PROJ-based, lightweight)",
+      "dependencies": ["proj"]
+    }
+  }
+}

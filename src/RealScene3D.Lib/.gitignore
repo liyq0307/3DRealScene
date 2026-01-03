@@ -1,0 +1,6 @@
+# vcpkg本地安装
+3dParty/vcpkg/
+3dParty/vcpkg_installed/
+
+# 保留3dParty目录结构
+!3dParty/.gitkeep

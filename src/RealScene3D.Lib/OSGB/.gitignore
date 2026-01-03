@@ -1,0 +1,29 @@
+# .gitignore for OSGB Library
+
+# CMake build directory
+build/
+cmake-build-*/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+obj/
+bin/
+
+# Compiled files
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# C++ precompiled headers
+*.pch
+*.gch
+
+# OS specific
+.DS_Store
+Thumbs.db
