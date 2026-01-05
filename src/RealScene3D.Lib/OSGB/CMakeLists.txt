@@ -194,7 +194,7 @@ if(WIN32)
     target_precompile_headers(${PROJECT_NAME} PRIVATE Native/OsgFix.h)
 
     # 添加/bigobj选项以支持大型对象文件
-    target_compile_options(${PROJECT_NAME} PRIVATE /bigobj)
+    target_compile_options(${PROJECT_NAME} PRIVATE /bigobj /utf-8)
 endif()
 
 # ============================================================================
@@ -344,6 +344,12 @@ target_include_directories(test_osgb_to_b3dm PRIVATE
 
 # 链接主库
 target_link_libraries(test_osgb_to_b3dm PRIVATE ${PROJECT_NAME})
+
+# Windows特定配置
+if(WIN32)
+    # 添加编译选项：UTF-8编码
+    target_compile_options(test_osgb_to_b3dm PRIVATE /utf-8)
+endif()
 
 # 设置输出目录
 if(CMAKE_CONFIGURATION_TYPES)
@@ -539,7 +545,7 @@ if(SWIG_FOUND)
         )
 
         # 添加编译选项
-        target_compile_options(OsgbReaderCS PRIVATE /bigobj)
+        target_compile_options(OsgbReaderCS PRIVATE /bigobj /utf-8)
     endif()
 
     # 安装规则

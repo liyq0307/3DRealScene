@@ -1,6 +1,6 @@
 // ============================================================================
-// OsgbReader Implementation
-// Converts OSGB (OpenSceneGraph Binary) files to GLB and 3D Tiles formats
+// OsgbReader 实现
+// 将 OSGB (OpenSceneGraph Binary) 文件转换为 GLB 和 3D Tiles 格式
 // ============================================================================
 
 #include "OsgbReader.h"
@@ -14,8 +14,8 @@
 #include <proj.h>  // PROJ coordinate transformation
 #endif
 
-#ifdef ENABLE_KTX2
 // Basis Universal for KTX2 texture compression
+#ifdef ENABLE_KTX2
 #include <basisu/encoder/basisu_comp.h>
 #include <basisu/transcoder/basisu_transcoder.h>
 #endif
@@ -44,8 +44,8 @@
 #undef min
 #endif // max
 
-// USE_OSGPLUGIN is needed for static plugin registration on Linux/macOS
-// On Windows with dynamic linking, plugins are loaded at runtime instead
+// USE_OSGPLUGIN 在 Linux/macOS 上需要用于静态插件注册
+// 在 Windows 上使用动态链接，插件在运行时加载
 #if defined(__unix__) || defined(__APPLE__)
 #include <osgDB/Registry>
 USE_OSGPLUGIN(osg)
@@ -55,7 +55,7 @@ USE_OSGPLUGIN(osg)
 // Helper Functions
 // ============================================================================
 
-// Check if path is a directory
+// 检查路径是否为目录
 bool is_directory(const std::string& path)
 {
 #ifdef _WIN32
@@ -67,20 +67,20 @@ bool is_directory(const std::string& path)
 #endif
 }
 
-// Find root OSGB file in directory (file without "_L" level suffix)
+// 在目录中查找根 OSGB 文件（不带 "_L" 级后缀的文件）
 std::string find_root_osgb(const std::string& dir_path)
 {
-	// Normalize path separators
+	// 标准化路径分隔符
 	std::string normalized_path = dir_path;
 	for (char& c : normalized_path)
 	{
 		if (c == '\\') c = '/';
 	}
-	// Remove trailing slash
+	// 移除尾部斜杠
 	if (!normalized_path.empty() && normalized_path.back() == '/')
 		normalized_path.pop_back();
 
-	// Helper function to search for root OSGB in a directory
+	// 在目录中搜索根 OSGB 的辅助函数
 	auto search_dir = [](const std::string& search_path) -> std::string
 	{
 #ifdef _WIN32
@@ -97,7 +97,7 @@ std::string find_root_osgb(const std::string& dir_path)
 					std::string subdir = findData.cFileName;
 					if (subdir != "." && subdir != "..")
 					{
-						// Search in subdirectory for root OSGB
+						// 在子目录中搜索根 OSGB
 						std::string subdir_path = search_path + "/" + subdir;
 						std::string osgb_pattern = subdir_path + "/*.osgb";
 						WIN32_FIND_DATAA findOsgb;
@@ -108,7 +108,7 @@ std::string find_root_osgb(const std::string& dir_path)
 							do
 							{
 								std::string filename = findOsgb.cFileName;
-								// Root OSGB file doesn't contain "_L" level indicator
+								// 根 OSGB 文件不包含 "_L" 级别指示符
 								if (filename.find("_L") == std::string::npos)
 								{
 									FindClose(hFindOsgb);
@@ -127,12 +127,12 @@ std::string find_root_osgb(const std::string& dir_path)
 		return "";
 	};
 
-	// Check if input path itself looks like a Data directory (contains subdirectories with OSGB files)
+	// 检查输入路径本身是否看起来像 Data 目录（包含带有 OSGB 文件的子目录）
 	std::string result = search_dir(normalized_path);
 	if (!result.empty())
 		return result;
 
-	// Try Data subdirectory
+	// 尝试 Data 子目录
 	std::string data_dir = normalized_path + "/Data";
 	if (is_directory(data_dir))
 	{
@@ -144,7 +144,7 @@ std::string find_root_osgb(const std::string& dir_path)
 	return "";  // Not found
 }
 
-// Get parent directory from path
+// 从路径获取父目录
 std::string get_parent(std::string str)
 {
 	auto p0 = str.find_last_of("/\\");
@@ -162,7 +162,7 @@ std::string get_file_name(std::string path)
 	return path.substr(p0 + 1);
 }
 
-// String replacement helper
+// 字符串替换辅助函数
 std::string replace(std::string str, std::string s0, std::string s1)
 {
 	auto p0 = str.find(s0);
@@ -171,19 +171,19 @@ std::string replace(std::string str, std::string s0, std::string s1)
 	return str.replace(p0, s0.length(), s1);
 }
 
-// Convert to OSG string format
-std::string osg_string(const char* path)
+// 转换为 OSG 字符串格式
+std::string osg_string(const std::string& path)
 {
 #ifdef WIN32
 	std::string root_path = osgDB::convertStringFromUTF8toCurrentCodePage(path);
 #else
-	std::string root_path = (path);
+	std::string root_path = path;
 #endif // WIN32
 	return root_path;
 }
 
-// Convert to UTF8 string format
-std::string utf8_string(const char* path)
+// 转换为 UTF8 字符串格式
+std::string utf8_string(const std::string& path)
 {
 #ifdef WIN32
 	std::string utf8 = osgDB::convertStringFromCurrentCodePageToUTF8(path);
@@ -193,7 +193,7 @@ std::string utf8_string(const char* path)
 	return utf8;
 }
 
-// Get level number from filename
+// 从文件名获取级别编号
 int get_lvl_num(std::string file_name)
 {
 	std::string stem = get_file_name(file_name);
@@ -411,7 +411,7 @@ void InfoVisitor::apply(osg::PagedLOD& node)
 
 //=================== InfoVisitor End =================
 
-//=================== Utility Functions ===================
+//=================== 工具函数 ===================
 template<class T>
 void put_val(std::vector<unsigned char>& buf, T val)
 {
@@ -552,7 +552,7 @@ std::string get_boundingRegion(TileBox bbox, double x, double y)
 void calc_geometric_error(OSGTree& tree)
 {
 	const double EPS = 1e-12;
-	// depth first
+	// 深度优先
 	for (auto& i : tree.sub_nodes)
 	{
 		calc_geometric_error(i);
@@ -578,7 +578,7 @@ void calc_geometric_error(OSGTree& tree)
 		{
 			if (bbox.max.empty() || bbox.min.empty())
 			{
-				LOG_E("bbox is empty!");
+				LOG_E("bbox 为空！");
 
 				return 0.0;
 			}
@@ -600,14 +600,15 @@ void calc_geometric_error(OSGTree& tree)
 	}
 }
 
-//===============Utils End==================
+//===============工具结束==================
 
 //===============OsgbReader==================
-void* OsgbReader::Osgb23dTile(
-	const char* in_path, const char* out_path, double* box, int* len, double x, double y, int max_lvl,
-	bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
+std::string OsgbReader::Osgb23dTile(
+	const std::string strInPath, const std::string& strOutPath, 
+	double* pBox, int* pLen, double dCenterX, double dCenterY, int nMaxLevel,
+	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
 {
-	std::string path = osg_string(in_path);
+	std::string path = osg_string(strInPath);
 
 	// Auto-detect directory and find root OSGB file
 	if (is_directory(path))
@@ -616,8 +617,8 @@ void* OsgbReader::Osgb23dTile(
 		std::string root_osgb = find_root_osgb(path);
 		if (root_osgb.empty())
 		{
-			LOG_E("No root OSGB file found in directory [%s]!", in_path);
-			return NULL;
+			LOG_E("No root OSGB file found in directory [%s]!", strInPath.c_str());
+			return "";
 		}
 		printf("[INFO] Found root OSGB: %s\n", root_osgb.c_str());
 		path = root_osgb;
@@ -626,32 +627,31 @@ void* OsgbReader::Osgb23dTile(
 	OSGTree root = GetAllTree(path);
 	if (root.file_name.empty())
 	{
-		LOG_E("open file [%s] fail!", in_path);
-		return NULL;
+		LOG_E("打开文件 [%s] 失败！", strInPath.c_str());
+		return "";
 	}
 
-	DoTileJob(root, out_path, max_lvl, enable_texture_compress, enable_meshopt, enable_draco);
+	DoTileJob(root, strOutPath, nMaxLevel, 
+		bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
 
 	extend_tile_box(root);
 
 	if (root.bbox.max.empty() || root.bbox.min.empty())
 	{
-		LOG_E("[%s] bbox is empty!", in_path);
-		return NULL;
+		LOG_E("[%s] bbox 为空！", strInPath.c_str());
+		return "";
 	}
 
 	calc_geometric_error(root);
 
 	root.geometricError = 1000.0;
-	std::string json = EncodeTileJson(root, x, y);
+	std::string strJson = EncodeTileJson(root, dCenterX, dCenterY);
 	root.bbox.extend(0.2);
-	memcpy(box, root.bbox.max.data(), 3 * sizeof(double));
-	memcpy(box + 3, root.bbox.min.data(), 3 * sizeof(double));
-	void* str = malloc(json.length());
-	memcpy(str, json.c_str(), json.length());
-	*len = json.length();
+	memcpy(pBox, root.bbox.max.data(), 3 * sizeof(double));
+	memcpy(pBox + 3, root.bbox.min.data(), 3 * sizeof(double));
+	*pLen = strJson.length();
 
-	return str;
+	return strJson;
 }
 
 bool OsgbReader::Osgb2GlbBuf(std::string path, std::string& glb_buff, int node_type, bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
@@ -659,38 +659,39 @@ bool OsgbReader::Osgb2GlbBuf(std::string path, std::string& glb_buff, int node_t
 	return Osgb2GlbBuf(path, glb_buff, MeshInfo(), node_type, enable_texture_compress, enable_meshopt, enable_draco, false);
 }
 
-bool OsgbReader::Osgb2Glb(const char* in, const char* out, bool enable_texture_compress/* = false*/, bool enable_meshopt/* = false*/, bool enable_draco/* = false*/)
+bool OsgbReader::Osgb2Glb(const std::string& strInPath, const std::string& strOutPath, bool bEnableTextureCompress/* = false*/, bool bEnableMeshOpt/* = false*/, bool bEnableDraco/* = false*/)
 {
 	MeshInfo minfo;
 	std::string glb_buf = "";
-	std::string path = osg_string(in);
+	std::string path = osg_string(strInPath);
 
-	// Auto-detect directory and find root OSGB file
+	// 自动检测目录并查找根 OSGB 文件
 	if (is_directory(path))
 	{
-		printf("[INFO] Input is directory, searching for root OSGB file...\n");
+		printf("[INFO] 输入是目录，正在搜索根 OSGB 文件...\n");
 		std::string root_osgb = find_root_osgb(path);
 		if (root_osgb.empty())
 		{
-			LOG_E("No root OSGB file found in directory [%s]!", in);
+			LOG_E("在目录 [%s] 中未找到根 OSGB 文件！", strInPath.c_str());
 			return false;
 		}
-		printf("[INFO] Found root OSGB: %s\n", root_osgb.c_str());
+		printf("[INFO] 找到根 OSGB：%s\n", root_osgb.c_str());
 		path = root_osgb;
 	}
 
-	bool ret = Osgb2GlbBuf(path, glb_buf, minfo, -1, enable_texture_compress, enable_meshopt, enable_draco);
+	bool ret = Osgb2GlbBuf(path, glb_buf, minfo, -1, 
+		bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
 	if (!ret)
 	{
-		LOG_E("convert to glb failed");
+		LOG_E("转换为 glb 失败");
 
 		return false;
 	}
 
-	ret = write_file(out, glb_buf.data(), (unsigned long)glb_buf.size());
+	ret = write_file(strOutPath.c_str(), glb_buf.data(), (unsigned long)glb_buf.size());
 	if (!ret)
 	{
-		LOG_E("write glb file failed");
+		LOG_E("写入 glb 文件失败");
 
 		return false;
 	}
@@ -858,7 +859,7 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 	}
 	default:
 	{
-		LOG_E("unsupport osg::PrimitiveSet::Type [%d]", t);
+		LOG_E("不支持的 osg::PrimitiveSet::Type [%d]", t);
 		exit(1);
 		break;
 	}
@@ -938,7 +939,7 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 		primits.mode = TINYGLTF_MODE_TRIANGLE_FAN;
 		break;
 	default:
-		LOG_E("Unsupport Primitive Mode: %d", (int)ps->getMode());
+		LOG_E("不支持的原始模式：%d", (int)ps->getMode());
 		exit(1);
 		break;
 	}
@@ -971,7 +972,7 @@ void WriteOsgGeometry(osg::Geometry* g, OsgBuildState* osgState, bool enable_sim
 		osg::PrimitiveSet* ps = g->getPrimitiveSet(k);
 		if (t != ps->getType())
 		{
-			LOG_E("PrimitiveSets type are NOT same in osgb");
+			LOG_E("osgb 中 PrimitiveSets 类型不相同");
 			exit(1);
 		}
 
@@ -1384,43 +1385,43 @@ OSGTree OsgbReader::GetAllTree(std::string& file_name)
 	return root_tile;
 }
 
-//===============OsgbReader Batch Processing==================
+//===============OsgbReader 批量处理==================
 
-void* OsgbReader::Osgb23dTileBatch(
-	const char* data_dir, const char* output_dir, double* merged_box, int* json_len,
-	double center_x, double center_y, int max_lvl,
-	bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
+std::string OsgbReader::Osgb23dTileBatch(
+	const std::string& pDataDir, const std::string& strOutputDir, 
+	double* pMergedBox, int* pJsonLen, double dCenterX, double dCenterY, int nMaxLevel, 
+	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
 {
-	// 1. Build Data directory path
-	std::string data_path = osg_string(data_dir);
-	// Normalize path separators
+	// 1. 构建 Data 目录路径
+	std::string data_path = osg_string(pDataDir);
+	// 标准化路径分隔符
 	for (char& c : data_path)
 	{
 		if (c == '\\') c = '/';
 	}
-	// Remove trailing slash
+	// 移除尾部斜杠
 	if (!data_path.empty() && data_path.back() == '/')
 		data_path.pop_back();
 
-	// Check if path ends with "/Data"
+	// 检查路径是否以 "/Data" 结尾
 	std::string check_data_dir = data_path;
 	size_t data_pos = data_path.rfind("/Data");
 	if (data_pos == std::string::npos || data_pos != data_path.length() - 5)
 	{
-		// Not ending with "/Data", append it
+		// 不以 "/Data" 结尾，追加它
 		check_data_dir = data_path + "/Data";
 	}
 
-	printf("[INFO] Searching for tiles in: %s\n", check_data_dir.c_str());
+	printf("[INFO] 在以下位置搜索瓦片：%s\n", check_data_dir.c_str());
 
 	if (!is_directory(check_data_dir))
 	{
-		LOG_E("Data directory does not exist: %s", check_data_dir.c_str());
+		LOG_E("Data 目录不存在：%s", check_data_dir.c_str());
 		return NULL;
 	}
 
-	// 2. Create output directories
-	std::string out_path = output_dir;
+	// 2. 创建输出目录
+	std::string out_path = strOutputDir;
 #ifdef _WIN32
 	CreateDirectoryA(out_path.c_str(), NULL);
 	std::string out_data_path = out_path + "/Data";
@@ -1431,7 +1432,7 @@ void* OsgbReader::Osgb23dTileBatch(
 	mkdir(out_data_path.c_str(), 0755);
 #endif
 
-	// 3. Iterate through Data directory, collect all Tile_* directories
+	// 3. 遍历 Data 目录，收集所有 Tile_* 目录
 	struct TileInfo {
 		std::string tile_name;
 		std::string osgb_path;
@@ -1449,7 +1450,7 @@ void* OsgbReader::Osgb23dTileBatch(
 
 	if (hFind == INVALID_HANDLE_VALUE)
 	{
-		LOG_E("Failed to list directory: %s", check_data_dir.c_str());
+		LOG_E("列出目录失败：%s", check_data_dir.c_str());
 		return NULL;
 	}
 
@@ -1488,7 +1489,7 @@ void* OsgbReader::Osgb23dTileBatch(
 
 	if (tiles.empty())
 	{
-		LOG_E("No Tile_* directories found in: %s", check_data_dir.c_str());
+		LOG_E("未在 %s 中找到 Tile_* 目录", check_data_dir.c_str());
 		return NULL;
 	}
 
@@ -1505,29 +1506,28 @@ void* OsgbReader::Osgb23dTileBatch(
 		double bbox_data[6] = {0};
 		int bbox_len = 0;
 
-		void* tile_json = Osgb23dTile(
-			tile.osgb_path.c_str(),
-			tile.output_path.c_str(),
+		std::string strTileJson = Osgb23dTile(
+			tile.osgb_path,
+			tile.output_path,
 			bbox_data,
 			&bbox_len,
-			center_x,
-			center_y,
-			max_lvl,
-			enable_texture_compress,
-			enable_meshopt,
-			enable_draco
+			dCenterX,
+			dCenterY,
+			nMaxLevel,
+			bEnableTextureCompress,
+			bEnableMeshOpt,
+			bEnableDraco
 		);
 
-		if (tile_json != NULL)
+		if (!strTileJson.empty())
 		{
-			std::string tile_root_json((char*)tile_json, bbox_len);
-			tile_jsons.push_back(tile_root_json);
+			tile_jsons.push_back(strTileJson);
 
-			// Update bounding box
+			// 更新边界框
 			tile.bbox.max = {bbox_data[0], bbox_data[1], bbox_data[2]};
 			tile.bbox.min = {bbox_data[3], bbox_data[4], bbox_data[5]};
 
-			// Merge into global bounding box
+			// 合并到全局边界框
 			if (global_bbox.max.empty())
 			{
 				global_bbox = tile.bbox;
@@ -1537,53 +1537,51 @@ void* OsgbReader::Osgb23dTileBatch(
 				expend_box(global_bbox, tile.bbox);
 			}
 
-			// Wrap tile JSON in complete tileset structure (following Rust implementation)
+			// 将瓦片 JSON 包装在完整的 tileset 结构中（遵循 Rust 实现）
 			std::string wrapped_json = "{";
 			wrapped_json += "\"asset\":{\"version\":\"1.0\",\"gltfUpAxis\":\"Z\"},";
 			wrapped_json += "\"geometricError\":1000,";
 			wrapped_json += "\"root\":";
-			wrapped_json += tile_root_json;  // This is the root node of this tile
+			wrapped_json += strTileJson;  // 这是此瓦片的根节点
 			wrapped_json += "}";
 
-			// Save individual tile's tileset.json
+			// 保存单个瓦片的 tileset.json
 			std::string tileset_path = tile.output_path + "/tileset.json";
 			write_file(tileset_path.c_str(), wrapped_json.data(), wrapped_json.size());
-
-			free(tile_json);
 		}
 		else
 		{
-			LOG_E("Failed to process tile: %s", tile.tile_name.c_str());
+			LOG_E("处理瓦片失败：%s", tile.tile_name.c_str());
 		}
 	}
 
 	if (tile_jsons.empty())
 	{
-		LOG_E("No tiles were successfully processed");
+		LOG_E("没有成功处理任何瓦片");
 		return NULL;
 	}
 
-	// 5. Calculate transform matrix
+	// 5. 计算变换矩阵
 	std::vector<double> transform_matrix(16);
 	{
-		// Use the minimum height from the merged global bounding box
+		// 使用合并的全局边界框的最小高度
 		double height_min = global_bbox.min.empty() ? 0.0 : global_bbox.min[2];
-		transform_c(center_x, center_y, height_min, transform_matrix.data());
+		transform_c(dCenterX, dCenterY, height_min, transform_matrix.data());
 	}
 
-	// 6. Generate root tileset.json (following Rust implementation structure)
+	// 6. 生成根 tileset.json（遵循 Rust 实现结构）
 	std::string root_json = "{";
 
-	// Add asset info
+	// 添加资产信息
 	root_json += "\"asset\":{\"version\":\"1.0\",\"gltfUpAxis\":\"Z\"},";
 
 	// Add root geometric error
 	root_json += "\"geometricError\":2000,";
 
-	// Add root object
+	// 添加根对象
 	root_json += "\"root\":{";
 
-	// Add transform matrix (16 elements in column-major order)
+	// 添加变换矩阵（16 个元素，按列主序）
 	root_json += "\"transform\":[";
 	for (int i = 0; i < 16; i++)
 	{
@@ -1595,14 +1593,14 @@ void* OsgbReader::Osgb23dTileBatch(
 	}
 	root_json += "],";
 
-	// Add root bounding box
+	// 添加根边界框
 	root_json += get_boundingBox(global_bbox);
 	root_json += ",";
 
-	// Add root geometric error (redundant but matches Rust structure)
+	// 添加根几何误差（冗余但匹配 Rust 结构）
 	root_json += "\"geometricError\":2000,";
 
-	// Add children (all tiles)
+	// 添加子项（所有瓦片）
 	root_json += "\"children\":[";
 
 	for (size_t i = 0; i < tiles.size(); i++)
@@ -1623,24 +1621,22 @@ void* OsgbReader::Osgb23dTileBatch(
 	root_json += "}";  // Close root object
 	root_json += "}";  // Close root tileset
 
-	// 7. Save root tileset.json
-	std::string root_tileset_path = std::string(output_dir) + "/tileset.json";
+	// 7. 保存根 tileset.json
+	std::string root_tileset_path = strOutputDir + "/tileset.json";
 	write_file(root_tileset_path.c_str(), root_json.data(), root_json.size());
 
-	printf("[INFO] Batch processing complete! Generated root tileset.json with %zu tiles\n", tiles.size());
+	printf("[INFO] 批量处理完成！生成了包含 %zu 个瓦片的根 tileset.json\n", tiles.size());
 
-	// 7. Return results
-	if (merged_box)
+	// 7. 返回结果
+	if (nullptr !=  pMergedBox)
 	{
-		memcpy(merged_box, global_bbox.max.data(), 3 * sizeof(double));
-		memcpy(merged_box + 3, global_bbox.min.data(), 3 * sizeof(double));
+		memcpy(pMergedBox, global_bbox.max.data(), 3 * sizeof(double));
+		memcpy(pMergedBox + 3, global_bbox.min.data(), 3 * sizeof(double));
 	}
 
-	void* result = malloc(root_json.length());
-	memcpy(result, root_json.c_str(), root_json.length());
-	*json_len = root_json.length();
+	*pJsonLen = root_json.length();
 
-	return result;
+	return root_json;
 }
 
-//===============OsgbReader End==================
+//===============OsgbReader 结束==================

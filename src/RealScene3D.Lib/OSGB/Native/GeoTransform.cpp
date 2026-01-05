@@ -2,49 +2,49 @@
 #include <cstdio>
 #include <cmath>
 
-// ¾²Ì¬³ÉÔ±³õÊ¼»¯
-PJ* GeoTransform::projTransform = nullptr;      // PROJ×ª»»¶ÔÏó
-PJ_CONTEXT* GeoTransform::projContext = nullptr; // PROJÉÏÏÂÎÄ
-double GeoTransform::OriginX = 0.0;              // Ô­µãX×ø±ê
-double GeoTransform::OriginY = 0.0;              // Ô­µãY×ø±ê
-double GeoTransform::OriginZ = 0.0;              // Ô­µãZ×ø±ê
-double GeoTransform::GeoOriginLon = 0.0;         // µØÀíÔ­µã¾­¶È
-double GeoTransform::GeoOriginLat = 0.0;         // µØÀíÔ­µãÎ³¶È
-double GeoTransform::GeoOriginHeight = 0.0;      // µØÀíÔ­µã¸ß¶È
-bool GeoTransform::IsENU = false;                // ÊÇ·ñÊ¹ÓÃENU×ø±êÏµ
-glm::dmat4 GeoTransform::EcefToEnuMatrix = glm::dmat4(1); // ECEFµ½ENUµÄ×ª»»¾ØÕó
-std::string GeoTransform::lastError = "";        // ×îºóµÄ´íÎóĞÅÏ¢
+// é™æ€æˆå‘˜åˆå§‹åŒ–
+PJ* GeoTransform::projTransform = nullptr;      // PROJè½¬æ¢å¯¹è±¡
+PJ_CONTEXT* GeoTransform::projContext = nullptr; // PROJä¸Šä¸‹æ–‡
+double GeoTransform::OriginX = 0.0;              // åŸç‚¹Xåæ ‡
+double GeoTransform::OriginY = 0.0;              // åŸç‚¹Yåæ ‡
+double GeoTransform::OriginZ = 0.0;              // åŸç‚¹Zåæ ‡
+double GeoTransform::GeoOriginLon = 0.0;         // åœ°ç†åŸç‚¹ç»åº¦
+double GeoTransform::GeoOriginLat = 0.0;         // åœ°ç†åŸç‚¹çº¬åº¦
+double GeoTransform::GeoOriginHeight = 0.0;      // åœ°ç†åŸç‚¹é«˜åº¦
+bool GeoTransform::IsENU = false;                // æ˜¯å¦ä½¿ç”¨ENUåæ ‡ç³»
+glm::dmat4 GeoTransform::EcefToEnuMatrix = glm::dmat4(1); // ECEFåˆ°ENUçš„è½¬æ¢çŸ©é˜µ
+std::string GeoTransform::lastError = "";        // æœ€åçš„é”™è¯¯ä¿¡æ¯
 
 glm::dmat4 GeoTransform::CalcEnuToEcefMatrix(double lnt, double lat, double height_min)
 {
-	// WGS84ÍÖÇò²ÎÊı
+	// WGS84æ¤­çƒå‚æ•°
 	const double pi = std::acos(-1.0);
-	const double a = 6378137.0;                  // WGS84ÍÖÇò³¤°ëÖá£¨Ã×£©
-	const double f = 1.0 / 298.257223563;        // WGS84±âÂÊ
-	const double e2 = f * (2.0 - f);             // µÚÒ»Æ«ĞÄÂÊÆ½·½
+	const double a = 6378137.0;                  // WGS84æ¤­çƒé•¿åŠè½´ï¼ˆç±³ï¼‰
+	const double f = 1.0 / 298.257223563;        // WGS84æ‰ç‡
+	const double e2 = f * (2.0 - f);             // ç¬¬ä¸€åå¿ƒç‡å¹³æ–¹
 
-	// ½«¾­Î³¶È×ª»»Îª»¡¶È
+	// å°†ç»çº¬åº¦è½¬æ¢ä¸ºå¼§åº¦
 	double lon = lnt * pi / 180.0;
 	double phi = lat * pi / 180.0;
 
-	// ¼ÆËãÈı½Çº¯ÊıÖµ
+	// è®¡ç®—ä¸‰è§’å‡½æ•°å€¼
 	double sinPhi = std::sin(phi), cosPhi = std::cos(phi);
 	double sinLon = std::sin(lon), cosLon = std::cos(lon);
 
-	// ¼ÆËãÃ®ÓÏÈ¦ÇúÂÊ°ë¾¶
+	// è®¡ç®—å¯é…‰åœˆæ›²ç‡åŠå¾„
 	double N = a / std::sqrt(1.0 - e2 * sinPhi * sinPhi);
 
-	// ¼ÆËãÔ­µãÔÚECEF×ø±êÏµÖĞµÄ×ø±ê
+	// è®¡ç®—åŸç‚¹åœ¨ECEFåæ ‡ç³»ä¸­çš„åæ ‡
 	double x0 = (N + height_min) * cosPhi * cosLon;
 	double y0 = (N + height_min) * cosPhi * sinLon;
 	double z0 = (N * (1.0 - e2) + height_min) * sinPhi;
 
-	// ENU»ùÏòÁ¿ÔÚECEF×ø±êÏµÖĞµÄ±íÊ¾
-	glm::dvec3 east(-sinLon, cosLon, 0.0);           // ¶«·½Ïò
-	glm::dvec3 north(-sinPhi * cosLon, -sinPhi * sinLon, cosPhi); // ±±·½Ïò
-	glm::dvec3 up(cosPhi * cosLon, cosPhi * sinLon, sinPhi);      // ÉÏ·½Ïò
+	// ENUåŸºå‘é‡åœ¨ECEFåæ ‡ç³»ä¸­çš„è¡¨ç¤º
+	glm::dvec3 east(-sinLon, cosLon, 0.0);           // ä¸œæ–¹å‘
+	glm::dvec3 north(-sinPhi * cosLon, -sinPhi * sinLon, cosPhi); // åŒ—æ–¹å‘
+	glm::dvec3 up(cosPhi * cosLon, cosPhi * sinLon, sinPhi);      // ä¸Šæ–¹å‘
 
-	// ¹¹½¨ENU->ECEF×ª»»¾ØÕó£¨Ğı×ª+Æ½ÒÆ£©£¬ÁĞÖ÷Ğò
+	// æ„å»ºENU->ECEFè½¬æ¢çŸ©é˜µï¼ˆæ—‹è½¬+å¹³ç§»ï¼‰ï¼Œåˆ—ä¸»åº
 	glm::dmat4 T(1.0);
 	T[0] = glm::dvec4(east, 0.0);
 	T[1] = glm::dvec4(north, 0.0);
@@ -55,24 +55,24 @@ glm::dmat4 GeoTransform::CalcEnuToEcefMatrix(double lnt, double lat, double heig
 
 glm::dvec3 GeoTransform::CartographicToEcef(double lnt, double lat, double height)
 {
-	// WGS84ÍÖÇò²ÎÊı
+	// WGS84æ¤­çƒå‚æ•°
 	const double pi = std::acos(-1.0);
-	const double a = 6378137.0;                  // WGS84ÍÖÇò³¤°ëÖá£¨Ã×£©
-	const double f = 1.0 / 298.257223563;        // WGS84±âÂÊ
-	const double e2 = f * (2.0 - f);             // µÚÒ»Æ«ĞÄÂÊÆ½·½
+	const double a = 6378137.0;                  // WGS84æ¤­çƒé•¿åŠè½´ï¼ˆç±³ï¼‰
+	const double f = 1.0 / 298.257223563;        // WGS84æ‰ç‡
+	const double e2 = f * (2.0 - f);             // ç¬¬ä¸€åå¿ƒç‡å¹³æ–¹
 
-	// ½«¾­Î³¶È×ª»»Îª»¡¶È
+	// å°†ç»çº¬åº¦è½¬æ¢ä¸ºå¼§åº¦
 	double lon = lnt * pi / 180.0;
 	double phi = lat * pi / 180.0;
 
-	// ¼ÆËãÈı½Çº¯ÊıÖµ
+	// è®¡ç®—ä¸‰è§’å‡½æ•°å€¼
 	double sinPhi = std::sin(phi), cosPhi = std::cos(phi);
 	double sinLon = std::sin(lon), cosLon = std::cos(lon);
 
-	// ¼ÆËãÃ®ÓÏÈ¦ÇúÂÊ°ë¾¶
+	// è®¡ç®—å¯é…‰åœˆæ›²ç‡åŠå¾„
 	double N = a / std::sqrt(1.0 - e2 * sinPhi * sinPhi);
 
-	// ½«µØÀí×ø±ê£¨¾­Î³¶È£©×ª»»ÎªECEF×ø±ê£¨µØĞÄµØ¹Ì×ø±êÏµ£©
+	// å°†åœ°ç†åæ ‡ï¼ˆç»çº¬åº¦ï¼‰è½¬æ¢ä¸ºECEFåæ ‡ï¼ˆåœ°å¿ƒåœ°å›ºåæ ‡ç³»ï¼‰
 	double x = (N + height) * cosPhi * cosLon;
 	double y = (N + height) * cosPhi * sinLon;
 	double z = (N * (1.0 - e2) + height) * sinPhi;
@@ -82,14 +82,14 @@ glm::dvec3 GeoTransform::CartographicToEcef(double lnt, double lat, double heigh
 
 void GeoTransform::Init(PJ* transform, double* origin)
 {
-	// ±£´æ×ª»»¶ÔÏóºÍÔ­µã×ø±ê
+	// ä¿å­˜è½¬æ¢å¯¹è±¡å’ŒåŸç‚¹åæ ‡
 	GeoTransform::projTransform = transform;
 	GeoTransform::OriginX = origin[0];
 	GeoTransform::OriginY = origin[1];
 	GeoTransform::OriginZ = origin[2];
-	GeoTransform::IsENU = false;  // Ä¬ÈÏ²»Ê¹ÓÃENU×ø±êÏµ
+	GeoTransform::IsENU = false;  // é»˜è®¤ä¸ä½¿ç”¨ENUåæ ‡ç³»
 
-	// Ö´ĞĞ×ø±ê×ª»»
+	// æ‰§è¡Œåæ ‡è½¬æ¢
 	glm::dvec3 originLocal = { OriginX, OriginY, OriginZ };
 	glm::dvec3 originCartographic = originLocal;
 
@@ -98,19 +98,19 @@ void GeoTransform::Init(PJ* transform, double* origin)
 
 	if (projTransform)
 	{
-		// Ê¹ÓÃPROJ½øĞĞ×ø±ê×ª»»
+		// ä½¿ç”¨PROJè¿›è¡Œåæ ‡è½¬æ¢
 		PJ_COORD coord;
 		coord.xyzt.x = originLocal.x;
 		coord.xyzt.y = originLocal.y;
 		coord.xyzt.z = originLocal.z;
-		coord.xyzt.t = HUGE_VAL;  // ²»Ê¹ÓÃÊ±¼äÎ¬¶È
+		coord.xyzt.t = HUGE_VAL;  // ä¸ä½¿ç”¨æ—¶é—´ç»´åº¦
 
-		// Ö´ĞĞ×ª»»
+		// æ‰§è¡Œè½¬æ¢
 		PJ_COORD result = proj_trans(projTransform, PJ_FWD, coord);
 
 		if (result.xyzt.x != HUGE_VAL)
 		{
-			// ±£´æ×ª»»ºóµÄµØÀí×ø±ê£¨¾­Î³¶È£©
+			// ä¿å­˜è½¬æ¢åçš„åœ°ç†åæ ‡ï¼ˆç»çº¬åº¦ï¼‰
 			originCartographic.x = result.xyzt.x;
 			originCartographic.y = result.xyzt.y;
 			originCartographic.z = result.xyzt.z;
@@ -124,12 +124,12 @@ void GeoTransform::Init(PJ* transform, double* origin)
 		}
 	}
 
-	// ±£´æµØÀíÔ­µã
+	// ä¿å­˜åœ°ç†åŸç‚¹
 	GeoOriginLon = originCartographic.x;
 	GeoOriginLat = originCartographic.y;
 	GeoOriginHeight = originCartographic.z;
 
-	// ¼ÆËãENU<->ECEF×ª»»¾ØÕó
+	// è®¡ç®—ENU<->ECEFè½¬æ¢çŸ©é˜µ
 	glm::dmat4 EnuToEcefMatrix = CalcEnuToEcefMatrix(
 		originCartographic.x, originCartographic.y, originCartographic.z);
 	EcefToEnuMatrix = glm::inverse(EnuToEcefMatrix);
@@ -137,13 +137,13 @@ void GeoTransform::Init(PJ* transform, double* origin)
 
 void GeoTransform::SetGeographicOrigin(double lon, double lat, double height)
 {
-	// ÉèÖÃENUÏµÍ³µÄµØÀíÔ­µã
+	// è®¾ç½®ENUç³»ç»Ÿçš„åœ°ç†åŸç‚¹
 	GeoOriginLon = lon;
 	GeoOriginLat = lat;
 	GeoOriginHeight = height;
 	IsENU = true;
 
-	// ÖØĞÂ¼ÆËãENU<->ECEF×ª»»¾ØÕó
+	// é‡æ–°è®¡ç®—ENU<->ECEFè½¬æ¢çŸ©é˜µ
 	glm::dmat4 EnuToEcefMatrix = CalcEnuToEcefMatrix(lon, lat, height);
 	EcefToEnuMatrix = glm::inverse(EnuToEcefMatrix);
 
@@ -153,7 +153,7 @@ void GeoTransform::SetGeographicOrigin(double lon, double lat, double height)
 
 void GeoTransform::Cleanup()
 {
-	// ÇåÀíPROJ×ÊÔ´
+	// æ¸…ç†PROJèµ„æº
 	if (projTransform)
 	{
 		proj_destroy(projTransform);
@@ -168,7 +168,7 @@ void GeoTransform::Cleanup()
 }
 
 // ============================================================================
-// Íâ²¿¹«¿ª½Ó¿ÚÊµÏÖ
+// å¤–éƒ¨å…¬å¼€æ¥å£å®ç°
 // ============================================================================
 
 #ifdef ENABLE_PROJ
@@ -181,7 +181,7 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 		return false;
 	}
 
-	// ´´½¨PROJÉÏÏÂÎÄ£¨Ïß³Ì°²È«£©
+	// åˆ›å»ºPROJä¸Šä¸‹æ–‡ï¼ˆçº¿ç¨‹å®‰å…¨ï¼‰
 	PJ_CONTEXT* ctx = proj_context_create();
 	if (!ctx)
 	{
@@ -189,7 +189,7 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 		return false;
 	}
 
-	// ¹¹½¨×ø±êÏµ×ª»»×Ö·û´®£ºEPSG:xxxx -> EPSG:4326(WGS84)
+	// æ„å»ºåæ ‡ç³»è½¬æ¢å­—ç¬¦ä¸²ï¼šEPSG:xxxx -> EPSG:4326(WGS84)
 	char crs_from[64], crs_to[64];
 	snprintf(crs_from, sizeof(crs_from), "EPSG:%d", epsg_code);
 	snprintf(crs_to, sizeof(crs_to), "EPSG:4326");
@@ -198,7 +198,7 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 	fprintf(stderr, "[GeoTransform::InitFromEPSG] Origin: x=%.6f y=%.6f z=%.3f\n",
 		origin[0], origin[1], origin[2]);
 
-	// ´´½¨×ø±êÏµ×ª»»¶ÔÏó
+	// åˆ›å»ºåæ ‡ç³»è½¬æ¢å¯¹è±¡
 	PJ* transform = proj_create_crs_to_crs(ctx, crs_from, crs_to, nullptr);
 	if (!transform)
 	{
@@ -211,7 +211,7 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 		return false;
 	}
 
-	// È·±£Ê¹ÓÃ´«Í³GISË³Ğò£¨¾­¶ÈÔÚÇ°£©
+	// ç¡®ä¿ä½¿ç”¨ä¼ ç»ŸGISé¡ºåºï¼ˆç»åº¦åœ¨å‰ï¼‰
 	PJ* transform_normalized = proj_normalize_for_visualization(ctx, transform);
 	if (transform_normalized)
 	{
@@ -219,7 +219,7 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 		transform = transform_normalized;
 	}
 
-	// µ÷ÓÃÄÚ²¿³õÊ¼»¯º¯Êı
+	// è°ƒç”¨å†…éƒ¨åˆå§‹åŒ–å‡½æ•°
 	projContext = ctx;
 	Init(transform, origin);
 
@@ -238,7 +238,7 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 	fprintf(stderr, "[GeoTransform::InitFromENU] ENU: lon=%.7f lat=%.7f (offset: %.3f, %.3f, %.3f)\n",
 		lon, lat, origin_enu[0], origin_enu[1], origin_enu[2]);
 
-	// ´´½¨PROJÉÏÏÂÎÄ
+	// åˆ›å»ºPROJä¸Šä¸‹æ–‡
 	PJ_CONTEXT* ctx = proj_context_create();
 	if (!ctx)
 	{
@@ -246,7 +246,7 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 		return false;
 	}
 
-	// ENUÊ¹ÓÃºãµÈ±ä»»£¨ÒÑ¾­ÔÚÕıÈ·×ø±êÏµÖĞ£©
+	// ENUä½¿ç”¨æ’ç­‰å˜æ¢ï¼ˆå·²ç»åœ¨æ­£ç¡®åæ ‡ç³»ä¸­ï¼‰
 	PJ* transform = proj_create_crs_to_crs(ctx, "EPSG:4326", "EPSG:4326", nullptr);
 	if (!transform)
 	{
@@ -255,13 +255,13 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 		return false;
 	}
 
-	// ±£´æÉÏÏÂÎÄ
+	// ä¿å­˜ä¸Šä¸‹æ–‡
 	projContext = ctx;
 
-	// ³õÊ¼»¯GeoTransform
+	// åˆå§‹åŒ–GeoTransform
 	Init(transform, origin_enu);
 
-	// ÉèÖÃENUµØÀíÔ­µã
+	// è®¾ç½®ENUåœ°ç†åŸç‚¹
 	SetGeographicOrigin(lon, lat, 0.0);
 
 	fprintf(stderr, "[GeoTransform::InitFromENU] Initialization successful\n");
@@ -276,7 +276,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		return false;
 	}
 
-	// ´´½¨PROJÉÏÏÂÎÄ
+	// åˆ›å»ºPROJä¸Šä¸‹æ–‡
 	PJ_CONTEXT* ctx = proj_context_create();
 	if (!ctx)
 	{
@@ -288,7 +288,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 	fprintf(stderr, "[GeoTransform::InitFromWKT] Origin: x=%.6f y=%.6f z=%.3f\n",
 		origin[0], origin[1], origin[2]);
 
-	// ´ÓWKT´´½¨Ô´×ø±êÏµ
+	// ä»WKTåˆ›å»ºæºåæ ‡ç³»
 	PJ* crs_src = proj_create(ctx, wkt);
 	if (!crs_src)
 	{
@@ -301,7 +301,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		return false;
 	}
 
-	// ´´½¨Ä¿±ê×ø±êÏµ£¨WGS84£©
+	// åˆ›å»ºç›®æ ‡åæ ‡ç³»ï¼ˆWGS84ï¼‰
 	PJ* crs_dst = proj_create(ctx, "EPSG:4326");
 	if (!crs_dst)
 	{
@@ -311,7 +311,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		return false;
 	}
 
-	// ´´½¨×ª»»
+	// åˆ›å»ºè½¬æ¢
 	PJ* transform = proj_create_crs_to_crs_from_pj(ctx, crs_src, crs_dst, nullptr, nullptr);
 	proj_destroy(crs_src);
 	proj_destroy(crs_dst);
@@ -327,7 +327,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		return false;
 	}
 
-	// ±ê×¼»¯×ª»»
+	// æ ‡å‡†åŒ–è½¬æ¢
 	PJ* transform_normalized = proj_normalize_for_visualization(ctx, transform);
 	if (transform_normalized)
 	{
@@ -335,7 +335,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		transform = transform_normalized;
 	}
 
-	// µ÷ÓÃÄÚ²¿³õÊ¼»¯
+	// è°ƒç”¨å†…éƒ¨åˆå§‹åŒ–
 	projContext = ctx;
 	Init(transform, origin);
 
@@ -345,7 +345,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 
 #else // !ENABLE_PROJ
 
-// µ±PROJÎ´ÆôÓÃÊ±Ìá¹©stubÊµÏÖ
+// å½“PROJæœªå¯ç”¨æ—¶æä¾›stubå®ç°
 bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 {
 	lastError = "PROJ library not enabled";
@@ -368,12 +368,12 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 
 const char* GeoTransform::GetLastError()
 {
-	// »ñÈ¡×îºóµÄ´íÎóĞÅÏ¢
+	// è·å–æœ€åçš„é”™è¯¯ä¿¡æ¯
 	return lastError.empty() ? nullptr : lastError.c_str();
 }
 
 bool GeoTransform::IsInitialized()
 {
-	// ¼ì²é×ø±ê×ª»»ÊÇ·ñÒÑ³õÊ¼»¯
+	// æ£€æŸ¥åæ ‡è½¬æ¢æ˜¯å¦å·²åˆå§‹åŒ–
 	return projTransform != nullptr;
 }

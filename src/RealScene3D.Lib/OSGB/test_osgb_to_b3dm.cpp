@@ -1,6 +1,6 @@
 // ============================================================================
-// OsgbReader C++ ���Գ���
-// ���� OSGB �� GLB �� 3D Tiles ��ת������
+// OsgbReader C++ 测试程序
+// 用于 OSGB 到 GLB 和 3D Tiles 转换功能
 // ============================================================================
 
 #include "Native/OsgbReader.h"
@@ -18,26 +18,26 @@
 int main(int argc, char* argv[])
 {
     std::cout << "========================================" << std::endl;
-    std::cout << "OsgbReader C++ ���Գ���" << std::endl;
+    std::cout << "OsgbReader C++ 测试程序" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // ��������������
+    // 设置输入输出路径
     std::string strInputPath = "E:/Data/3D/g_tsg_osgb";
     std::string strOutputDir = "E:/Data/3D/output_osgb_batch";
 
-    std::cout << "����Ŀ¼: " << strInputPath.c_str() << std::endl;
-    std::cout << "���Ŀ¼: " << strOutputDir.c_str() << std::endl;
+    std::cout << "输入目录: " << strInputPath.c_str() << std::endl;
+    std::cout << "输出目录: " << strOutputDir.c_str() << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // �������Ŀ¼
+    // 创建输出目录
     std::filesystem::create_directories(strOutputDir);
 
-    // ���� OsgbReader ʵ��
-    std::cout << "[INFO] ���� OsgbReader ʵ��..." << std::endl;
+    // 初始化 OsgbReader 实例
+    std::cout << "[INFO] 初始化 OsgbReader 实例..." << std::endl;
     OsgbReader reader;
 
-    // ����������: OSGB ����ת��Ϊ 3D Tiles
-    std::cout << "OSGB ����ת��Ϊ 3D Tiles" << std::endl;
+    // 开始转换: OSGB 文件转换为 3D Tiles
+    std::cout << "OSGB 文件转换为 3D Tiles" << std::endl;
     std::cout << "----------------------------------------" << std::endl;
 
     double bboxData[6] = {0};
@@ -45,9 +45,9 @@ int main(int argc, char* argv[])
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    void* tilesetResult = reader.Osgb23dTileBatch(
-        strInputPath.c_str(),
-        strOutputDir.c_str(),
+    std::string strTilesetJson = reader.Osgb23dTileBatch(
+        strInputPath,
+        strOutputDir,
         bboxData,
         &bboxLen,
         120.34445,  // center_x (经度)
@@ -61,39 +61,35 @@ int main(int argc, char* argv[])
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    if (tilesetResult != nullptr)
+    if (!strTilesetJson.empty())
     {
-        std::cout << "[INFO] OSGB ����ת�� 3D Tiles �ɹ�!" << std::endl;
-        std::cout << "  ��ʱ: " << duration.count() << " ms" << std::endl;
+        std::cout << "[INFO] OSGB 转换为 3D Tiles 成功!" << std::endl;
+        std::cout << "  耗时: " << duration.count() << " ms" << std::endl;
 
-        // ��ȡ tileset JSON
-        std::string tilesetJson((char*)tilesetResult, bboxLen);
-        std::cout << "  Root Tileset JSON ��С: " << tilesetJson.size() << " �ֽ�" << std::endl;
+        // 获取 tileset JSON
+        std::cout << "  Root Tileset JSON 大小: " << strTilesetJson.size() << " 字节" << std::endl;
 
-        // ��ʾ bbox
+        // 显示 bbox
         if (bboxLen > 0)
         {
             std::cout << "  Merged BBox: [" << bboxData[0] << ", " << bboxData[1] << ", " << bboxData[2] << "] - ["
                       << bboxData[3] << ", " << bboxData[4] << ", " << bboxData[5] << "]" << std::endl;
         }
 
-        // ��ʾ tileset JSON ǰ 500 ���ַ�
-        if (tilesetJson.size() > 0)
+        // 显示 tileset JSON 前 500 个字符
+        if (strTilesetJson.size() > 0)
         {
-            std::cout << "\n  Root Tileset JSON (ǰ 500 �ַ�):\n";
-            std::cout << "  " << tilesetJson.substr(0, std::min(size_t(500), tilesetJson.size())) << "...\n";
+            std::cout << "\n  Root Tileset JSON (前 500 字符):\n";
+            std::cout << "  " << strTilesetJson.substr(0, std::min(size_t(500), strTilesetJson.size())) << "...\n";
         }
-
-        // �ͷ��ڴ�
-        free(tilesetResult);
     }
     else
     {
-        std::cerr << "[ERROR] OSGB ����ת�� 3D Tiles ʧ��!" << std::endl;
+        std::cerr << "[ERROR] OSGB 转换为 3D Tiles 失败!" << std::endl;
     }
 
     std::cout << "\n========================================" << std::endl;
-    std::cout << "�������!" << std::endl;
+    std::cout << "程序结束!" << std::endl;
     std::cout << "========================================" << std::endl;
 
     return 0;

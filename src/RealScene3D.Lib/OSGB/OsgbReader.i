@@ -25,17 +25,12 @@
  * 类型映射和异常处理
  * ============================================================================ */
 
-// 将 C++ void* 返回值映射为 IntPtr，稍后在 C# 端处理
-%typemap(cstype) void* "System.IntPtr"
-%typemap(imtype) void* "System.IntPtr"
-%typemap(csout) void* {
-    return $imcall;
-}
-
 // 数组参数映射 - 用于 origin[3], bbox[6] 等
 %apply double INPUT[] { double* origin };
-%apply double INPUT[] { double* box };
-%apply int INOUT[] { int* len };
+%apply double INPUT[] { double* pBox };
+%apply int INOUT[] { int* pLen };
+%apply double INPUT[] { double* pMergedBox };
+%apply int INOUT[] { int* pJsonLen };
 
 /* ============================================================================
  * 忽略不需要的类型和成员
@@ -130,37 +125,51 @@ public:
     OsgbReader();
     ~OsgbReader();
 
-    // 将 OSGB 转换为 3D Tiles
-    void* Osgb23dTile(
-        const char* in_path,
-        const char* out_path,
-        double* box,
-        int* len,
-        double x,
-        double y,
-        int max_lvl,
-        bool enable_texture_compress = false,
-        bool enable_meshopt = false,
-        bool enable_draco = false
+    // 将 OSGB 转换为 3D Tiles（返回tileset.json字符串）
+    std::string Osgb23dTile(
+        const std::string strInPath,
+        const std::string& strOutPath,
+        double* pBox,
+        int* pLen,
+        double dCenterX,
+        double dCenterY,
+        int nMaxLevel,
+        bool bEnableTextureCompress = false,
+        bool bEnableMeshOpt = false,
+        bool bEnableDraco = false
+    );
+
+    // 批量转换整个倾斜摄影数据集
+    std::string Osgb23dTileBatch(
+        const std::string& pDataDir,
+        const std::string& strOutputDir,
+        double* pMergedBox,
+        int* pJsonLen,
+        double dCenterX,
+        double dCenterY,
+        int nMaxLevel,
+        bool bEnableTextureCompress = false,
+        bool bEnableMeshOpt = false,
+        bool bEnableDraco = false
     );
 
     // 将 OSGB 文件转换为 GLB 缓冲区
     bool Osgb2GlbBuf(
-        std::string path,
-        std::string& glb_buff,
-        int node_type,
-        bool enable_texture_compression = false,
-        bool enable_meshopt = false,
-        bool enable_draco = false
+        std::string strOsgbPath,
+        std::string& strGlbBuff,
+        int nNodeType,
+        bool bEnableTextureCompress = false,
+        bool bEnableMeshOpt = false,
+        bool bEnableDraco = false
     );
 
     // OSGB 转 GLB 文件
     bool Osgb2Glb(
-        const char* in,
-        const char* out,
-        bool enable_texture_compression = false,
-        bool enable_meshopt = false,
-        bool enable_draco = false
+        const std::string& strInPath,
+        const std::string& strOutPath,
+        bool bEnableTextureCompress = false,
+        bool bEnableMeshOpt = false,
+        bool bEnableDraco = false
     );
 
 private:
@@ -252,7 +261,7 @@ using System.Runtime.InteropServices;
             string glbBuffer;
             bool success = reader.Osgb2GlbBuf(
                 osgbPath,
-                out glbBuffer,  // 使用 out 参数（已通过 OUTPUT 映射）
+                out glbBuffer,
                 -1,  // node_type: -1 表示自动判断
                 enableTextureCompression,
                 enableMeshOptimization,
@@ -264,14 +273,11 @@ using System.Runtime.InteropServices;
             }
 
             // 注意：std::string 中存储的是二进制数据，需要正确转换
-            // SWIG 会将 std::string 转换为 C# string，但可能包含二进制数据
-            // 建议改进：在 C++ 端直接返回 byte[] 或使用 Base64 编码
             return System.Text.Encoding.Latin1.GetBytes(glbBuffer);
         }
 
         /// <summary>
-        /// 将 OSGB 转换为 3D Tiles
-        /// 注意：返回的字符串由 C++ 分配，SWIG 会自动管理内存
+        /// 将 OSGB 转换为 3D Tiles（返回tileset.json字符串）
         /// </summary>
         public string? ConvertTo3dTiles(
             string inPath,
@@ -290,7 +296,7 @@ using System.Runtime.InteropServices;
             }
 
             int bboxLen = bbox?.Length ?? 0;
-            IntPtr result = reader.Osgb23dTile(
+            string result = reader.Osgb23dTile(
                 inPath,
                 outPath,
                 bbox,
@@ -302,23 +308,42 @@ using System.Runtime.InteropServices;
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            if (result == IntPtr.Zero)
+            return string.IsNullOrEmpty(result) ? null : result;
+        }
+
+        /// <summary>
+        /// 批量转换整个倾斜摄影数据集
+        /// </summary>
+        public string? ConvertTo3dTilesBatch(
+            string dataDir,
+            string outputDir,
+            double[]? mergedBox = null,
+            double offsetX = 0.0,
+            double offsetY = 0.0,
+            int maxLevel = 0,
+            bool enableTextureCompression = false,
+            bool enableMeshOptimization = false,
+            bool enableDracoCompression = false)
+        {
+            if (mergedBox != null && mergedBox.Length != 6)
             {
-                return null;
+                throw new ArgumentException("mergedBox must contain exactly 6 elements [minX, minY, minZ, maxX, maxY, maxZ]");
             }
 
-            try
-            {
-                // 从指针读取字符串（复制到托管内存）
-                return Marshal.PtrToStringAnsi(result);
-            }
-            finally
-            {
-                // TODO: 需要在 C++ 端提供释放函数
-                // 或者修改 Osgb23dTile 返回 std::string 而不是 void*
-                // 当前实现可能存在内存泄漏
-                // 建议添加: reader.FreeString(result);
-            }
+            int jsonLen = 0;
+            string result = reader.Osgb23dTileBatch(
+                dataDir,
+                outputDir,
+                mergedBox,
+                ref jsonLen,
+                offsetX,
+                offsetY,
+                maxLevel,
+                enableTextureCompression,
+                enableMeshOptimization,
+                enableDracoCompression);
+
+            return string.IsNullOrEmpty(result) ? null : result;
         }
 
         public void Dispose()

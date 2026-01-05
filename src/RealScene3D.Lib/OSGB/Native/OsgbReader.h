@@ -17,16 +17,16 @@
 
 using namespace std;
 
-// ��Ƭ��Χ�нṹ
+// 切片包围盒结构
 struct TileBox
 {
-	// �������
+	// 最大坐标
 	std::vector<double> max;
 
-	// ��С���� 
+	// 最小坐标
 	std::vector<double> min;
 
-	// ��չ��Χ�У���������
+	// 扩展包围盒，按比例放大
 	void extend(double ratio)
 	{
 		ratio /= 2;
@@ -44,156 +44,158 @@ struct TileBox
 	}
 };
 
-// OSG���ڵ�ṹ
+// OSG树节点结构
 struct OSGTree
 {
-	// ��Χ��
+	// 包围盒
 	TileBox bbox;
 
-	// �������
+	// 几何误差
 	double geometricError;
 
-	// �ļ���
+	// 文件名
 	std::string file_name;
 
-	// �ӽڵ�
+	// 子节点
 	std::vector<OSGTree> sub_nodes;
 
-	// ���ڵ����PagedLOD�������ڵ�ʱ������һ���µ���ڵ�
-	// 0: ��, 1: PagedLOD�ڵ㣨Ĭ�ϣ�, 2: �����ڵ�;
+	// 节点类型：当PagedLOD添加子节点时，创建一个新的子节点
+	// 0: 根节点, 1: PagedLOD节点（默认）, 2: 普通子节点
 	int type;
 };
 
-// ͼԪ״̬�ṹ
+// 图元状态结构
 struct PrimitiveState
 {
-	// �������������
+	// 顶点坐标访问器索引
 	int vertexAccessor;
 
-	// ���߷���������
+	// 法线方向访问器索引
 	int normalAccessor;
 
-	// �����������������
+	// 纹理坐标访问器索引
 	int textcdAccessor;
 };
 
-// ������Ϣ�ṹ
+// 网格信息结构
 struct MeshInfo
 {
-	// ��������
+	// 网格名称
 	string name;
 
-	// ��С����
+	// 最小坐标
 	std::vector<double> min;
 
-	// �������
+	// 最大坐标
 	std::vector<double> max;
 };
 
 /*
-* ��Ϣ������������OSG����ͼ���ռ��������������Ϣ
+* 信息访问器类，用于遍历OSG场景图并收集几何和纹理信息
 */
 class InfoVisitor : public osg::NodeVisitor
 {
 private:
-	// �ļ�·��
+	// 文件路径
 	std::string path;
 
 public:
-	// ���캯��
+	// 构造函数
 	InfoVisitor(std::string _path, bool loadAllType = false)
 		:osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
 		, path(_path), is_loadAllType(loadAllType), is_pagedlod(loadAllType)
 	{
 	}
 
-	// ��������
+	// 析构函数
 	~InfoVisitor()
 	{
 	}
 
-	// ����������ڵ�
+	// 处理几何节点
 	void apply(osg::Geometry& geometry);
 
-	// ����PagedLOD�ڵ�
+	// 处理PagedLOD节点
 	void apply(osg::PagedLOD& node);
 
 public:
-	// �洢PagedLOD������
+	// 存储PagedLOD几何体
 	std::vector<osg::Geometry*> geometry_array;
 
-	// �洢PagedLOD����
+	// 存储PagedLOD纹理
 	std::set<osg::Texture*> texture_array;
 
-	// ������������ӳ��
+	// 几何体与纹理映射关系
 	std::map<osg::Geometry*, osg::Texture*> texture_map;
 
-	// �ӽڵ�����
+	// 子节点名称列表
 	std::vector<std::string> sub_node_names;
 
-	// �������ͱ�־, true: �����м�����洢��geometry_array, false: �����ʹ洢
+	// 加载所有类型标志, true: 所有几何体都存储到geometry_array, false: 分类存储
 	bool is_loadAllType;
 
-	// �Ƿ�ΪPagedLOD�ڵ�
+	// 是否为PagedLOD节点
 	bool is_pagedlod;
 
-	// �洢����������
+	// 存储其他几何体（非PagedLOD）
 	std::vector<osg::Geometry*> other_geometry_array;
 
-	// �洢��������
+	// 存储其他纹理（非PagedLOD）
 	std::set<osg::Texture*> other_texture_array;
 };
 
-// OsgbReader�ඨ��
+// OsgbReader类定义
 class OsgbReader
 {
 public:
-	// ���캯��
+	// 构造函数
 	OsgbReader() = default;
 
-	// ��������
+	// 析构函数
 	~OsgbReader() = default;
 
-	// Convert 3D Tiles (batch process directory)
-	void* Osgb23dTile(
-		const char* in_path, const char* out_path, double* box, int* len, double x, double y, int max_lvl,
-		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
+	// 转换为3D Tiles格式
+	std::string Osgb23dTile(
+		const std::string strInPath, const std::string& strOutPath, 
+		double* pBox, int* pLen, double dCenterX, double dCenterY, int nMaxLevel,
+		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
-	// Convert single OSGB file to GLB buffer
+	// 将单个OSGB文件转换为GLB缓冲区
 	bool Osgb2GlbBuf(
-		std::string path, std::string& glb_buff, int node_type,
-		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
+		std::string strOsgbPath, std::string& strGlbBuff, int nNodeType,
+		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
-	// Convert OSGB to GLB format
+	// 将OSGB转换为GLB格式
 	bool Osgb2Glb(
-		const char* in, const char* out, bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
+		const std::string&  strInPath, const std::string& strOutPath, 
+		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
-	// Batch process entire oblique photography dataset (similar to Rust osgb.rs)
-	// Processes all Tile_* subdirectories in data_dir/Data/ folder
-	// Returns tileset.json string and merged bounding box
-	void* Osgb23dTileBatch(
-		const char* data_dir, const char* output_dir, double* merged_box, int* json_len,
-		double center_x, double center_y, int max_lvl,
-		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
+	// 批量处理整个倾斜摄影数据集
+	// 处理data_dir/Data/目录下的所有Tile_*子目录
+	// 返回tileset.json字符串和合并的包围盒
+	std::string Osgb23dTileBatch(
+		const std::string& pDataDir, const std::string& strOutputDir, double* pMergedBox, int* pJsonLen,
+		double dCenterX, double dCenterY, int nMaxLevel,
+		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
 private:
-	// ��OSGB�ļ�ת��ΪGLB������
+	// 将OSGB文件转换为GLB缓冲区（带网格信息）
 	bool Osgb2GlbBuf(
 		std::string path, std::string& glb_buff, MeshInfo& mesh_info, int node_type,
 		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false, bool need_mesh_info = true);
 
-	// ��OSGB�ļ�ת��ΪB3DM������
+	// 将OSGB文件转换为B3DM缓冲区
 	bool Osgb2B3dmBuf(
-		std::string path, std::string& b3dm_buf, TileBox& tile_box, int node_type, 
+		std::string path, std::string& b3dm_buf, TileBox& tile_box, int node_type,
 		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
 
-	// ������Ƭ��ҵ
+	// 处理切片任务
 	void DoTileJob(OSGTree& tree, std::string out_path, int max_lvl, bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
 
-	// ������ƬJSON
+	// 编码切片JSON
 	std::string EncodeTileJson(OSGTree& tree, double x, double y);
 
-	// ��ȡOSGB�������������ṹ
+	// 获取OSGB文件的完整树结构
 	OSGTree GetAllTree(std::string& file_name);
 };
 

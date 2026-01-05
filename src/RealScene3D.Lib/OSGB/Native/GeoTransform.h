@@ -5,32 +5,32 @@
 #include <string>
 #include <proj.h>
 
-// GeoTransform: Ê¹ÓÃPROJ¿âÊµÏÖµÄ×ø±ê×ª»»¹¤¾ßÀà
-// Ö§³ÖEPSG×ø±êÏµ¡¢WKT×ø±ê¶¨ÒåºÍENU¾Ö²¿×ø±êÏµÖ®¼äµÄ×ª»»
+// GeoTransform: ä½¿ç”¨PROJåº“å®ç°çš„åæ ‡è½¬æ¢å·¥å…·ç±»
+// æ”¯æŒEPSGåæ ‡ç³»ã€WKTåæ ‡å®šä¹‰å’ŒENUå±€éƒ¨åæ ‡ç³»ä¹‹é—´çš„è½¬æ¢
 class GeoTransform
 {
 public:
-	// PROJ×ª»»¶ÔÏó£¨×ø±ê×ª»»µÄºËĞÄ£©
+	// PROJè½¬æ¢å¯¹è±¡ï¼ˆåæ ‡è½¬æ¢çš„æ ¸å¿ƒï¼‰
 	static PJ* projTransform;
 	static PJ_CONTEXT* projContext;
 
-	// Ô­µã×ø±ê£¨¾Ö²¿×ø±êÏµÔ­µã£©
+	// åŸç‚¹åæ ‡ï¼ˆå±€éƒ¨åæ ‡ç³»åŸç‚¹ï¼‰
 	static double OriginX;
 	static double OriginY;
 	static double OriginZ;
 
-	// ENUµØÀíÔ­µã£¨¾­Î³¶È£©
+	// ENUåœ°ç†åŸç‚¹ï¼ˆç»çº¬åº¦ï¼‰
 	static double GeoOriginLon;
 	static double GeoOriginLat;
 	static double GeoOriginHeight;
 
-	// ENU±êÖ¾£¨ÊÇ·ñÊ¹ÓÃENU×ø±êÏµ£©
+	// ENUæ ‡å¿—ï¼ˆæ˜¯å¦ä½¿ç”¨ENUåæ ‡ç³»ï¼‰
 	static bool IsENU;
 
-	// ECEF<->ENU×ª»»¾ØÕó
+	// ECEF<->ENUè½¬æ¢çŸ©é˜µ
 	static glm::dmat4 EcefToEnuMatrix;
 
-	// ×îºóµÄ´íÎóĞÅÏ¢
+	// æœ€åçš„é”™è¯¯ä¿¡æ¯
 	static std::string lastError;
 
 	// ========================================================================
@@ -38,34 +38,34 @@ public:
 	// ========================================================================
 
 	/**
-	 * @brief ¼ÆËãENUµ½ECEFµÄ×ª»»¾ØÕó
+	 * @brief è®¡ç®—ENUåˆ°ECEFçš„è½¬æ¢çŸ©é˜µ
 	 */
 	static glm::dmat4 CalcEnuToEcefMatrix(double lnt, double lat, double height_min);
 
 	/**
-	 * @brief ¾­Î³¶È×ªECEF
+	 * @brief ç»çº¬åº¦è½¬ECEF
 	 */
 	static glm::dvec3 CartographicToEcef(double lnt, double lat, double height);
 
 	/**
-	 * @brief ³õÊ¼»¯×ø±ê×ª»»Æ÷£¨ÄÚ²¿Ê¹ÓÃ£©
-	 * @param transform PROJ×ª»»¶ÔÏó
-	 * @param origin Ô­µã×ø±ê[x, y, z]
+	 * @brief åˆå§‹åŒ–åæ ‡è½¬æ¢å™¨ï¼ˆå†…éƒ¨ä½¿ç”¨ï¼‰
+	 * @param transform PROJè½¬æ¢å¯¹è±¡
+	 * @param origin åŸç‚¹åæ ‡[x, y, z]
 	 *
-	 * ¸Ã·½·¨»áÖ´ĞĞÒÔÏÂ²Ù×÷£º
-	 * 1. ±£´æPROJ×ª»»¶ÔÏóºÍÔ­µã×ø±ê
-	 * 2. ½«Ô­µã×ø±ê×ª»»ÎªµØÀí×ø±ê£¨¾­Î³¶È£©
-	 * 3. ¼ÆËãENU<->ECEF×ª»»¾ØÕó
+	 * è¯¥æ–¹æ³•ä¼šæ‰§è¡Œä»¥ä¸‹æ“ä½œï¼š
+	 * 1. ä¿å­˜PROJè½¬æ¢å¯¹è±¡å’ŒåŸç‚¹åæ ‡
+	 * 2. å°†åŸç‚¹åæ ‡è½¬æ¢ä¸ºåœ°ç†åæ ‡ï¼ˆç»çº¬åº¦ï¼‰
+	 * 3. è®¡ç®—ENU<->ECEFè½¬æ¢çŸ©é˜µ
 	 */
 	static void Init(PJ* transform, double* origin);
 
 	/**
-	 * @brief ÉèÖÃENUÏµÍ³µÄµØÀíÔ­µã
+	 * @brief è®¾ç½®ENUç³»ç»Ÿçš„åœ°ç†åŸç‚¹
 	 */
 	static void SetGeographicOrigin(double lon, double lat, double height);
 
 	/**
-	 * @brief ÇåÀí×ÊÔ´
+	 * @brief æ¸…ç†èµ„æº
 	 */
 	static void Cleanup();
 
@@ -74,11 +74,11 @@ public:
 	// ========================================================================
 
 	/**
-	 * @brief EPSG×ø±êÏµ×ª»»³õÊ¼»¯
+	 * @brief EPSGåæ ‡ç³»è½¬æ¢åˆå§‹åŒ–
 	 *
-	 * @param epsg_code ÊäÈë×ø±êÏµEPSG´úÂë£¨Èç4490=CGCS2000, 4547=CGCS2000 3¶È´øµÈ£©
-	 * @param origin Ô­µã×ø±ê[x, y, z]
-	 * @return true=³É¹¦, false=Ê§°Ü
+	 * @param epsg_code è¾“å…¥åæ ‡ç³»EPSGä»£ç ï¼ˆå¦‚4490=CGCS2000, 4547=CGCS2000 3åº¦å¸¦ç­‰ï¼‰
+	 * @param origin åŸç‚¹åæ ‡[x, y, z]
+	 * @return true=æˆåŠŸ, false=å¤±è´¥
 	 *
 	 * @example
 	 * double origin[3] = {39500000.0, 3450000.0, 0.0};
@@ -87,31 +87,31 @@ public:
 	static bool InitFromEPSG(int epsg_code, double* origin);
 
 	/**
-	 * @brief ENU¾Ö²¿×ø±êÏµ³õÊ¼»¯
+	 * @brief ENUå±€éƒ¨åæ ‡ç³»åˆå§‹åŒ–
 	 *
-	 * @param lon Ô­µã¾­¶È£¨¶È£©
-	 * @param lat Ô­µãÎ³¶È£¨¶È£©
-	 * @param origin_enu ENUÔ­µãÆ«ÒÆ[x, y, z]£¨Ã×£©
-	 * @return true=³É¹¦, false=Ê§°Ü
+	 * @param lon åŸç‚¹ç»åº¦ï¼ˆåº¦ï¼‰
+	 * @param lat åŸç‚¹çº¬åº¦ï¼ˆåº¦ï¼‰
+	 * @param origin_enu ENUåŸç‚¹åç§»[x, y, z]ï¼ˆç±³ï¼‰
+	 * @return true=æˆåŠŸ, false=å¤±è´¥
 	 */
 	static bool InitFromENU(double lon, double lat, double* origin_enu);
 
 	/**
-	 * @brief WKT×ø±êÏµ¶¨Òå³õÊ¼»¯
+	 * @brief WKTåæ ‡ç³»å®šä¹‰åˆå§‹åŒ–
 	 *
-	 * @param wkt WKT¸ñÊ½×ø±êÏµ¶¨Òå×Ö·û´®
-	 * @param origin Ô­µã×ø±ê[x, y, z]
-	 * @return true=³É¹¦, false=Ê§°Ü
+	 * @param wkt WKTæ ¼å¼åæ ‡ç³»å®šä¹‰å­—ç¬¦ä¸²
+	 * @param origin åŸç‚¹åæ ‡[x, y, z]
+	 * @return true=æˆåŠŸ, false=å¤±è´¥
 	 */
 	static bool InitFromWKT(const char* wkt, double* origin);
 
 	/**
-	 * @brief »ñÈ¡×îºóµÄ´íÎóĞÅÏ¢
+	 * @brief è·å–æœ€åçš„é”™è¯¯ä¿¡æ¯
 	 */
 	static const char* GetLastError();
 
 	/**
-	 * @brief ¼ì²é×ø±ê×ª»»ÊÇ·ñÒÑ³õÊ¼»¯
+	 * @brief æ£€æŸ¥åæ ‡è½¬æ¢æ˜¯å¦å·²åˆå§‹åŒ–
 	 */
 	static bool IsInitialized();
 };
