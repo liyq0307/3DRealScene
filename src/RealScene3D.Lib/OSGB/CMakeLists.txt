@@ -124,10 +124,28 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 输出目录
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE})
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE})
+# 输出目录配置（支持多配置生成器）
+# 对于单配置生成器（Makefile, Ninja），使用CMAKE_BUILD_TYPE
+# 对于多配置生成器（Visual Studio, Xcode），使用每个配置的特定目录
+if(CMAKE_CONFIGURATION_TYPES)
+    # 多配置生成器（Visual Studio, Xcode）
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin)
+
+    # 为每个配置类型设置输出目录
+    foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+        string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE_UPPER)
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE})
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE})
+        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE})
+    endforeach()
+else()
+    # 单配置生成器（Makefile, Ninja）
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE})
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE})
+endif()
 
 # 预处理宏定义
 add_definitions(
@@ -138,26 +156,30 @@ add_definitions(
 
 # 源文件
 set(NATIVE_SOURCES
-    Native/OsgbReaderCApi.cpp
-    Native/Osgb23dTile.cpp
+    Native/OsgbReader.cpp
     Native/MeshProcessor.cpp
     Native/GeoTransform.cpp
-    Native/CoordinateApi.cpp
+    Native/Tileset.cpp
 )
 
 # 头文件
 set(NATIVE_HEADERS
-    Native/OsgbReaderCApi.h
+    Native/OsgbReader.h
     Native/MeshProcessor.h
     Native/LodPipeline.h
     Native/GeoTransform.h
-    Native/CoordinateApi.h
     Native/Extern.h
     Native/OsgFix.h
 )
 
 # 创建动态链接库
 add_library(${PROJECT_NAME} SHARED ${NATIVE_SOURCES} ${NATIVE_HEADERS})
+
+# Windows 动态库需要导出符号以生成.lib导入库
+# 这样SWIG包装库才能正确链接主库
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+)
 
 # 包含目录
 target_include_directories(${PROJECT_NAME}
@@ -169,7 +191,7 @@ target_include_directories(${PROJECT_NAME}
 # Windows特定配置
 if(WIN32)
     # 暂时禁用预编译头以避免条件编译宏冲突
-    # target_precompile_headers(${PROJECT_NAME} PRIVATE Native/OsgFix.h)
+    target_precompile_headers(${PROJECT_NAME} PRIVATE Native/OsgFix.h)
 
     # 添加/bigobj选项以支持大型对象文件
     target_compile_options(${PROJECT_NAME} PRIVATE /bigobj)
@@ -215,16 +237,39 @@ if(OpenSceneGraph_FOUND)
         set(OSG_BIN_DIR "${OSG_DIR}/bin")
         if(EXISTS "${OSG_BIN_DIR}")
             message(STATUS "OSG DLL目录: ${OSG_BIN_DIR}")
-            # 使用file(GLOB)获取DLL文件列表后逐个复制
+
+            # 使用生成器表达式获取正确的输出目录（支持Debug/Release）
+            set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../../../bin/$<CONFIG>")
+
+            # 复制OSG核心DLL文件
             file(GLOB OSG_DLLS "${OSG_BIN_DIR}/osg*.dll" "${OSG_BIN_DIR}/ot*.dll")
             foreach(DLL_FILE ${OSG_DLLS})
                 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${DLL_FILE}"
-                        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-                    COMMENT "Copying ${DLL_FILE}"
+                        "${OUTPUT_DIR}"
+                    COMMENT "Copying ${DLL_FILE} to $<CONFIG>"
                 )
             endforeach()
+
+            # 查找并复制OSG插件目录（osgPlugins-x.x.x）
+            file(GLOB OSG_PLUGIN_DIRS "${OSG_BIN_DIR}/osgPlugins-*")
+            if(OSG_PLUGIN_DIRS)
+                list(GET OSG_PLUGIN_DIRS 0 OSG_PLUGIN_DIR)
+                get_filename_component(PLUGIN_DIR_NAME "${OSG_PLUGIN_DIR}" NAME)
+
+                message(STATUS "OSG插件目录: ${OSG_PLUGIN_DIR}")
+
+                # 复制整个插件目录到输出目录
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_directory
+                        "${OSG_PLUGIN_DIR}"
+                        "${OUTPUT_DIR}/${PLUGIN_DIR_NAME}"
+                    COMMENT "Copying OSG plugins from ${PLUGIN_DIR_NAME} to $<CONFIG>/${PLUGIN_DIR_NAME}"
+                )
+            else()
+                message(WARNING "未找到OSG插件目录 (osgPlugins-*) 在 ${OSG_BIN_DIR}")
+            endif()
         endif()
     endif()
 else()
@@ -282,6 +327,41 @@ else()
 endif()
 
 # ============================================================================
+# 测试可执行文件
+# ============================================================================
+
+# 添加测试可执行文件
+add_executable(test_osgb_to_b3dm
+    test_osgb_to_b3dm.cpp
+)
+
+# 添加包含目录
+target_include_directories(test_osgb_to_b3dm PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Native
+    ${CMAKE_CURRENT_SOURCE_DIR}/../3dParty/include
+    ${OSG_INCLUDE_DIR}
+)
+
+# 链接主库
+target_link_libraries(test_osgb_to_b3dm PRIVATE ${PROJECT_NAME})
+
+# 设置输出目录
+if(CMAKE_CONFIGURATION_TYPES)
+    # 多配置生成器
+    foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+        string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE_UPPER)
+        set_target_properties(test_osgb_to_b3dm PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
+        )
+    endforeach()
+else()
+    # 单配置生成器
+    set_target_properties(test_osgb_to_b3dm PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
+    )
+endif()
+
+# ============================================================================
 # 安装配置
 # ============================================================================
 
@@ -291,7 +371,8 @@ install(TARGETS ${PROJECT_NAME}
     ARCHIVE DESTINATION lib
 )
 
-install(FILES Native/OsgbReaderCApi.h DESTINATION include)
+# 安装公共头文件（用于 C++ API）
+install(FILES Native/OsgbReader.h DESTINATION include)
 
 # ============================================================================
 # 编译信息输出
@@ -309,7 +390,7 @@ message(STATUS "  Required Dependencies:")
 message(STATUS "    OpenSceneGraph:      ${OpenSceneGraph_FOUND}")
 message(STATUS "")
 message(STATUS "  vcpkg 构建选项:")
-message(STATUS "    USE_EXTERNAL_OSG:    ${USE_EXTERNAL_OSG}")
+message(STATUS "    USE_EXTERNAL_OSG:         ${USE_EXTERNAL_OSG}")
 message(STATUS "    BUILD_PROJ_WITH_VCPKG:    ${BUILD_PROJ_WITH_VCPKG}")
 message(STATUS "    BUILD_BASISU_WITH_VCPKG:  ${BUILD_BASISU_WITH_VCPKG}")
 message(STATUS "    BUILD_MESHOPT_WITH_VCPKG: ${BUILD_MESHOPT_WITH_VCPKG}")
@@ -321,5 +402,172 @@ message(STATUS "    Mesh Optimization:   ${ENABLE_MESH_OPTIMIZATION}")
 message(STATUS "    Draco Compression:   ${ENABLE_DRACO_COMPRESSION}")
 message(STATUS "    Eigen3:              ${Eigen3_FOUND}")
 message(STATUS "    PROJ:                ${PROJ_FOUND}")
+message(STATUS "    SWIG:                ${SWIG_FOUND}")
 message(STATUS "========================================")
 message(STATUS "")
+
+# ============================================================================
+# SWIG 绑定 - C# 包装代码生成（可选）
+# ============================================================================
+
+# 查找 SWIG（可选，不阻塞核心库构建）
+find_package(SWIG 4.0)
+
+if(SWIG_FOUND)
+    message(STATUS "Found SWIG: ${SWIG_EXECUTABLE}")
+    message(STATUS "SWIG Version: ${SWIG_VERSION}")
+
+    include(${SWIG_USE_FILE})
+
+    # 设置 SWIG 输出目录
+    set(SWIG_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Interop/Swig")
+    file(MAKE_DIRECTORY ${SWIG_OUTPUT_DIR})
+
+    # SWIG C# 模块配置
+    set_property(SOURCE OsgbReader.i PROPERTY CPLUSPLUS ON)
+    set_property(SOURCE OsgbReader.i PROPERTY SWIG_MODULE_NAME OsgbReaderCS)
+
+    # SWIG 编译选项
+    set(SWIG_FLAGS_LIST
+        "-namespace" "RealScene3D.Lib.OSGB.Interop"
+        "-doxygen"  # 支持 Doxygen 注释
+        "-c++"      # C++ 模式
+    )
+    set_property(SOURCE OsgbReader.i PROPERTY SWIG_FLAGS ${SWIG_FLAGS_LIST})
+
+    # 添加 SWIG 包含目录
+    set_property(SOURCE OsgbReader.i PROPERTY USE_SWIG_DEPENDENCIES TRUE)
+    set(CMAKE_SWIG_FLAGS "-I${CMAKE_CURRENT_SOURCE_DIR}/Native")
+
+    # 创建 SWIG 包装库
+    swig_add_library(OsgbReaderCS
+        TYPE SHARED
+        LANGUAGE csharp
+        SOURCES OsgbReader.i
+        OUTPUT_DIR ${SWIG_OUTPUT_DIR}
+    )
+
+    # 设置 SWIG 生成的 C# 文件输出目录
+    set_target_properties(OsgbReaderCS PROPERTIES
+        SWIG_COMPILE_OPTIONS "${SWIG_FLAGS_LIST}"
+        SWIG_SUPPORT_FILES_DIRECTORY "${SWIG_OUTPUT_DIR}"
+        SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE
+    )
+
+    # 设置 C# 特定属性
+    set_property(TARGET OsgbReaderCS PROPERTY SWIG_COMPILE_DEFINITIONS OSGB_EXPORTS)
+
+    # C# DLL 导入配置（P/Invoke 使用）
+    if(CMAKE_CONFIGURATION_TYPES)
+        # 多配置生成器（Visual Studio）
+        set_target_properties(OsgbReaderCS PROPERTIES
+            SWIG_COMPILE_OPTIONS "-outdir;${SWIG_OUTPUT_DIR};-dllimport;RealScene3D.Lib.OSGB"
+        )
+    else()
+        # 单配置生成器
+        set_target_properties(OsgbReaderCS PROPERTIES
+            SWIG_COMPILE_OPTIONS "-outdir;${SWIG_OUTPUT_DIR};-dllimport;RealScene3D.Lib.OSGB"
+        )
+    endif()
+
+    # 链接依赖（链接到主库）
+    target_link_libraries(OsgbReaderCS PRIVATE ${PROJECT_NAME})
+
+    # 链接主库的所有可选依赖库，确保包含目录正确传递
+    # 这样CMake会自动添加这些库的包含目录到OsgbReaderCS的编译参数
+
+    # PROJ (地理坐标系转换)
+    if(PROJ_FOUND)
+        target_link_libraries(OsgbReaderCS PRIVATE PROJ::proj)
+        target_compile_definitions(OsgbReaderCS PRIVATE ENABLE_PROJ)
+    endif()
+
+    # Basis Universal (KTX2纹理压缩)
+    if(basisu_FOUND)
+        target_link_libraries(OsgbReaderCS PRIVATE basisu::basisu_encoder)
+        target_compile_definitions(OsgbReaderCS PRIVATE ENABLE_KTX2)
+    endif()
+
+    # meshoptimizer (网格优化)
+    if(meshoptimizer_FOUND)
+        target_link_libraries(OsgbReaderCS PRIVATE meshoptimizer::meshoptimizer)
+        target_compile_definitions(OsgbReaderCS PRIVATE OPTIMIZER)
+    endif()
+
+    # Draco (网格压缩)
+    if(draco_FOUND)
+        target_link_libraries(OsgbReaderCS PRIVATE draco::draco)
+        target_compile_definitions(OsgbReaderCS PRIVATE ENABLE_DRACO)
+    endif()
+
+    # 包含主库的头文件目录
+    # 添加 CMAKE_CURRENT_SOURCE_DIR 让 SWIG 生成的代码能找到 Native/OsgbReader.h
+    # 添加 3dParty/include 让代码能找到 glm/glm.hpp 等非vcpkg管理的第三方库
+    target_include_directories(OsgbReaderCS PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/Native
+        ${CMAKE_CURRENT_SOURCE_DIR}/../3dParty/include
+        ${OSG_INCLUDE_DIR}
+    )
+
+    # 设置输出目录（与主库保持一致）
+    if(CMAKE_CONFIGURATION_TYPES)
+        # 多配置生成器
+        foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+            string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE_UPPER)
+            set_target_properties(OsgbReaderCS PROPERTIES
+                LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
+                RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
+                ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
+            )
+        endforeach()
+    else()
+        # 单配置生成器
+        set_target_properties(OsgbReaderCS PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
+            ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
+        )
+    endif()
+
+    # Windows 特定配置
+    if(WIN32)
+        set_target_properties(OsgbReaderCS PROPERTIES
+            PREFIX ""
+            SUFFIX ".dll"
+            OUTPUT_NAME "OsgbReaderCS"
+        )
+
+        # 添加编译选项
+        target_compile_options(OsgbReaderCS PRIVATE /bigobj)
+    endif()
+
+    # 安装规则
+    install(TARGETS OsgbReaderCS
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+    )
+
+    # 安装生成的 C# 文件
+    install(DIRECTORY ${SWIG_OUTPUT_DIR}/
+        DESTINATION include/OSGB/Swig
+        FILES_MATCHING PATTERN "*.cs"
+    )
+
+    message(STATUS "========================================")
+    message(STATUS "  SWIG C# Bindings Configuration")
+    message(STATUS "========================================")
+    message(STATUS "  Output Directory:      ${SWIG_OUTPUT_DIR}")
+    message(STATUS "  Namespace:             RealScene3D.Lib.OSGB.Interop")
+    message(STATUS "  DLL Import Name:       RealScene3D.Lib.OSGB")
+    message(STATUS "  SWIG Flags:            ${SWIG_FLAGS_LIST}")
+    message(STATUS "========================================")
+else()
+    message(WARNING "========================================")
+    message(WARNING "  SWIG not found - C# bindings will NOT be generated")
+    message(WARNING "  Install SWIG from: https://www.swig.org/download.html")
+    message(WARNING "  Or use Chocolatey: choco install swig")
+    message(WARNING "  Core library will still be built.")
+    message(WARNING "========================================")
+endif()

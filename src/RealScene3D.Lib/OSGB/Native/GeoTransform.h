@@ -1,110 +1,119 @@
-#pragma once
+#ifndef GEOTRANSFORM_H
+#define GEOTRANSFORM_H	
 
 #include "glm/glm.hpp"
 #include <string>
 #include <proj.h>
 
-// GeoTransform: Coordinate transformation utility using PROJ
+// GeoTransform: Ê¹ÓÃPROJ¿âÊµÏÖµÄ×ø±ê×ª»»¹¤¾ßÀà
+// Ö§³ÖEPSG×ø±êÏµ¡¢WKT×ø±ê¶¨ÒåºÍENU¾Ö²¿×ø±êÏµÖ®¼äµÄ×ª»»
 class GeoTransform
 {
 public:
-    // PROJ transformation objects
-    static PJ* projTransform;
-    static PJ_CONTEXT* projContext;
+	// PROJ×ª»»¶ÔÏó£¨×ø±ê×ª»»µÄºËĞÄ£©
+	static PJ* projTransform;
+	static PJ_CONTEXT* projContext;
 
-    // Origin coordinates
-    static double OriginX;
-    static double OriginY;
-    static double OriginZ;
+	// Ô­µã×ø±ê£¨¾Ö²¿×ø±êÏµÔ­µã£©
+	static double OriginX;
+	static double OriginY;
+	static double OriginZ;
 
-    // ENU geographic origin
-    static double GeoOriginLon;
-    static double GeoOriginLat;
-    static double GeoOriginHeight;
+	// ENUµØÀíÔ­µã£¨¾­Î³¶È£©
+	static double GeoOriginLon;
+	static double GeoOriginLat;
+	static double GeoOriginHeight;
 
-    // ENU flag
-    static bool IsENU;
+	// ENU±êÖ¾£¨ÊÇ·ñÊ¹ÓÃENU×ø±êÏµ£©
+	static bool IsENU;
 
-    // ECEF<->ENU transformation matrix
-    static glm::dmat4 EcefToEnuMatrix;
+	// ECEF<->ENU×ª»»¾ØÕó
+	static glm::dmat4 EcefToEnuMatrix;
 
-    // Last error message
-    static std::string lastError;
+	// ×îºóµÄ´íÎóĞÅÏ¢
+	static std::string lastError;
 
-    // ========================================================================
-    // Core coordinate transformation methods
-    // ========================================================================
+	// ========================================================================
+	// Core coordinate transformation methods
+	// ========================================================================
 
-    /**
-     * @brief è®¡ç®—ENUåˆ°ECEFçš„è½¬æ¢çŸ©é˜µ
-     */
-    static glm::dmat4 CalcEnuToEcefMatrix(double lnt, double lat, double height_min);
+	/**
+	 * @brief ¼ÆËãENUµ½ECEFµÄ×ª»»¾ØÕó
+	 */
+	static glm::dmat4 CalcEnuToEcefMatrix(double lnt, double lat, double height_min);
 
-    /**
-     * @brief ç»çº¬åº¦è½¬ECEF
-     */
-    static glm::dvec3 CartographicToEcef(double lnt, double lat, double height);
+	/**
+	 * @brief ¾­Î³¶È×ªECEF
+	 */
+	static glm::dvec3 CartographicToEcef(double lnt, double lat, double height);
 
-    /**
-     * @brief åˆå§‹åŒ–åæ ‡è½¬æ¢å™¨ï¼ˆå†…éƒ¨ä½¿ç”¨ï¼‰
-     * @param transform PROJè½¬æ¢å¯¹è±¡
-     * @param origin åŸç‚¹åæ ‡[x, y, z]
-     */
-    static void Init(PJ* transform, double *origin);
+	/**
+	 * @brief ³õÊ¼»¯×ø±ê×ª»»Æ÷£¨ÄÚ²¿Ê¹ÓÃ£©
+	 * @param transform PROJ×ª»»¶ÔÏó
+	 * @param origin Ô­µã×ø±ê[x, y, z]
+	 *
+	 * ¸Ã·½·¨»áÖ´ĞĞÒÔÏÂ²Ù×÷£º
+	 * 1. ±£´æPROJ×ª»»¶ÔÏóºÍÔ­µã×ø±ê
+	 * 2. ½«Ô­µã×ø±ê×ª»»ÎªµØÀí×ø±ê£¨¾­Î³¶È£©
+	 * 3. ¼ÆËãENU<->ECEF×ª»»¾ØÕó
+	 */
+	static void Init(PJ* transform, double* origin);
 
-    /**
-     * @brief è®¾ç½®ENUç³»ç»Ÿçš„åœ°ç†åŸç‚¹
-     */
-    static void SetGeographicOrigin(double lon, double lat, double height);
+	/**
+	 * @brief ÉèÖÃENUÏµÍ³µÄµØÀíÔ­µã
+	 */
+	static void SetGeographicOrigin(double lon, double lat, double height);
 
-    /**
-     * @brief æ¸…ç†èµ„æº
-     */
-    static void Cleanup();
+	/**
+	 * @brief ÇåÀí×ÊÔ´
+	 */
+	static void Cleanup();
 
-    // ========================================================================
-    // Public API (convenience initialization methods)
-    // ========================================================================
+	// ========================================================================
+	// Public API (convenience initialization methods)
+	// ========================================================================
 
-    /**
-     * @brief EPSGåæ ‡ç³»è½¬æ¢åˆå§‹åŒ–
-     *
-     * @param epsg_code è¾“å…¥åæ ‡ç³»EPSGä»£ç ï¼ˆå¦‚4490=CGCS2000, 4547=CGCS2000 3åº¦å¸¦ç­‰ï¼‰
-     * @param origin åŸç‚¹åæ ‡[x, y, z]
-     * @return true=æˆåŠŸ, false=å¤±è´¥
-     *
-     * @example
-     * double origin[3] = {39500000.0, 3450000.0, 0.0};
-     * GeoTransform::InitFromEPSG(4547, origin);
-     */
-    static bool InitFromEPSG(int epsg_code, double* origin);
+	/**
+	 * @brief EPSG×ø±êÏµ×ª»»³õÊ¼»¯
+	 *
+	 * @param epsg_code ÊäÈë×ø±êÏµEPSG´úÂë£¨Èç4490=CGCS2000, 4547=CGCS2000 3¶È´øµÈ£©
+	 * @param origin Ô­µã×ø±ê[x, y, z]
+	 * @return true=³É¹¦, false=Ê§°Ü
+	 *
+	 * @example
+	 * double origin[3] = {39500000.0, 3450000.0, 0.0};
+	 * GeoTransform::InitFromEPSG(4547, origin);
+	 */
+	static bool InitFromEPSG(int epsg_code, double* origin);
 
-    /**
-     * @brief ENUå±€éƒ¨åæ ‡ç³»åˆå§‹åŒ–
-     *
-     * @param lon åŸç‚¹ç»åº¦ï¼ˆåº¦ï¼‰
-     * @param lat åŸç‚¹çº¬åº¦ï¼ˆåº¦ï¼‰
-     * @param origin_enu ENUåŸç‚¹åç§»[x, y, z]ï¼ˆç±³ï¼‰
-     * @return true=æˆåŠŸ, false=å¤±è´¥
-     */
-    static bool InitFromENU(double lon, double lat, double* origin_enu);
+	/**
+	 * @brief ENU¾Ö²¿×ø±êÏµ³õÊ¼»¯
+	 *
+	 * @param lon Ô­µã¾­¶È£¨¶È£©
+	 * @param lat Ô­µãÎ³¶È£¨¶È£©
+	 * @param origin_enu ENUÔ­µãÆ«ÒÆ[x, y, z]£¨Ã×£©
+	 * @return true=³É¹¦, false=Ê§°Ü
+	 */
+	static bool InitFromENU(double lon, double lat, double* origin_enu);
 
-    /**
-     * @brief WKTåæ ‡ç³»å®šä¹‰åˆå§‹åŒ–
-     *
-     * @param wkt WKTæ ¼å¼åæ ‡ç³»å®šä¹‰å­—ç¬¦ä¸²
-     * @param origin åŸç‚¹åæ ‡[x, y, z]
-     * @return true=æˆåŠŸ, false=å¤±è´¥
-     */
-    static bool InitFromWKT(const char* wkt, double* origin);
+	/**
+	 * @brief WKT×ø±êÏµ¶¨Òå³õÊ¼»¯
+	 *
+	 * @param wkt WKT¸ñÊ½×ø±êÏµ¶¨Òå×Ö·û´®
+	 * @param origin Ô­µã×ø±ê[x, y, z]
+	 * @return true=³É¹¦, false=Ê§°Ü
+	 */
+	static bool InitFromWKT(const char* wkt, double* origin);
 
-    /**
-     * @brief è·å–æœ€åçš„é”™è¯¯ä¿¡æ¯
-     */
-    static const char* GetLastError();
+	/**
+	 * @brief »ñÈ¡×îºóµÄ´íÎóĞÅÏ¢
+	 */
+	static const char* GetLastError();
 
-    /**
-     * @brief æ£€æŸ¥åæ ‡è½¬æ¢æ˜¯å¦å·²åˆå§‹åŒ–
-     */
-    static bool IsInitialized();
+	/**
+	 * @brief ¼ì²é×ø±ê×ª»»ÊÇ·ñÒÑ³õÊ¼»¯
+	 */
+	static bool IsInitialized();
 };
+
+#endif // GEOTRANSFORM_H

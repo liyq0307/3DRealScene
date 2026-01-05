@@ -103,14 +103,14 @@ OSGB/
 ├── README.md                   # 本文档
 │
 ├── Native/                     # C++源代码
-│   ├── OsgbReaderCApi.h/cpp   # C API接口
-│   ├── Osgb23dTile.cpp        # 核心转换逻辑
-│   ├── MeshProcessor.h/cpp    # 网格处理
-│   ├── LodPipeline.h/cpp      # LOD管线
-│   ├── GeoTransform.h/cpp     # 坐标转换
-│   ├── CoordinateApi.h/cpp    # 坐标系API
-│   ├── Extern.h               # 工具函数
-│   └── OsgFix.h               # Windows兼容
+│   ├── OsgbReaderCApi.h/cpp    # C API接口
+│   ├── Osgb23dTile.cpp         # 核心转换逻辑
+│   ├── MeshProcessor.h/cpp     # 网格处理
+│   ├── LodPipeline.h/cpp       # LOD管线
+│   ├── GeoTransform.h/cpp      # 坐标转换
+│   ├── CoordinateApi.h/cpp     # 坐标系API
+│   ├── Extern.h                # 工具函数
+│   └── OsgFix.h                # Windows兼容
 │
 ├── Interop/                    # C# P/Invoke
 │   └── OsgbReaderNative.cs
