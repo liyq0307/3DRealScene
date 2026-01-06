@@ -449,7 +449,7 @@ std::string OSGB23dTiles::To3dTile(
 	calc_geometric_error(root);
 
 	root.geometricError = 1000.0;
-	std::string strJson = EncodeTileJson(root, dCenterX, dCenterY);
+	std::string strJson = EncodeTileJSON(root, dCenterX, dCenterY);
 	root.bbox.extend(0.2);
 	memcpy(pBox, root.bbox.max.data(), 3 * sizeof(double));
 	memcpy(pBox + 3, root.bbox.min.data(), 3 * sizeof(double));
@@ -874,6 +874,7 @@ bool OSGB23dTiles::ToGlbBuf(
 		};
 	}
 
+	// image
 	{
 		for (auto tex : infoVisitor.texture_array)
 		{
@@ -899,17 +900,23 @@ bool OSGB23dTiles::ToGlbBuf(
 			}
 		}
 	}
+
+	// node
 	{
 		tinygltf::Node node;
 		node.mesh = 0;
 		model.nodes.push_back(node);
 	}
+
+	// scene
 	{
 		tinygltf::Scene sence;
 		sence.nodes.push_back(0);
 		model.scenes = { sence };
 		model.defaultScene = 0;
 	}
+
+	// sample
 	{
 		tinygltf::Sampler sample;
 		sample.magFilter = TINYGLTF_TEXTURE_FILTER_LINEAR;
@@ -918,6 +925,7 @@ bool OSGB23dTiles::ToGlbBuf(
 		sample.wrapT = TINYGLTF_TEXTURE_WRAP_REPEAT;
 		model.samplers = { sample };
 	}
+
 	if (enable_texture_compress)
 	{
 		model.extensionsRequired = { "KHR_materials_unlit", "KHR_texture_basisu" };
@@ -1089,7 +1097,7 @@ void OSGB23dTiles::DoTileJob(OSGTree& tree, std::string out_path, int max_lvl, b
 	}
 }
 
-std::string OSGB23dTiles::EncodeTileJson(OSGTree& tree, double x, double y)
+std::string OSGB23dTiles::EncodeTileJSON(OSGTree& tree, double x, double y)
 {
 	if (tree.bbox.max.empty() || tree.bbox.min.empty())
 	{
@@ -1127,7 +1135,7 @@ std::string OSGB23dTiles::EncodeTileJson(OSGTree& tree, double x, double y)
 	tile += ",\"children\":[";
 	for (auto& i : tree.sub_nodes)
 	{
-		std::string node_json = EncodeTileJson(i, x, y);
+		std::string node_json = EncodeTileJSON(i, x, y);
 		if (!node_json.empty()) {
 			tile += node_json;
 			tile += ",";

@@ -279,7 +279,7 @@ private:
 	 * @param y 切片Y坐标
 	 * @return 返回切片JSON字符串
 	 */
-	std::string EncodeTileJson(OSGTree& tree, double x, double y);
+	std::string EncodeTileJSON(OSGTree& tree, double x, double y);
 
 	/**
 	 * @brief 获取OSGB文件的完整树结构
