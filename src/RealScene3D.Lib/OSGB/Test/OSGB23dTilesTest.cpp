@@ -3,7 +3,7 @@
 // 用于 OSGB 到 GLB 和 3D Tiles 转换功能
 // ============================================================================
 
-#include "Native/OsgbReader.h"
+#include "Native/OSGB23dTiles.h"
 #include <iostream>
 #include <fstream>
 #include <chrono>
@@ -11,14 +11,20 @@
 
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
 #else
 #include <sys/stat.h>
 #endif
 
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+    // 设置控制台代码页为 UTF-8
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+
     std::cout << "========================================" << std::endl;
-    std::cout << "OsgbReader C++ 测试程序" << std::endl;
+    std::cout << "OSGB23dTiles C++ 测试程序" << std::endl;
     std::cout << "========================================" << std::endl;
 
     // 设置输入输出路径
@@ -32,9 +38,9 @@ int main(int argc, char* argv[])
     // 创建输出目录
     std::filesystem::create_directories(strOutputDir);
 
-    // 初始化 OsgbReader 实例
+    // 初始化 OSGB23dTiles 实例
     std::cout << "[INFO] 初始化 OsgbReader 实例..." << std::endl;
-    OsgbReader reader;
+    OSGB23dTiles reader;
 
     // 开始转换: OSGB 文件转换为 3D Tiles
     std::cout << "OSGB 文件转换为 3D Tiles" << std::endl;
@@ -45,13 +51,13 @@ int main(int argc, char* argv[])
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    std::string strTilesetJson = reader.Osgb23dTileBatch(
+    std::string strTilesetJson = reader.To3dTileBatch(
         strInputPath,
         strOutputDir,
         bboxData,
         &bboxLen,
-        120.34445,  // center_x (经度)
-        36.09953,   // center_y (纬度)
+        0.0,        // center_x (将从 metadata.xml 自动读取)
+        0.0,        // center_y (将从 metadata.xml 自动读取)
         100,        // max_lvl (足够大以包含所有LOD层级)
         false,      // enable_texture_compress
         false,      // enable_meshopt
@@ -74,13 +80,6 @@ int main(int argc, char* argv[])
         {
             std::cout << "  Merged BBox: [" << bboxData[0] << ", " << bboxData[1] << ", " << bboxData[2] << "] - ["
                       << bboxData[3] << ", " << bboxData[4] << ", " << bboxData[5] << "]" << std::endl;
-        }
-
-        // 显示 tileset JSON 前 500 个字符
-        if (strTilesetJson.size() > 0)
-        {
-            std::cout << "\n  Root Tileset JSON (前 500 字符):\n";
-            std::cout << "  " << strTilesetJson.substr(0, std::min(size_t(500), strTilesetJson.size())) << "...\n";
         }
     }
     else

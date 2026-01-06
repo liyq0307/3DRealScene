@@ -26,16 +26,15 @@
 #include <stb_image_write.h>
 
 // KTX2压缩标志
-static bool b_use_ktx2_compression = true;
+static bool m_bUseKtx2Compression = true;
 
 // 使用Basis Universal将图像数据压缩为KTX2的函数
-bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgba_data, int width, int height,
-	std::vector<unsigned char>& ktx2_data)
+bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, int nWidth, int nHeight, std::vector<unsigned char>& ktx2Data)
 {
 	try
 	{
 		// 验证输入参数
-		if (rgba_data.empty() || width <= 0 || height <= 0)
+		if (rgbaData.empty() || nWidth <= 0 || nHeight <= 0)
 		{
 			return false;
 		}
@@ -49,40 +48,39 @@ bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgba_data, 
 		}
 
 		// 从RGBA数据创建basisu图像
-		basisu::vector<basisu::image> source_images;
-		source_images.resize(1);
-		source_images[0].init(rgba_data.data(), width, height, 4);
+		basisu::vector<basisu::image> sourceImages;
+		sourceImages.resize(1);
+		sourceImages[0].init(rgbaData.data(), nWidth, nHeight, 4);
 
 		// 使用简化API进行压缩
-		size_t compressed_size = 0;
+		size_t nCompressedSize = 0;
 		// 使用ETC1S格式进行KTX2压缩
 		// 标志：
 		// - Quality 128 (0-255): 压缩质量
 		// - cFlagKTX2: 输出KTX2格式
 		// - cFlagGenMipsWrap: 生成mipmap并包装
-		unsigned int compression_flags = 64 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap;
+		unsigned int nCompressionFlags = 64 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap;
 
-		void* compressed_data = basisu::basis_compress(
+		void* pCompressedData = basisu::basis_compress(
 			basist::basis_tex_format::cUASTC4x4,
-			source_images,
-			static_cast<uint32_t>(compression_flags),
+			sourceImages,
+			static_cast<uint32_t>(nCompressionFlags),
 			1.0f,
-			&compressed_size
+			&nCompressedSize
 		);
 
 		// 检查压缩是否成功
-		if (!compressed_data || compressed_size == 0)
+		if (!pCompressedData || nCompressedSize == 0)
 		{
 			return false;
 		}
 
 		// 将压缩数据复制到输出向量
-		ktx2_data.resize(compressed_size);
-		memcpy(ktx2_data.data(), compressed_data, compressed_size);
+		ktx2Data.resize(nCompressedSize);
+		memcpy(ktx2Data.data(), pCompressedData, nCompressedSize);
 
 		// 释放压缩数据
-		basisu::basis_free_data(compressed_data);
-
+		basisu::basis_free_data(pCompressedData);
 		return true;
 	}
 	catch (const std::exception& e)
@@ -96,16 +94,16 @@ bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgba_data, 
 }
 
 // 设置KTX2压缩标志的函数
-void MeshProcessor::SetKtx2CompressionFlag(bool enable)
+void MeshProcessor::SetKtx2CompressionFlag(bool bEnable)
 {
-	b_use_ktx2_compression = enable;
+	m_bUseKtx2Compression = bEnable;
 }
 
 // 辅助函数写入缓冲区数据（静态以避免重复符号）
-static void write_buf(void* context, void* data, int len)
+static void write_buf(void* pContext, void* pData, int nlen)
 {
-	std::vector<char>* buf = (std::vector<char>*)context;
-	buf->insert(buf->end(), (char*)data, (char*)data + len);
+	std::vector<char>* buf = (std::vector<char>*)pContext;
+	buf->insert(buf->end(), (char*)pData, (char*)pData + nlen);
 }
 
 // 处理纹理的函数（KTX2压缩）
@@ -320,24 +318,24 @@ bool MeshProcessor::ProcessTexture(osg::Texture* tex, std::vector<unsigned char>
 // 使用meshoptimizer优化和简化网格数据的函数
 bool MeshProcessor::OptimizeAndSimplifyMesh(
 	std::vector<VertexData>& vertices,
-	size_t& vertex_count,
+	size_t& nVertexCount,
 	std::vector<unsigned int>& indices,
-	size_t original_index_count,
-	std::vector<unsigned int>& simplified_indices,
-	size_t& simplified_index_count,
+	size_t nOriginalIndexCount,
+	std::vector<unsigned int>& simplifiedIndices,
+	size_t& nSimplifiedIndexCount,
 	const SimplificationParams& params)
 {
 
 	// 根据比率计算目标索引数量
-	size_t target_index_count = static_cast<size_t>(original_index_count * params.target_ratio);
+	size_t nTargetIndexCount = static_cast<size_t>(nOriginalIndexCount * params.dTargetRatio);
 
 	// 通过检查是否有顶点具有非零法线来自动检测法线是否存在
 	bool hasNormals = false;
-	if (params.preserve_normals && vertex_count > 0)
+	if (params.bPreserveNormals && nVertexCount > 0)
 	{
-		for (size_t i = 0; i < vertex_count; ++i)
+		for (size_t i = 0; i < nVertexCount; ++i)
 		{
-			if (vertices[i].nx != 0.0f || vertices[i].ny != 0.0f || vertices[i].nz != 0.0f)
+			if (vertices[i].nX != 0.0f || vertices[i].nY != 0.0f || vertices[i].nZ != 0.0f)
 			{
 				hasNormals = true;
 				break;
@@ -348,13 +346,13 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	// ============================================================================
 	// 步骤1：生成顶点重映射以移除重复顶点
 	// ============================================================================
-	std::vector<unsigned int> remap(vertex_count);
-	size_t unique_vertex_count = meshopt_generateVertexRemap(
+	std::vector<unsigned int> remap(nVertexCount);
+	size_t nUniqueVertexCount = meshopt_generateVertexRemap(
 		remap.data(),
 		indices.data(),
-		original_index_count,
+		nOriginalIndexCount,
 		vertices.data(),
-		vertex_count,
+		nVertexCount,
 		sizeof(VertexData)
 	);
 
@@ -362,23 +360,23 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	meshopt_remapIndexBuffer(
 		indices.data(),
 		indices.data(),
-		original_index_count,
+		nOriginalIndexCount,
 		remap.data()
 	);
 
 	// 重映射顶点缓冲区（位置、法线、UV一起）
-	std::vector<VertexData> remapped_vertices(unique_vertex_count);
+	std::vector<VertexData> remappedVertices(nUniqueVertexCount);
 	meshopt_remapVertexBuffer(
-		remapped_vertices.data(),
+		remappedVertices.data(),
 		vertices.data(),
-		vertex_count,
+		nVertexCount,
 		sizeof(VertexData),
 		remap.data()
 	);
 
 	// 更新顶点以使用重映射版本
-	vertices = std::move(remapped_vertices);
-	vertex_count = unique_vertex_count;
+	vertices = std::move(remappedVertices);
+	nVertexCount = nUniqueVertexCount;
 
 	// ============================================================================
 	// 步骤2：优化顶点缓存
@@ -386,8 +384,8 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	meshopt_optimizeVertexCache(
 		indices.data(),
 		indices.data(),
-		original_index_count,
-		vertex_count
+		nOriginalIndexCount,
+		nVertexCount
 	);
 
 	// ============================================================================
@@ -396,9 +394,9 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	meshopt_optimizeOverdraw(
 		indices.data(),
 		indices.data(),
-		original_index_count,
-		&vertices[0].x,
-		vertex_count,
+		nOriginalIndexCount,
+		&vertices[0].nX,
+		nVertexCount,
 		sizeof(VertexData),
 		1.05f  // 阈值
 	);
@@ -409,9 +407,9 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	meshopt_optimizeVertexFetch(
 		vertices.data(),
 		indices.data(),
-		original_index_count,
+		nOriginalIndexCount,
 		vertices.data(),
-		vertex_count,
+		nVertexCount,
 		sizeof(VertexData)
 	);
 
@@ -419,7 +417,7 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	// 步骤5：网格简化
 	// ============================================================================
 	// 为简化的索引分配内存（最坏情况）
-	simplified_indices.resize(original_index_count);
+	simplifiedIndices.resize(nOriginalIndexCount);
 
 	// 使用meshopt_simplifyWithAttributes在简化期间保留法线
 	float result_error = 0;
@@ -429,20 +427,20 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 		// 每个组件的法线权重（nx, ny, nz）
 		float attribute_weights[3] = { 0.5f, 0.5f, 0.5f };
 
-		simplified_index_count = meshopt_simplifyWithAttributes(
-			simplified_indices.data(),
+		nSimplifiedIndexCount = meshopt_simplifyWithAttributes(
+			simplifiedIndices.data(),
 			indices.data(),
-			original_index_count,
-			&vertices[0].x,          // 位置数据
-			vertex_count,
+			nOriginalIndexCount,
+			&vertices[0].dX,          // 位置数据
+			nVertexCount,
 			sizeof(VertexData),       // 位置间距
-			&vertices[0].nx,          // 法线数据
+			&vertices[0].nX,          // 法线数据
 			sizeof(VertexData),       // 法线间距
 			attribute_weights,
 			3,                        // 3个法线组件
 			nullptr,
-			target_index_count,
-			params.target_error,
+			nTargetIndexCount,
+			params.dTargetError,
 			0,
 			&result_error
 		);
@@ -450,49 +448,49 @@ bool MeshProcessor::OptimizeAndSimplifyMesh(
 	else
 	{
 		// 没有法线 - 使用标准简化
-		simplified_index_count = meshopt_simplify(
-			simplified_indices.data(),
+		nSimplifiedIndexCount = meshopt_simplify(
+			simplifiedIndices.data(),
 			indices.data(),
-			original_index_count,
-			&vertices[0].x,
-			vertex_count,
+			nOriginalIndexCount,
+			&vertices[0].dX,
+			nVertexCount,
 			sizeof(VertexData),
-			target_index_count,
-			params.target_error,
+			nTargetIndexCount,
+			params.dTargetError,
 			0,
 			&result_error
 		);
 	}
 
 	// 调整为实际简化大小
-	simplified_indices.resize(simplified_index_count);
+	simplifiedIndices.resize(nSimplifiedIndexCount);
 
 	return true;
 }
 
 // 使用meshoptimizer简化网格几何体的函数
-bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const SimplificationParams& params)
+bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* pGeometry, const SimplificationParams& params)
 {
-	if (!params.enable_simplification || !geometry)
+	if (!params.bEnableSimplification || !pGeometry)
 	{
 		return false;
 	}
 
 	// 获取顶点数组
-	osg::Vec3Array* vertexArray = dynamic_cast<osg::Vec3Array*>(geometry->getVertexArray());
+	osg::Vec3Array* vertexArray = dynamic_cast<osg::Vec3Array*>(pGeometry->getVertexArray());
 	if (!vertexArray || vertexArray->empty())
 	{
 		return false;
 	}
 
 	// 获取索引数组（我们需要处理不同的原始集类型）
-	if (geometry->getNumPrimitiveSets() == 0)
+	if (pGeometry->getNumPrimitiveSets() == 0)
 	{
 		return false;
 	}
 
 	// 现在，我们只处理第一个原始集
-	osg::PrimitiveSet* primitiveSet = geometry->getPrimitiveSet(0);
+	osg::PrimitiveSet* primitiveSet = pGeometry->getPrimitiveSet(0);
 	if (!primitiveSet)
 	{
 		return false;
@@ -502,13 +500,12 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 	size_t vertex_count = vertexArray->size();
 
 	// 如果可用且应保留，则获取法线
-	osg::Vec3Array* normalArray = dynamic_cast<osg::Vec3Array*>(geometry->getNormalArray());
-	bool hasNormals = params.preserve_normals && normalArray && normalArray->size() == vertex_count;
+	osg::Vec3Array* normalArray = dynamic_cast<osg::Vec3Array*>(pGeometry->getNormalArray());
+	bool hasNormals = params.bPreserveNormals && normalArray && normalArray->size() == vertex_count;
 
 	// 如果可用且应保留，则获取纹理坐标
-	osg::Vec2Array* texCoordArray = dynamic_cast<osg::Vec2Array*>(geometry->getTexCoordArray(0));
-	bool hasTexCoords = params.preserve_texture_coords && texCoordArray && texCoordArray->size() == vertex_count;
-
+	osg::Vec2Array* texCoordArray = dynamic_cast<osg::Vec2Array*>(pGeometry->getTexCoordArray(0));
+	bool hasTexCoords = params.bPreserveTextureCoords && texCoordArray && texCoordArray->size() == vertex_count;
 	// 将OSG顶点数据转换为VertexData结构
 	std::vector<VertexData> vertices(vertex_count);
 
@@ -516,34 +513,34 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 	{
 		// 位置
 		const osg::Vec3& vertex = vertexArray->at(i);
-		vertices[i].x = vertex.x();
-		vertices[i].y = vertex.y();
-		vertices[i].z = vertex.z();
+		vertices[i].dX = vertex.x();
+		vertices[i].dY = vertex.y();
+		vertices[i].dZ = vertex.z();
 
 		// 法线
 		if (hasNormals)
 		{
 			const osg::Vec3& normal = normalArray->at(i);
-			vertices[i].nx = normal.x();
-			vertices[i].ny = normal.y();
-			vertices[i].nz = normal.z();
+			vertices[i].nX = normal.x();
+			vertices[i].nY = normal.y();
+			vertices[i].nZ = normal.z();
 		}
 		else {
-			vertices[i].nx = 0.0f;
-			vertices[i].ny = 0.0f;
-			vertices[i].nz = 0.0f;
+			vertices[i].nX = 0.0f;
+			vertices[i].nY = 0.0f;
+			vertices[i].nZ = 0.0f;
 		}
 
 		// 纹理坐标
 		if (hasTexCoords)
 		{
 			const osg::Vec2& texcoord = texCoordArray->at(i);
-			vertices[i].u = texcoord.x();
-			vertices[i].v = texcoord.y();
+			vertices[i].dU = texcoord.x();
+			vertices[i].dV = texcoord.y();
 		}
 		else {
-			vertices[i].u = 0.0f;
-			vertices[i].v = 0.0f;
+			vertices[i].dU = 0.0f;
+			vertices[i].dV = 0.0f;
 		}
 	}
 
@@ -605,7 +602,7 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 	}
 
 	// 根据比率计算目标索引数量
-	size_t target_index_count = static_cast<size_t>(original_index_count * params.target_ratio);
+	size_t target_index_count = static_cast<size_t>(original_index_count * params.dTargetRatio);
 
 	// 使用提取的优化和简化函数
 	std::vector<unsigned int> simplified_indices;
@@ -625,9 +622,9 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 
 	for (size_t i = 0; i < vertex_count; ++i)
 	{
-		newVertexArray->push_back(osg::Vec3(vertices[i].x, vertices[i].y, vertices[i].z));
+		newVertexArray->push_back(osg::Vec3(vertices[i].dX, vertices[i].dY, vertices[i].dZ));
 	}
-	geometry->setVertexArray(newVertexArray);
+	pGeometry->setVertexArray(newVertexArray);
 
 	// 如果存在则更新法线
 	if (hasNormals)
@@ -637,10 +634,10 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 
 		for (size_t i = 0; i < vertex_count; ++i)
 		{
-			newNormalArray->push_back(osg::Vec3(vertices[i].nx, vertices[i].ny, vertices[i].nz));
+			newNormalArray->push_back(osg::Vec3(vertices[i].nX, vertices[i].nY, vertices[i].nZ));
 		}
-		geometry->setNormalArray(newNormalArray);
-		geometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
+		pGeometry->setNormalArray(newNormalArray);
+		pGeometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
 	}
 
 	// 如果存在则更新纹理坐标
@@ -651,9 +648,9 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 
 		for (size_t i = 0; i < vertex_count; ++i)
 		{
-			newTexCoordArray->push_back(osg::Vec2(vertices[i].u, vertices[i].v));
+			newTexCoordArray->push_back(osg::Vec2(vertices[i].dU, vertices[i].dV));
 		}
-		geometry->setTexCoordArray(0, newTexCoordArray);
+		pGeometry->setTexCoordArray(0, newTexCoordArray);
 	}
 
 	// 创建具有简化索引的新原始集
@@ -666,7 +663,7 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 		{
 			newDrawElements->push_back(static_cast<osg::DrawElementsUByte::value_type>(simplified_indices[i]));
 		}
-		geometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements);
 		break;
 	}
 	case osg::PrimitiveSet::DrawElementsUShortPrimitiveType:
@@ -676,7 +673,7 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 		{
 			newDrawElements->push_back(static_cast<osg::DrawElementsUShort::value_type>(simplified_indices[i]));
 		}
-		geometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements);
 		break;
 	}
 	case osg::PrimitiveSet::DrawElementsUIntPrimitiveType:
@@ -686,7 +683,7 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 		{
 			newDrawElements->push_back(simplified_indices[i]);
 		}
-		geometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements);
 		break;
 	}
 	case osg::PrimitiveSet::DrawArraysPrimitiveType:
@@ -697,7 +694,7 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 		{
 			newDrawElements->push_back(simplified_indices[i]);
 		}
-		geometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements);
 		break;
 	}
 	}
@@ -706,17 +703,17 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* geometry, const Simplifi
 }
 
 // 使用Draco压缩网格几何体的函数
-bool MeshProcessor::CompressMeshGeometry(osg::Geometry* geometry, const DracoCompressionParams& params,
-	std::vector<unsigned char>& compressed_data, size_t& compressed_size,
+bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCompressionParams& params,
+	std::vector<unsigned char>& compressedData, size_t& nCompressedSize,
 	int* out_position_att_id, int* out_normal_att_id)
 {
-	if (!params.enable_compression || !geometry)
+	if (!params.bEnableCompression || !pGeometry)
 	{
 		return false;
 	}
 
 	// 获取顶点数组
-	osg::Vec3Array* vertexArray = dynamic_cast<osg::Vec3Array*>(geometry->getVertexArray());
+	osg::Vec3Array* vertexArray = dynamic_cast<osg::Vec3Array*>(pGeometry->getVertexArray());
 	if (!vertexArray || vertexArray->empty())
 	{
 		return false;
@@ -743,7 +740,7 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* geometry, const DracoCom
 	}
 
 	// 如果存在则处理法线
-	osg::Vec3Array* normalArray = dynamic_cast<osg::Vec3Array*>(geometry->getNormalArray());
+	osg::Vec3Array* normalArray = dynamic_cast<osg::Vec3Array*>(pGeometry->getNormalArray());
 	int normalAttId = -1;
 	if (normalArray && normalArray->size() == vertexCount)
 	{
@@ -761,9 +758,9 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* geometry, const DracoCom
 	}
 
 	// 处理原始集（索引）
-	if (geometry->getNumPrimitiveSets() > 0)
+	if (pGeometry->getNumPrimitiveSets() > 0)
 	{
-		osg::PrimitiveSet* primitiveSet = geometry->getPrimitiveSet(0);
+		osg::PrimitiveSet* primitiveSet = pGeometry->getPrimitiveSet(0);
 		unsigned int numIndices = primitiveSet->getNumIndices();
 
 		if (numIndices > 0)
@@ -795,11 +792,11 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* geometry, const DracoCom
 
 	// 设置编码选项
 	encoder.SetSpeedOptions(5, 5); // 默认速度选项
-	encoder.SetAttributeQuantization(draco::GeometryAttribute::POSITION, params.position_quantization_bits);
+	encoder.SetAttributeQuantization(draco::GeometryAttribute::POSITION, params.nPositionQuantizationBits);
 
 	if (normalArray)
 	{
-		encoder.SetAttributeQuantization(draco::GeometryAttribute::NORMAL, params.normal_quantization_bits);
+		encoder.SetAttributeQuantization(draco::GeometryAttribute::NORMAL, params.nNormalQuantizationBits);
 	}
 
 	// 编码网格
@@ -812,9 +809,9 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* geometry, const DracoCom
 	}
 
 	// 复制压缩数据
-	compressed_size = buffer.size();
-	compressed_data.resize(compressed_size);
-	std::memcpy(compressed_data.data(), buffer.data(), compressed_size);
+	nCompressedSize = buffer.size();
+	compressedData.resize(nCompressedSize);
+	std::memcpy(compressedData.data(), buffer.data(), nCompressedSize);
 
 	if (out_position_att_id)
 	{

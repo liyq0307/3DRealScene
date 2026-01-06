@@ -156,20 +156,19 @@ add_definitions(
 
 # 源文件
 set(NATIVE_SOURCES
-    Native/OsgbReader.cpp
+    Native/OSGB23dTiles.cpp
     Native/MeshProcessor.cpp
     Native/GeoTransform.cpp
-    Native/Tileset.cpp
+    Native/OSGBTools.cpp
 )
 
 # 头文件
 set(NATIVE_HEADERS
-    Native/OsgbReader.h
+    Native/OSGB23dTiles.h
     Native/MeshProcessor.h
-    Native/LodPipeline.h
     Native/GeoTransform.h
-    Native/Extern.h
-    Native/OsgFix.h
+    Native/OSGBTools.h
+    Native/OSGBFix.h
 )
 
 # 创建动态链接库
@@ -191,7 +190,7 @@ target_include_directories(${PROJECT_NAME}
 # Windows特定配置
 if(WIN32)
     # 暂时禁用预编译头以避免条件编译宏冲突
-    target_precompile_headers(${PROJECT_NAME} PRIVATE Native/OsgFix.h)
+    target_precompile_headers(${PROJECT_NAME} PRIVATE Native/OSGBFix.h)
 
     # 添加/bigobj选项以支持大型对象文件
     target_compile_options(${PROJECT_NAME} PRIVATE /bigobj /utf-8)
@@ -331,24 +330,24 @@ endif()
 # ============================================================================
 
 # 添加测试可执行文件
-add_executable(test_osgb_to_b3dm
-    test_osgb_to_b3dm.cpp
+add_executable(OSGB23dTilesTest
+    Test/OSGB23dTilesTest.cpp
 )
 
 # 添加包含目录
-target_include_directories(test_osgb_to_b3dm PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/Native
+target_include_directories(OSGB23dTilesTest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../3dParty/include
     ${OSG_INCLUDE_DIR}
 )
 
 # 链接主库
-target_link_libraries(test_osgb_to_b3dm PRIVATE ${PROJECT_NAME})
+target_link_libraries(OSGB23dTilesTest PRIVATE ${PROJECT_NAME})
 
 # Windows特定配置
 if(WIN32)
     # 添加编译选项：UTF-8编码
-    target_compile_options(test_osgb_to_b3dm PRIVATE /utf-8)
+    target_compile_options(OSGB23dTilesTest PRIVATE /utf-8)
 endif()
 
 # 设置输出目录
@@ -356,13 +355,13 @@ if(CMAKE_CONFIGURATION_TYPES)
     # 多配置生成器
     foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
         string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE_UPPER)
-        set_target_properties(test_osgb_to_b3dm PROPERTIES
+        set_target_properties(OSGB23dTilesTest PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
         )
     endforeach()
 else()
     # 单配置生成器
-    set_target_properties(test_osgb_to_b3dm PROPERTIES
+    set_target_properties(OSGB23dTilesTest PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
     )
 endif()
@@ -378,7 +377,7 @@ install(TARGETS ${PROJECT_NAME}
 )
 
 # 安装公共头文件（用于 C++ API）
-install(FILES Native/OsgbReader.h DESTINATION include)
+install(FILES Native/OSGB23dTiles.h DESTINATION include)
 
 # ============================================================================
 # 编译信息输出
@@ -430,8 +429,8 @@ if(SWIG_FOUND)
     file(MAKE_DIRECTORY ${SWIG_OUTPUT_DIR})
 
     # SWIG C# 模块配置
-    set_property(SOURCE OsgbReader.i PROPERTY CPLUSPLUS ON)
-    set_property(SOURCE OsgbReader.i PROPERTY SWIG_MODULE_NAME OsgbReaderCS)
+    set_property(SOURCE Interop/OSGB23dTiles.i PROPERTY CPLUSPLUS ON)
+    set_property(SOURCE Interop/OSGB23dTiles.i PROPERTY SWIG_MODULE_NAME OSGB23dTilesCS)
 
     # SWIG 编译选项
     set(SWIG_FLAGS_LIST
@@ -439,77 +438,77 @@ if(SWIG_FOUND)
         "-doxygen"  # 支持 Doxygen 注释
         "-c++"      # C++ 模式
     )
-    set_property(SOURCE OsgbReader.i PROPERTY SWIG_FLAGS ${SWIG_FLAGS_LIST})
+    set_property(SOURCE Interop/OSGB23dTiles.i PROPERTY SWIG_FLAGS ${SWIG_FLAGS_LIST})
 
     # 添加 SWIG 包含目录
-    set_property(SOURCE OsgbReader.i PROPERTY USE_SWIG_DEPENDENCIES TRUE)
+    set_property(SOURCE Interop/OSGB23dTiles.i PROPERTY USE_SWIG_DEPENDENCIES TRUE)
     set(CMAKE_SWIG_FLAGS "-I${CMAKE_CURRENT_SOURCE_DIR}/Native")
 
     # 创建 SWIG 包装库
-    swig_add_library(OsgbReaderCS
+    swig_add_library(OSGB23dTilesCS
         TYPE SHARED
         LANGUAGE csharp
-        SOURCES OsgbReader.i
+        SOURCES Interop/OSGB23dTiles.i
         OUTPUT_DIR ${SWIG_OUTPUT_DIR}
     )
 
     # 设置 SWIG 生成的 C# 文件输出目录
-    set_target_properties(OsgbReaderCS PROPERTIES
+    set_target_properties(OSGB23dTilesCS PROPERTIES
         SWIG_COMPILE_OPTIONS "${SWIG_FLAGS_LIST}"
         SWIG_SUPPORT_FILES_DIRECTORY "${SWIG_OUTPUT_DIR}"
         SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE
     )
 
     # 设置 C# 特定属性
-    set_property(TARGET OsgbReaderCS PROPERTY SWIG_COMPILE_DEFINITIONS OSGB_EXPORTS)
+    set_property(TARGET OSGB23dTilesCS PROPERTY SWIG_COMPILE_DEFINITIONS OSGB_EXPORTS)
 
     # C# DLL 导入配置（P/Invoke 使用）
     if(CMAKE_CONFIGURATION_TYPES)
         # 多配置生成器（Visual Studio）
-        set_target_properties(OsgbReaderCS PROPERTIES
+        set_target_properties(OSGB23dTilesCS PROPERTIES
             SWIG_COMPILE_OPTIONS "-outdir;${SWIG_OUTPUT_DIR};-dllimport;RealScene3D.Lib.OSGB"
         )
     else()
         # 单配置生成器
-        set_target_properties(OsgbReaderCS PROPERTIES
+        set_target_properties(OSGB23dTilesCS PROPERTIES
             SWIG_COMPILE_OPTIONS "-outdir;${SWIG_OUTPUT_DIR};-dllimport;RealScene3D.Lib.OSGB"
         )
     endif()
 
     # 链接依赖（链接到主库）
-    target_link_libraries(OsgbReaderCS PRIVATE ${PROJECT_NAME})
+    target_link_libraries(OSGB23dTilesCS PRIVATE ${PROJECT_NAME})
 
     # 链接主库的所有可选依赖库，确保包含目录正确传递
-    # 这样CMake会自动添加这些库的包含目录到OsgbReaderCS的编译参数
+    # 这样CMake会自动添加这些库的包含目录到OSGB23dTilesCS的编译参数
 
     # PROJ (地理坐标系转换)
     if(PROJ_FOUND)
-        target_link_libraries(OsgbReaderCS PRIVATE PROJ::proj)
-        target_compile_definitions(OsgbReaderCS PRIVATE ENABLE_PROJ)
+        target_link_libraries(OSGB23dTilesCS PRIVATE PROJ::proj)
+        target_compile_definitions(OSGB23dTilesCS PRIVATE ENABLE_PROJ)
     endif()
 
     # Basis Universal (KTX2纹理压缩)
     if(basisu_FOUND)
-        target_link_libraries(OsgbReaderCS PRIVATE basisu::basisu_encoder)
-        target_compile_definitions(OsgbReaderCS PRIVATE ENABLE_KTX2)
+        target_link_libraries(OSGB23dTilesCS PRIVATE basisu::basisu_encoder)
+        target_compile_definitions(OSGB23dTilesCS PRIVATE ENABLE_KTX2)
     endif()
 
     # meshoptimizer (网格优化)
     if(meshoptimizer_FOUND)
-        target_link_libraries(OsgbReaderCS PRIVATE meshoptimizer::meshoptimizer)
-        target_compile_definitions(OsgbReaderCS PRIVATE OPTIMIZER)
+        target_link_libraries(OSGB23dTilesCS PRIVATE meshoptimizer::meshoptimizer)
+        target_compile_definitions(OSGB23dTilesCS PRIVATE OPTIMIZER)
     endif()
 
     # Draco (网格压缩)
     if(draco_FOUND)
-        target_link_libraries(OsgbReaderCS PRIVATE draco::draco)
-        target_compile_definitions(OsgbReaderCS PRIVATE ENABLE_DRACO)
+        target_link_libraries(OSGB23dTilesCS PRIVATE draco::draco)
+        target_compile_definitions(OSGB23dTilesCS PRIVATE ENABLE_DRACO)
     endif()
 
     # 包含主库的头文件目录
-    # 添加 CMAKE_CURRENT_SOURCE_DIR 让 SWIG 生成的代码能找到 Native/OsgbReader.h
+    # 添加 CMAKE_CURRENT_SOURCE_DIR 让 SWIG 生成的代码能找到 Native/OSGB23dTiles.h
     # 添加 3dParty/include 让代码能找到 glm/glm.hpp 等非vcpkg管理的第三方库
-    target_include_directories(OsgbReaderCS PRIVATE
+    target_include_directories(OSGB23dTilesCS PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/Native
         ${CMAKE_CURRENT_SOURCE_DIR}/../3dParty/include
@@ -521,7 +520,7 @@ if(SWIG_FOUND)
         # 多配置生成器
         foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
             string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE_UPPER)
-            set_target_properties(OsgbReaderCS PROPERTIES
+            set_target_properties(OSGB23dTilesCS PROPERTIES
                 LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
                 RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
                 ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${CMAKE_SOURCE_DIR}/../../../bin/${CONFIG_TYPE}
@@ -529,7 +528,7 @@ if(SWIG_FOUND)
         endforeach()
     else()
         # 单配置生成器
-        set_target_properties(OsgbReaderCS PROPERTIES
+        set_target_properties(OSGB23dTilesCS PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
             RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
             ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../../../bin/${CMAKE_BUILD_TYPE}
@@ -538,18 +537,18 @@ if(SWIG_FOUND)
 
     # Windows 特定配置
     if(WIN32)
-        set_target_properties(OsgbReaderCS PROPERTIES
+        set_target_properties(OSGB23dTilesCS PROPERTIES
             PREFIX ""
             SUFFIX ".dll"
-            OUTPUT_NAME "OsgbReaderCS"
+            OUTPUT_NAME "OSGB23dTilesCS"
         )
 
         # 添加编译选项
-        target_compile_options(OsgbReaderCS PRIVATE /bigobj /utf-8)
+        target_compile_options(OSGB23dTilesCS PRIVATE /bigobj /utf-8)
     endif()
 
     # 安装规则
-    install(TARGETS OsgbReaderCS
+    install(TARGETS OSGB23dTilesCS
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib

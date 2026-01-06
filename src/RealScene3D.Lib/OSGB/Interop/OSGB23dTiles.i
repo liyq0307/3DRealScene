@@ -1,12 +1,12 @@
 /* ============================================================================
- * SWIG 接口文件 - OsgbReader C# 绑定
+ * SWIG 接口文件 - OSGB23dTiles C# 绑定
  * 用于自动生成 C# 包装代码
  * ============================================================================ */
 
-%module(directors="1") OsgbReaderCS
+%module(directors="1") OSGB23dTilesCS
 
 %{
-#include "Native/OsgbReader.h"
+#include "Native/OSGB23dTiles.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -113,20 +113,20 @@ struct MeshInfo {
  * 类定义
  * ============================================================================ */
 
-// OsgbReader 类 - 主类
-%ignore OsgbReader::Osgb2GlbBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
-%ignore OsgbReader::Osgb2B3dmBuf;
-%ignore OsgbReader::DoTileJob;
-%ignore OsgbReader::EncodeTileJson;
-%ignore OsgbReader::GetAllTree;
+// OSGB23dTiles 类 - 主类
+%ignore OSGB23dTiles::ToGlbBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
+%ignore OSGB23dTiles::ToB3dmBuf;
+%ignore OSGB23dTiles::DoTileJob;
+%ignore OSGB23dTiles::EncodeTileJson;
+%ignore OSGB23dTiles::GetAllTree;
 
-class OsgbReader {
+class OSGB23dTiles {
 public:
-    OsgbReader();
-    ~OsgbReader();
+    OSGB23dTiles();
+    ~OSGB23dTiles();
 
     // 将 OSGB 转换为 3D Tiles（返回tileset.json字符串）
-    std::string Osgb23dTile(
+    std::string To3dTile(
         const std::string strInPath,
         const std::string& strOutPath,
         double* pBox,
@@ -140,7 +140,7 @@ public:
     );
 
     // 批量转换整个倾斜摄影数据集
-    std::string Osgb23dTileBatch(
+    std::string To3dTileBatch(
         const std::string& pDataDir,
         const std::string& strOutputDir,
         double* pMergedBox,
@@ -154,7 +154,7 @@ public:
     );
 
     // 将 OSGB 文件转换为 GLB 缓冲区
-    bool Osgb2GlbBuf(
+    bool ToGlbBuf(
         std::string strOsgbPath,
         std::string& strGlbBuff,
         int nNodeType,
@@ -164,7 +164,7 @@ public:
     );
 
     // OSGB 转 GLB 文件
-    bool Osgb2Glb(
+    bool ToGlb(
         const std::string& strInPath,
         const std::string& strOutPath,
         bool bEnableTextureCompress = false,
@@ -174,7 +174,7 @@ public:
 
 private:
     // 私有方法 - 不暴露给 C#
-    bool Osgb2GlbBuf(
+    bool ToGlbBuf(
         std::string path,
         std::string& glb_buff,
         MeshInfo& mesh_info,
@@ -185,7 +185,7 @@ private:
         bool need_mesh_info = true
     );
 
-    bool Osgb2B3dmBuf(
+    bool ToB3dmBuf(
         std::string path,
         std::string& b3dm_buf,
         TileBox& tile_box,
@@ -217,18 +217,18 @@ using System;
 using System.Runtime.InteropServices;
 %}
 
-%typemap(cscode) OsgbReader %{
+%typemap(cscode) OSGB23dTiles %{
     /// <summary>
     /// OSGB 读取器辅助类 - 提供更易用的 C# API
     /// </summary>
     public class Helper : IDisposable
     {
-        private OsgbReader reader;
+        private OSGB23dTiles reader;
         private bool disposed = false;
 
         public Helper()
         {
-            reader = new OsgbReader();
+            reader = new OSGB23dTiles();
         }
 
         /// <summary>
@@ -241,7 +241,7 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            return reader.Osgb2Glb(
+            return reader.ToGlb(
                 osgbPath,
                 glbPath,
                 enableTextureCompression,
@@ -259,7 +259,7 @@ using System.Runtime.InteropServices;
             bool enableDracoCompression = false)
         {
             string glbBuffer;
-            bool success = reader.Osgb2GlbBuf(
+            bool success = reader.ToGlbBuf(
                 osgbPath,
                 out glbBuffer,
                 -1,  // node_type: -1 表示自动判断
@@ -296,7 +296,7 @@ using System.Runtime.InteropServices;
             }
 
             int bboxLen = bbox?.Length ?? 0;
-            string result = reader.Osgb23dTile(
+            string result = reader.To3dTile(
                 inPath,
                 outPath,
                 bbox,
@@ -331,7 +331,7 @@ using System.Runtime.InteropServices;
             }
 
             int jsonLen = 0;
-            string result = reader.Osgb23dTileBatch(
+            string result = reader.To3dTileBatch(
                 dataDir,
                 outputDir,
                 mergedBox,
