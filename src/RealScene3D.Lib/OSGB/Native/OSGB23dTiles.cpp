@@ -939,6 +939,12 @@ bool OSGB23dTiles::ToGlbBuf(
 	{
 		tinygltf::Material mat = make_color_material_osgb(1.0, 1.0, 1.0);
 		mat.pbrMetallicRoughness.baseColorTexture.index = i;
+
+		// 应用KHR_materials_unlit扩展使材质忽略光照（关键修复）
+		// 这会让模型使用纹理原始颜色而不受场景光照影响
+		tinygltf::Value::Object unlit_ext;
+		mat.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
+
 		model.materials.push_back(mat);
 	}
 
@@ -968,7 +974,7 @@ bool OSGB23dTiles::ToGlbBuf(
 		}
 	}
 	model.asset.version = "2.0";
-	model.asset.generator = "fanvanzh";
+	model.asset.generator = "RealScene3D";
 
 	std::ostringstream ss;
 	bool res = gltf.WriteGltfSceneToStream(&model, ss, false, true);
@@ -1308,8 +1314,11 @@ std::string OSGB23dTiles::To3dTileBatch(
 		LOG_W("metadata.xml not found or parsing failed, using provided center_x=%.6f, center_y=%.6f", dCenterX, dCenterY);
 	}
 
-	// 检查路径是否以 "/Data" 结尾
+	// 3. 检测数据源类型
+	bool is_oblique_data = false;  // 是否为倾斜摄影数据集
 	std::string check_data_dir = data_path;
+
+	// 检查路径是否以 "/Data" 结尾
 	data_pos = data_path.rfind("/Data");  // 复用之前定义的 data_pos 变量
 	if (data_pos == std::string::npos || data_pos != data_path.length() - 5)
 	{
@@ -1317,27 +1326,30 @@ std::string OSGB23dTiles::To3dTileBatch(
 		check_data_dir = data_path + "/Data";
 	}
 
-	printf("[INFO] 在以下位置搜索瓦片：%s\n", check_data_dir.c_str());
-
-	if (!OSGBTools::IsDirectory(check_data_dir))
+	// 检测是否为倾斜摄影数据集
+	if (OSGBTools::IsDirectory(check_data_dir) && has_metadata)
 	{
-		LOG_E("Data 目录不存在：%s", check_data_dir.c_str());
-		return NULL;
+		is_oblique_data = true;
+		LOG_I("检测到倾斜摄影数据集模式 (Data目录 + metadata.xml)");
+		printf("[INFO] 在以下位置搜索瓦片：%s\n", check_data_dir.c_str());
+	}
+	else
+	{
+		// 尝试纯OSGB文件夹模式
+		check_data_dir = data_path;
+		LOG_I("检测到纯OSGB文件夹模式");
+		printf("[INFO] 扫描OSGB文件夹：%s\n", check_data_dir.c_str());
 	}
 
-	// 3. 创建输出目录
+	// 4. 创建输出目录
 	std::string out_path = strOutputDir;
 #ifdef _WIN32
 	CreateDirectoryA(out_path.c_str(), NULL);
-	std::string out_data_path = out_path + "/Data";
-	CreateDirectoryA(out_data_path.c_str(), NULL);
 #else
 	mkdir(out_path.c_str(), 0755);
-	std::string out_data_path = out_path + "/Data";
-	mkdir(out_data_path.c_str(), 0755);
 #endif
 
-	// 4. 遍历 Data 目录，收集所有 Tile_* 目录
+	// 5. 收集所有子目录/OSGB文件
 	struct TileInfo {
 		std::string tile_name;
 		std::string osgb_path;
@@ -1348,49 +1360,150 @@ std::string OSGB23dTiles::To3dTileBatch(
 	std::vector<TileInfo> tiles;
 	TileBox global_bbox;
 
+	if (is_oblique_data)
+	{
+		// 倾斜摄影模式：扫描 Tile_* 目录
+		std::string out_data_path = out_path + "/Data";
 #ifdef _WIN32
-	WIN32_FIND_DATAA findData;
-	std::string search_pattern = check_data_dir + "/*";
-	HANDLE hFind = FindFirstFileA(search_pattern.c_str(), &findData);
+		CreateDirectoryA(out_data_path.c_str(), NULL);
+#else
+		mkdir(out_data_path.c_str(), 0755);
+#endif
 
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		LOG_E("列出目录失败：%s", check_data_dir.c_str());
-		return NULL;
-	}
+#ifdef _WIN32
+		WIN32_FIND_DATAA findData;
+		std::string search_pattern = check_data_dir + "/*";
+		HANDLE hFind = FindFirstFileA(search_pattern.c_str(), &findData);
 
-	do
-	{
-		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		if (hFind == INVALID_HANDLE_VALUE)
 		{
-			std::string tile_name = findData.cFileName;
-			if (tile_name == "." || tile_name == "..")
-				continue;
+			LOG_E("列出目录失败：%s", check_data_dir.c_str());
+			return "";
+		}
 
-			if (tile_name.find("Tile_") != 0)
-				continue;
-
-			std::string tile_dir = check_data_dir + "/" + tile_name;
-			std::string osgb_file = tile_dir + "/" + tile_name + ".osgb";
-
-			DWORD attrs = GetFileAttributesA(osgb_file.c_str());
-			if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+		do
+		{
+			if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			{
+				std::string tile_name = findData.cFileName;
+				if (tile_name == "." || tile_name == "..")
+					continue;
+
+				if (tile_name.find("Tile_") != 0)
+					continue;
+
+				std::string tile_dir = check_data_dir + "/" + tile_name;
+				std::string osgb_file = tile_dir + "/" + tile_name + ".osgb";
+
+				DWORD attrs = GetFileAttributesA(osgb_file.c_str());
+				if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+				{
+					TileInfo info;
+					info.tile_name = tile_name;
+					info.osgb_path = osgb_file;
+					info.output_path = out_data_path + "/" + tile_name;
+					CreateDirectoryA(info.output_path.c_str(), NULL);
+					tiles.push_back(info);
+				}
+			}
+		} while (FindNextFileA(hFind, &findData));
+		FindClose(hFind);
+#endif
+	}
+	else
+	{
+		// 纯OSGB文件夹模式：
+		// 1. 先检查输入目录本身是否包含OSGB文件
+		// 2. 如果不包含，再扫描子目录
+
+		std::vector<std::string> osgb_files_in_root = OSGBTools::ScanOSGBFiles(check_data_dir, false);
+
+		if (!osgb_files_in_root.empty())
+		{
+			// 情况1：输入目录本身就包含OSGB文件（如 E:\Data\3D\Tile_+005_+006）
+			LOG_I("输入目录本身包含 %zu 个OSGB文件", osgb_files_in_root.size());
+
+			// 查找根OSGB文件
+			std::string root_osgb = OSGBTools::FindRootOSGB(check_data_dir);
+			if (root_osgb.empty())
+			{
+				// 如果没有找到根OSGB，使用第一个文件
+				root_osgb = osgb_files_in_root[0];
+				LOG_I("未找到根OSGB，使用第一个文件: %s", root_osgb.c_str());
+			}
+			else
+			{
+				LOG_I("找到根OSGB: %s", root_osgb.c_str());
+			}
+
+			// 获取目录名作为tile名称
+			std::string dir_name = OSGBTools::GetFileName(check_data_dir);
+			if (dir_name.empty())
+			{
+				dir_name = "output";
+			}
+
+			TileInfo info;
+			info.tile_name = dir_name;
+			info.osgb_path = root_osgb;
+			info.output_path = out_path + "/" + dir_name;
+#ifdef _WIN32
+			CreateDirectoryA(info.output_path.c_str(), NULL);
+#else
+			mkdir(info.output_path.c_str(), 0755);
+#endif
+			tiles.push_back(info);
+		}
+		else
+		{
+			// 情况2：输入目录不包含OSGB，扫描子目录
+			std::vector<std::string> osgb_folders = OSGBTools::ScanOSGBFolders(check_data_dir);
+
+			LOG_I("找到 %zu 个包含OSGB文件的子目录", osgb_folders.size());
+
+			for (const auto& folder_name : osgb_folders)
+			{
+				std::string folder_path = check_data_dir + "/" + folder_name;
+
+				// 在子目录中查找根OSGB文件
+				std::string root_osgb = OSGBTools::FindRootOSGB(folder_path);
+				if (root_osgb.empty())
+				{
+					// 如果没有找到根OSGB，尝试扫描该目录下的所有OSGB文件，使用第一个
+					std::vector<std::string> osgb_files = OSGBTools::ScanOSGBFiles(folder_path, false);
+					if (!osgb_files.empty())
+					{
+						root_osgb = osgb_files[0];
+						LOG_I("子目录 %s 未找到根OSGB，使用第一个文件: %s", folder_name.c_str(), root_osgb.c_str());
+					}
+					else
+					{
+						LOG_W("子目录 %s 中未找到OSGB文件，跳过", folder_name.c_str());
+						continue;
+					}
+				}
+				else
+				{
+					LOG_I("子目录 %s 找到根OSGB: %s", folder_name.c_str(), root_osgb.c_str());
+				}
+
 				TileInfo info;
-				info.tile_name = tile_name;
-				info.osgb_path = osgb_file;
-				info.output_path = out_data_path + "/" + tile_name;
+				info.tile_name = folder_name;
+				info.osgb_path = root_osgb;
+				info.output_path = out_path + "/" + folder_name;
+#ifdef _WIN32
 				CreateDirectoryA(info.output_path.c_str(), NULL);
+#else
+				mkdir(info.output_path.c_str(), 0755);
+#endif
 				tiles.push_back(info);
 			}
 		}
-	} while (FindNextFileA(hFind, &findData));
-	FindClose(hFind);
-#endif
+	}
 
 	if (tiles.empty())
 	{
-		LOG_E("未在 %s 中找到 Tile_* 目录", check_data_dir.c_str());
+		LOG_E("未找到任何OSGB数据");
 		return "";
 	}
 
@@ -1468,7 +1581,21 @@ std::string OSGB23dTiles::To3dTileBatch(
 	{
 		// 使用合并的全局边界框的最小高度
 		double height_min = global_bbox.min.empty() ? 0.0 : global_bbox.min[2];
-		OSGBTools::TransformC(dCenterX, dCenterY, height_min, transform_matrix.data());
+
+		// 对于ENU坐标系，需要应用SRSOrigin偏移到根节点变换矩阵
+		if (has_metadata && metadata.bIsENU)
+		{
+			LOG_I("应用ENU offset到根节点变换矩阵: (%.3f, %.3f, %.3f)",
+				metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
+			OSGBTools::TransformCWithEnuOffset(
+				dCenterX, dCenterY, height_min,
+				metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ,
+				transform_matrix.data());
+		}
+		else
+		{
+			OSGBTools::TransformC(dCenterX, dCenterY, height_min, transform_matrix.data());
+		}
 	}
 
 	// 7. 生成根 tileset.json
@@ -1504,7 +1631,17 @@ std::string OSGB23dTiles::To3dTileBatch(
 		root_json += "{";
 		root_json += get_boundingBox(tile.bbox);
 		root_json += ",\"geometricError\":1000,";
-		root_json += "\"content\":{\"uri\":\"./Data/" + tile.tile_name + "/tileset.json\"}";
+
+		// 根据数据集类型生成URI
+		if (is_oblique_data)
+		{
+			root_json += "\"content\":{\"uri\":\"./Data/" + tile.tile_name + "/tileset.json\"}";
+		}
+		else
+		{
+			root_json += "\"content\":{\"uri\":\"./" + tile.tile_name + "/tileset.json\"}";
+		}
+
 		root_json += "}";
 
 		if (i < tiles.size() - 1)

@@ -192,6 +192,21 @@ public:
 	// 在目录中查找根 OSGB 文件
 	static std::string FindRootOSGB(const std::string& strDirPath);
 
+	/**
+	 * @brief 扫描目录中所有包含OSGB文件的子目录
+	 * @param strDirPath 要扫描的目录路径
+	 * @return 返回包含OSGB文件的子目录名称列表
+	 */
+	static std::vector<std::string> ScanOSGBFolders(const std::string& strDirPath);
+
+	/**
+	 * @brief 扫描目录中所有OSGB文件
+	 * @param strDirPath 要扫描的目录路径
+	 * @param bRecursive 是否递归扫描子目录
+	 * @return 返回OSGB文件路径列表
+	 */
+	static std::vector<std::string> ScanOSGBFiles(const std::string& strDirPath, bool bRecursive = false);
+
 	// 获取父目录路径
 	static std::string GetParent(std::string str);
 

@@ -6,6 +6,9 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
 #endif
 
 #include <osgDB/ConvertUTF>
@@ -106,6 +109,189 @@ std::string OSGBTools::FindRootOSGB(const std::string& strDirPath)
 	}
 
 	return "";  // Not found
+}
+
+std::vector<std::string> OSGBTools::ScanOSGBFolders(const std::string& strDirPath)
+{
+	std::vector<std::string> folders;
+
+	// 标准化路径分隔符
+	std::string strNormalizedPath = strDirPath;
+	for (char& c : strNormalizedPath)
+	{
+		if (c == '\\') c = '/';
+	}
+	// 移除尾部斜杠
+	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
+	{
+		strNormalizedPath.pop_back();
+	}
+
+#ifdef _WIN32
+	WIN32_FIND_DATAA findData;
+	std::string strSearchPattern = strNormalizedPath + "/*";
+	HANDLE hFind = FindFirstFileA(strSearchPattern.c_str(), &findData);
+
+	if (hFind != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{
+				std::string subdir = findData.cFileName;
+				if (subdir != "." && subdir != "..")
+				{
+					// 检查子目录是否包含OSGB文件
+					std::string subdir_path = strNormalizedPath + "/" + subdir;
+					std::string osgb_pattern = subdir_path + "/*.osgb";
+					WIN32_FIND_DATAA findOsgb;
+					HANDLE hFindOsgb = FindFirstFileA(osgb_pattern.c_str(), &findOsgb);
+
+					if (hFindOsgb != INVALID_HANDLE_VALUE)
+					{
+						folders.push_back(subdir);
+						FindClose(hFindOsgb);
+					}
+				}
+			}
+		} while (FindNextFileA(hFind, &findData));
+		FindClose(hFind);
+	}
+#else
+	// Linux/macOS implementation using filesystem
+	DIR* dir = opendir(strNormalizedPath.c_str());
+	if (dir != nullptr)
+	{
+		struct dirent* entry;
+		while ((entry = readdir(dir)) != nullptr)
+		{
+			if (entry->d_type == DT_DIR)
+			{
+				std::string subdir = entry->d_name;
+				if (subdir != "." && subdir != "..")
+				{
+					std::string subdir_path = strNormalizedPath + "/" + subdir;
+					// 检查子目录是否包含OSGB文件
+					DIR* subDir = opendir(subdir_path.c_str());
+					if (subDir != nullptr)
+					{
+						struct dirent* subEntry;
+						bool hasOsgb = false;
+						while ((subEntry = readdir(subDir)) != nullptr)
+						{
+							std::string filename = subEntry->d_name;
+							if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".osgb")
+							{
+								hasOsgb = true;
+								break;
+							}
+						}
+						closedir(subDir);
+
+						if (hasOsgb)
+						{
+							folders.push_back(subdir);
+						}
+					}
+				}
+			}
+		}
+		closedir(dir);
+	}
+#endif
+
+	return folders;
+}
+
+std::vector<std::string> OSGBTools::ScanOSGBFiles(const std::string& strDirPath, bool bRecursive)
+{
+	std::vector<std::string> files;
+
+	// 标准化路径分隔符
+	std::string strNormalizedPath = strDirPath;
+	for (char& c : strNormalizedPath)
+	{
+		if (c == '\\') c = '/';
+	}
+	// 移除尾部斜杠
+	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
+	{
+		strNormalizedPath.pop_back();
+	}
+
+#ifdef _WIN32
+	// 扫描当前目录的OSGB文件
+	std::string osgb_pattern = strNormalizedPath + "/*.osgb";
+	WIN32_FIND_DATAA findOsgb;
+	HANDLE hFindOsgb = FindFirstFileA(osgb_pattern.c_str(), &findOsgb);
+
+	if (hFindOsgb != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			std::string filename = findOsgb.cFileName;
+			files.push_back(strNormalizedPath + "/" + filename);
+		} while (FindNextFileA(hFindOsgb, &findOsgb));
+		FindClose(hFindOsgb);
+	}
+
+	// 如果需要递归扫描
+	if (bRecursive)
+	{
+		WIN32_FIND_DATAA findData;
+		std::string strSearchPattern = strNormalizedPath + "/*";
+		HANDLE hFind = FindFirstFileA(strSearchPattern.c_str(), &findData);
+
+		if (hFind != INVALID_HANDLE_VALUE)
+		{
+			do
+			{
+				if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+				{
+					std::string subdir = findData.cFileName;
+					if (subdir != "." && subdir != "..")
+					{
+						std::string subdir_path = strNormalizedPath + "/" + subdir;
+						auto subFiles = ScanOSGBFiles(subdir_path, true);
+						files.insert(files.end(), subFiles.begin(), subFiles.end());
+					}
+				}
+			} while (FindNextFileA(hFind, &findData));
+			FindClose(hFind);
+		}
+	}
+#else
+	// Linux/macOS implementation
+	DIR* dir = opendir(strNormalizedPath.c_str());
+	if (dir != nullptr)
+	{
+		struct dirent* entry;
+		while ((entry = readdir(dir)) != nullptr)
+		{
+			std::string filename = entry->d_name;
+
+			if (entry->d_type == DT_REG)  // 普通文件
+			{
+				if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".osgb")
+				{
+					files.push_back(strNormalizedPath + "/" + filename);
+				}
+			}
+			else if (bRecursive && entry->d_type == DT_DIR)  // 目录
+			{
+				if (filename != "." && filename != "..")
+				{
+					std::string subdir_path = strNormalizedPath + "/" + filename;
+					auto subFiles = ScanOSGBFiles(subdir_path, true);
+					files.insert(files.end(), subFiles.begin(), subFiles.end());
+				}
+			}
+		}
+		closedir(dir);
+	}
+#endif
+
+	return files;
 }
 
 std::string OSGBTools::GetParent(std::string str)

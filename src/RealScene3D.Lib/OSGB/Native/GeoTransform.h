@@ -5,8 +5,9 @@
 #include <string>
 #include <proj.h>
 
-// GeoTransform: 使用PROJ库实现的坐标转换工具类
-// 支持EPSG坐标系、WKT坐标定义和ENU局部坐标系之间的转换
+/**
+ * @brief 坐标转换工具类, 使用PROJ库实现,支持EPSG/WKT/ENU坐标系转换
+ */
 class GeoTransform
 {
 public:
