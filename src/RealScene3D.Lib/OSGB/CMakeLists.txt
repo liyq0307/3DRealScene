@@ -207,8 +207,31 @@ if(USE_EXTERNAL_OSG)
     set(OSG_PREBUILT_DIR "${CMAKE_SOURCE_DIR}/../3dParty/osg")
     if(EXISTS "${OSG_PREBUILT_DIR}")
         message(STATUS "使用预编译OSG: ${OSG_PREBUILT_DIR}")
-        set(OSG_DIR "${OSG_PREBUILT_DIR}" CACHE PATH "OSG installation directory")
-        set(CMAKE_PREFIX_PATH "${OSG_PREBUILT_DIR}" ${CMAKE_PREFIX_PATH})
+
+        # 根据构建类型设置不同的OSG路径
+        # 支持多配置生成器(Visual Studio)和单配置生成器(Makefile/Ninja)
+        if(CMAKE_CONFIGURATION_TYPES)
+            # 多配置生成器 - 添加debug和release子目录到搜索路径
+            # CMake会根据配置类型自动选择正确的库
+            set(OSG_DIR "${OSG_PREBUILT_DIR}" CACHE PATH "OSG installation directory")
+            list(APPEND CMAKE_PREFIX_PATH
+                "${OSG_PREBUILT_DIR}/debug"
+                "${OSG_PREBUILT_DIR}/release"
+                "${OSG_PREBUILT_DIR}"
+            )
+            message(STATUS "多配置模式 - 将根据构建类型自动选择Debug/Release库")
+        else()
+            # 单配置生成器 - 根据CMAKE_BUILD_TYPE选择路径
+            if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+                set(OSG_DIR "${OSG_PREBUILT_DIR}/debug" CACHE PATH "OSG installation directory")
+                set(CMAKE_PREFIX_PATH "${OSG_PREBUILT_DIR}/debug" ${CMAKE_PREFIX_PATH})
+                message(STATUS "使用Debug版本OSG: ${OSG_PREBUILT_DIR}/debug")
+            else()
+                set(OSG_DIR "${OSG_PREBUILT_DIR}/release" CACHE PATH "OSG installation directory")
+                set(CMAKE_PREFIX_PATH "${OSG_PREBUILT_DIR}/release" ${CMAKE_PREFIX_PATH})
+                message(STATUS "使用Release版本OSG: ${OSG_PREBUILT_DIR}/release")
+            endif()
+        endif()
     else()
         message(WARNING "预编译OSG目录不存在: ${OSG_PREBUILT_DIR}")
         message(STATUS "请运行自行下载预编译版本")
@@ -233,41 +256,91 @@ if(OpenSceneGraph_FOUND)
 
     # Windows复制DLL到输出目录
     if(WIN32 AND USE_EXTERNAL_OSG)
-        set(OSG_BIN_DIR "${OSG_DIR}/bin")
-        if(EXISTS "${OSG_BIN_DIR}")
-            message(STATUS "OSG DLL目录: ${OSG_BIN_DIR}")
+        # 输出目录
+        set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../../../bin")
 
-            # 使用生成器表达式获取正确的输出目录（支持Debug/Release）
-            set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../../../bin/$<CONFIG>")
-
-            # 复制OSG核心DLL文件
-            file(GLOB OSG_DLLS "${OSG_BIN_DIR}/osg*.dll" "${OSG_BIN_DIR}/ot*.dll")
-            foreach(DLL_FILE ${OSG_DLLS})
-                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${DLL_FILE}"
-                        "${OUTPUT_DIR}"
-                    COMMENT "Copying ${DLL_FILE} to $<CONFIG>"
-                )
-            endforeach()
-
-            # 查找并复制OSG插件目录（osgPlugins-x.x.x）
-            file(GLOB OSG_PLUGIN_DIRS "${OSG_BIN_DIR}/osgPlugins-*")
-            if(OSG_PLUGIN_DIRS)
-                list(GET OSG_PLUGIN_DIRS 0 OSG_PLUGIN_DIR)
-                get_filename_component(PLUGIN_DIR_NAME "${OSG_PLUGIN_DIR}" NAME)
-
-                message(STATUS "OSG插件目录: ${OSG_PLUGIN_DIR}")
-
-                # 复制整个插件目录到输出目录
-                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_directory
-                        "${OSG_PLUGIN_DIR}"
-                        "${OUTPUT_DIR}/${PLUGIN_DIR_NAME}"
-                    COMMENT "Copying OSG plugins from ${PLUGIN_DIR_NAME} to $<CONFIG>/${PLUGIN_DIR_NAME}"
-                )
+        if(CMAKE_CONFIGURATION_TYPES)
+            # 多配置生成器 - 为每个配置类型分别设置复制命令
+            # 检测目录结构
+            if(EXISTS "${OSG_PREBUILT_DIR}/debug/bin" OR EXISTS "${OSG_PREBUILT_DIR}/release/bin")
+                # 结构1: osg/debug/bin, osg/release/bin
+                set(OSG_DEBUG_BIN "${OSG_PREBUILT_DIR}/debug/bin")
+                set(OSG_RELEASE_BIN "${OSG_PREBUILT_DIR}/release/bin")
+                message(STATUS "OSG DLL复制: ${OSG_PREBUILT_DIR}/[debug|release]/bin")
+            elseif(EXISTS "${OSG_PREBUILT_DIR}/bin/Debug" OR EXISTS "${OSG_PREBUILT_DIR}/bin/Release")
+                # 结构2: osg/bin/Debug, osg/bin/Release
+                set(OSG_DEBUG_BIN "${OSG_PREBUILT_DIR}/bin/Debug")
+                set(OSG_RELEASE_BIN "${OSG_PREBUILT_DIR}/bin/Release")
+                message(STATUS "OSG DLL复制: ${OSG_PREBUILT_DIR}/bin/[Debug|Release]")
             else()
-                message(WARNING "未找到OSG插件目录 (osgPlugins-*) 在 ${OSG_BIN_DIR}")
+                # 结构3: osg/bin (不区分配置)
+                set(OSG_DEBUG_BIN "${OSG_PREBUILT_DIR}/bin")
+                set(OSG_RELEASE_BIN "${OSG_PREBUILT_DIR}/bin")
+                message(STATUS "OSG DLL复制: ${OSG_PREBUILT_DIR}/bin")
+            endif()
+
+            # Debug配置 - 复制所有DLL和插件
+            if(EXISTS "${OSG_DEBUG_BIN}")
+                file(GLOB_RECURSE OSG_DEBUG_DLLS
+                    "${OSG_DEBUG_BIN}/*.dll"
+                    "${OSG_DEBUG_BIN}/*.pdb"
+                )
+                foreach(DLL_FILE ${OSG_DEBUG_DLLS})
+                    file(RELATIVE_PATH REL_PATH "${OSG_DEBUG_BIN}" "${DLL_FILE}")
+                    get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
+                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_DIR}/Debug/${REL_DIR}"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${DLL_FILE}"
+                            "${OUTPUT_DIR}/Debug/${REL_PATH}"
+                        COMMENT "Copying Debug: ${REL_PATH}"
+                    )
+                endforeach()
+            endif()
+
+            # Release配置 - 复制所有DLL和插件
+            if(EXISTS "${OSG_RELEASE_BIN}")
+                file(GLOB_RECURSE OSG_RELEASE_DLLS
+                    "${OSG_RELEASE_BIN}/*.dll"
+                    "${OSG_RELEASE_BIN}/*.pdb"
+                )
+                foreach(DLL_FILE ${OSG_RELEASE_DLLS})
+                    file(RELATIVE_PATH REL_PATH "${OSG_RELEASE_BIN}" "${DLL_FILE}")
+                    get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
+                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_DIR}/Release/${REL_DIR}"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${DLL_FILE}"
+                            "${OUTPUT_DIR}/Release/${REL_PATH}"
+                        COMMENT "Copying Release: ${REL_PATH}"
+                    )
+                endforeach()
+            endif()
+        else()
+            # 单配置生成器 - OSG_DIR已经指向正确的配置目录
+            set(OSG_BIN_DIR "${OSG_DIR}/bin")
+            if(EXISTS "${OSG_BIN_DIR}")
+                message(STATUS "OSG DLL目录: ${OSG_BIN_DIR}")
+                set(OUTPUT_DIR_CONFIG "${OUTPUT_DIR}/${CMAKE_BUILD_TYPE}")
+
+                # 递归复制所有OSG DLL文件（包括插件目录中的）
+                file(GLOB_RECURSE OSG_DLLS
+                    "${OSG_BIN_DIR}/*.dll"
+                    "${OSG_BIN_DIR}/*.pdb"
+                )
+                foreach(DLL_FILE ${OSG_DLLS})
+                    file(RELATIVE_PATH REL_PATH "${OSG_BIN_DIR}" "${DLL_FILE}")
+                    get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
+                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_DIR_CONFIG}/${REL_DIR}"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${DLL_FILE}"
+                            "${OUTPUT_DIR_CONFIG}/${REL_PATH}"
+                        COMMENT "Copying ${CMAKE_BUILD_TYPE}: ${REL_PATH}"
+                    )
+                endforeach()
+            else()
+                message(WARNING "OSG bin目录不存在: ${OSG_BIN_DIR}")
             endif()
         endif()
     endif()

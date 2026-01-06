@@ -788,9 +788,16 @@ tinygltf::Material make_color_material_osgb(double r, double g, double b)
 {
 	tinygltf::Material material;
 	material.name = "default";
+
+	// PBR 材质配置
 	material.pbrMetallicRoughness.baseColorFactor = { r, g, b, 1.0 };
-	material.pbrMetallicRoughness.metallicFactor = 0.0;
-	material.pbrMetallicRoughness.roughnessFactor = 1.0;
+	material.pbrMetallicRoughness.metallicFactor = 0.0;   // 非金属
+	material.pbrMetallicRoughness.roughnessFactor = 1.0;  // 完全粗糙（漫反射）
+
+	// 启用 unlit 扩展：禁用光照计算，等效于 shader 的 texture2D 直接输出
+	tinygltf::Value::Object unlit_ext;
+	material.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
+
 	return material;
 }
 
@@ -947,12 +954,6 @@ bool OSGB23dTiles::ToGlbBuf(
 	{
 		tinygltf::Material mat = make_color_material_osgb(1.0, 1.0, 1.0);
 		mat.pbrMetallicRoughness.baseColorTexture.index = i;
-
-		// 应用KHR_materials_unlit扩展使材质忽略光照（关键修复）
-		// 这会让模型使用纹理原始颜色而不受场景光照影响
-		tinygltf::Value::Object unlit_ext;
-		mat.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
-
 		model.materials.push_back(mat);
 	}
 
