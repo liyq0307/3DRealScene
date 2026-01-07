@@ -350,11 +350,19 @@ void calc_geometric_error(OSGTree& tree)
 //===============工具结束==================
 
 //===============OSGB23dTiles==================
-std::tuple<bool, std::string, std::array<double, 6>> OSGB23dTiles::To3dTile(
-	const std::string strInPath, const std::string& strOutPath,
-	double dCenterX, double dCenterY, int nMaxLevel,
-	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
+B3DMResult OSGB23dTiles::ToB3DM(
+	const std::string strInPath,
+	const std::string& strOutPath,
+	double dCenterX,
+	double dCenterY,
+	int nMaxLevel,
+	bool bEnableTextureCompress,
+	bool bEnableMeshOpt,
+	bool bEnableDraco)
 {
+	B3DMResult result;
+	result.success = false;
+
 	std::string path = OSGBTools::OSGString(strInPath);
 
 	// 自动检测目录并查找根 OSGB 文件
@@ -365,7 +373,7 @@ std::tuple<bool, std::string, std::array<double, 6>> OSGB23dTiles::To3dTile(
 		if (root_osgb.empty())
 		{
 			LOG_E("No root OSGB file found in directory [%s]!", strInPath.c_str());
-			return std::make_tuple(false, "", std::array<double, 6>{});
+			return result;
 		}
 		std::cout << "[INFO] Found root OSGB: " << root_osgb << std::endl;
 		path = root_osgb;
@@ -375,7 +383,7 @@ std::tuple<bool, std::string, std::array<double, 6>> OSGB23dTiles::To3dTile(
 	if (root.file_name.empty())
 	{
 		LOG_E("打开文件 [%s] 失败！", strInPath.c_str());
-		return std::make_tuple(false, "", std::array<double, 6>{});
+		return result;
 	}
 
 	DoTileJob(root, strOutPath, nMaxLevel,
@@ -386,7 +394,7 @@ std::tuple<bool, std::string, std::array<double, 6>> OSGB23dTiles::To3dTile(
 	if (root.bbox.max.empty() || root.bbox.min.empty())
 	{
 		LOG_E("[%s] bbox 为空！", strInPath.c_str());
-		return std::make_tuple(false, "", std::array<double, 6>{});
+		return result;
 	}
 
 	calc_geometric_error(root);
@@ -395,20 +403,22 @@ std::tuple<bool, std::string, std::array<double, 6>> OSGB23dTiles::To3dTile(
 	std::string strJson = EncodeTileJSON(root, dCenterX, dCenterY);
 	root.bbox.extend(0.2);
 
-	// 构建包围盒数组
-	std::array<double, 6> box;
-	std::copy(root.bbox.max.begin(), root.bbox.max.end(), box.begin());
-	std::copy(root.bbox.min.begin(), root.bbox.min.end(), box.begin() + 3);
+	// 构建返回结果
+	result.success = true;
+	result.tilesetJson = strJson;
+	std::copy(root.bbox.max.begin(), root.bbox.max.end(), result.boundingBox.begin());
+	std::copy(root.bbox.min.begin(), root.bbox.min.end(), result.boundingBox.begin() + 3);
 
-	return std::make_tuple(true, strJson, box);
+	return result;
 }
 
-bool OSGB23dTiles::ToGlbBuf(std::string path, std::string& glb_buff, int node_type, bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
-{
-	return ToGlbBuf(path, glb_buff, MeshInfo(), node_type, enable_texture_compress, enable_meshopt, enable_draco, false);
-}
-
-bool OSGB23dTiles::ToGlb(const std::string& strInPath, const std::string& strOutPath, bool bEnableTextureCompress/* = false*/, bool bEnableMeshOpt/* = false*/, bool bEnableDraco/* = false*/)
+bool OSGB23dTiles::ToGLB(
+	const std::string& strInPath, 
+	const std::string& strOutPath,
+	bool bBinary/* = true*/,
+	bool bEnableTextureCompress/* = false*/, 
+	bool bEnableMeshOpt/* = false*/, 
+	bool bEnableDraco/* = false*/)
 {
 	MeshInfo minfo;
 	std::string glb_buf = "";
@@ -428,7 +438,7 @@ bool OSGB23dTiles::ToGlb(const std::string& strInPath, const std::string& strOut
 		path = root_osgb;
 	}
 
-	bool ret = ToGlbBuf(path, glb_buf, minfo, -1, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
+	bool ret = ToGLBBuf(path, glb_buf, minfo, -1, bBinary, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
 	if (!ret)
 	{
 		LOG_E("转换为 glb 失败");
@@ -447,14 +457,18 @@ bool OSGB23dTiles::ToGlb(const std::string& strInPath, const std::string& strOut
 	return true;
 }
 
-std::vector<uint8_t> OSGB23dTiles::ToGlbBufBytes(
-	std::string strOsgbPath, int nNodeType,
-	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
+std::vector<uint8_t> OSGB23dTiles::ToGLBBuf(
+	std::string strOsgbPath, 
+	int nNodeType, 
+	bool bBinary, 
+	bool bEnableTextureCompress, 
+	bool bEnableMeshOpt, 
+	bool bEnableDraco)
 {
 	std::string glb_buff;
-	MeshInfo mesh_info;
 
-	bool ret = ToGlbBuf(strOsgbPath, glb_buff, mesh_info, nNodeType, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco, false);
+	bool ret = ToGLBBuf(strOsgbPath, glb_buff, MeshInfo(),
+		nNodeType, bBinary, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco, false);
 
 	if (!ret)
 	{
@@ -749,9 +763,16 @@ tinygltf::Material make_color_material_osgb(double r, double g, double b)
 	return material;
 }
 
-bool OSGB23dTiles::ToGlbBuf(
-	std::string path, std::string& glb_buff, MeshInfo& mesh_info, int node_type,
-	bool enable_texture_compress, bool enable_meshopt, bool enable_draco, bool need_mesh_info/* = true*/)
+bool OSGB23dTiles::ToGLBBuf(
+	std::string path, 
+	std::string& glb_buff, 
+	MeshInfo& mesh_info, 
+	int node_type,
+	bool bBinary,
+	bool enable_texture_compress, 
+	bool enable_meshopt, 
+	bool enable_draco, 
+	bool need_mesh_info/* = true*/)
 {
 	vector<string> fileNames = { path };
 	std::string parent_path = OSGBTools::GetParent(path);
@@ -948,7 +969,7 @@ bool OSGB23dTiles::ToGlbBuf(
 	model.asset.generator = "RealScene3D";
 
 	std::ostringstream ss;
-	bool res = gltf.WriteGltfSceneToStream(&model, ss, false, true);
+	bool res = gltf.WriteGltfSceneToStream(&model, ss, false, bBinary);
 	if (res)
 	{
 		glb_buff = ss.str();
@@ -957,15 +978,20 @@ bool OSGB23dTiles::ToGlbBuf(
 	return res;
 }
 
-bool OSGB23dTiles::ToB3dmBuf(
-	std::string path, std::string& b3dm_buf, TileBox& tile_box, int node_type,
-	bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
+bool OSGB23dTiles::ToB3DMBuf(
+	std::string path, 
+	std::string& b3dm_buf, 
+	TileBox& tile_box, 
+	int node_type,
+	bool enable_texture_compress, 
+	bool enable_meshopt, 
+	bool enable_draco)
 {
 	using nlohmann::json;
 
 	std::string glb_buf;
 	MeshInfo minfo;
-	if (!ToGlbBuf(path, glb_buf, minfo, node_type, enable_texture_compress, enable_meshopt, enable_draco))
+	if (!ToGLBBuf(path, glb_buf, minfo, node_type, true, enable_texture_compress, enable_meshopt, enable_draco))
 	{
 		return false;
 	}
@@ -1027,7 +1053,13 @@ bool OSGB23dTiles::ToB3dmBuf(
 	return true;
 }
 
-void OSGB23dTiles::DoTileJob(OSGTree& tree, std::string out_path, int max_lvl, bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
+void OSGB23dTiles::DoTileJob(
+	OSGTree& tree, 
+	std::string out_path, 
+	int max_lvl, 
+	bool enable_texture_compress, 
+	bool enable_meshopt, 
+	bool enable_draco)
 {
 	if (tree.file_name.empty())
 	{
@@ -1043,7 +1075,7 @@ void OSGB23dTiles::DoTileJob(OSGTree& tree, std::string out_path, int max_lvl, b
 	if (tree.type > 0)
 	{
 		std::string b3dm_buf;
-		ToB3dmBuf(tree.file_name, b3dm_buf, tree.bbox, tree.type, enable_texture_compress, enable_meshopt, enable_draco);
+		ToB3DMBuf(tree.file_name, b3dm_buf, tree.bbox, tree.type, enable_texture_compress, enable_meshopt, enable_draco);
 		std::string out_file = out_path;
 		out_file += "/";
 		out_file += OSGBTools::Replace(OSGBTools::GetFileName(tree.file_name), ".osgb", tree.type != 2 ? ".b3dm" : "o.b3dm");
@@ -1168,10 +1200,15 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 
 //===============OSGB23dTiles 批量处理==================
 
-bool OSGB23dTiles::To3dTileBatch(
-	const std::string& pDataDir, const std::string& strOutputDir,
-	double dCenterX, double dCenterY, int nMaxLevel,
-	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
+bool OSGB23dTiles::ToB3DMBatch(
+	const std::string& pDataDir, 
+	const std::string& strOutputDir,
+	double dCenterX, 
+	double dCenterY, 
+	int nMaxLevel,
+	bool bEnableTextureCompress, 
+	bool bEnableMeshOpt, 
+	bool bEnableDraco)
 {
 	// 1. 构建 Data 目录路径
 	std::string data_path = OSGBTools::OSGString(pDataDir);
@@ -1473,7 +1510,7 @@ bool OSGB23dTiles::To3dTileBatch(
 		std::cout << "[INFO] Processing tile " << (i + 1) << "/" << tiles.size()
 			<< ": " << tile.tile_name << std::endl;
 
-		auto [success, strTileJson, bbox_data] = To3dTile(
+		B3DMResult result = ToB3DM(
 			tile.osgb_path,
 			tile.output_path,
 			dCenterX,
@@ -1484,13 +1521,13 @@ bool OSGB23dTiles::To3dTileBatch(
 			bEnableDraco
 		);
 
-		if (success && !strTileJson.empty())
+		if (result.success && !result.tilesetJson.empty())
 		{
-			tile_jsons.emplace_back(strTileJson);
+			tile_jsons.emplace_back(result.tilesetJson);
 
 			// 更新边界框
-			tile.bbox.max = { bbox_data[0], bbox_data[1], bbox_data[2] };
-			tile.bbox.min = { bbox_data[3], bbox_data[4], bbox_data[5] };
+			tile.bbox.max = { result.boundingBox[0], result.boundingBox[1], result.boundingBox[2] };
+			tile.bbox.min = { result.boundingBox[3], result.boundingBox[4], result.boundingBox[5] };
 
 			// 合并到全局边界框
 			if (global_bbox.max.empty())
@@ -1507,7 +1544,7 @@ bool OSGB23dTiles::To3dTileBatch(
 			wrapped_json += "\"asset\":{\"version\":\"1.0\",\"gltfUpAxis\":\"Z\"},";
 			wrapped_json += "\"geometricError\":1000,";
 			wrapped_json += "\"root\":";
-			wrapped_json += strTileJson;  // 这是此瓦片的根节点
+			wrapped_json += result.tilesetJson;  // 这是此瓦片的根节点
 			wrapped_json += "}";
 
 			// 保存单个瓦片的 tileset.json

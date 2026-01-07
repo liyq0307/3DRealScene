@@ -85,6 +85,21 @@ struct MeshInfo
 };
 
 /**
+ * @brief B3DM转换结果结构体，用于ToB3DM方法返回值（SWIG友好）
+ */
+struct B3DMResult
+{
+	// 转换是否成功
+	bool success = false;
+
+	// tileset.json内容字符串
+	std::string tilesetJson = "";
+
+	// 包围盒：[maxX, maxY, maxZ, minX, minY, minZ]
+	std::array<double, 6> boundingBox = {};
+};
+
+/**
  * @brief OSG构建状态结构体，用于在转换过程中跟踪缓冲区和模型信息
  */
 struct OsgBuildState
@@ -175,7 +190,7 @@ public:
 	~OSGB23dTiles() = default;
 
 	/**
-	 * @brief 将单个OSGB文件转换为3D Tiles
+	 * @brief 将单个OSGB文件转换为B3DM
 	 * @param strInPath 输入OSGB文件路径
 	 * @param strOutPath 输出目录
 	 * @param dCenterX 中心点经度
@@ -184,52 +199,53 @@ public:
 	 * @param bEnableTextureCompress 是否启用纹理压缩
 	 * @param bEnableMeshOpt 是否启用网格优化
 	 * @param bEnableDraco 是否启用Draco压缩
-	 * @return 返回元组：(是否成功, tileset.json字符串, 包围盒[maxX, maxY, maxZ, minX, minY, minZ])
+	 * @return B3DMResult结构体，包含成功标志、tileset.json字符串和包围盒
 	 */
-	std::tuple<bool, std::string, std::array<double, 6>> To3dTile(
-		const std::string strInPath, const std::string& strOutPath,
-		double dCenterX, double dCenterY, int nMaxLevel,
-		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
-
-	/**
-	 * @brief 将单个OSGB文件转换为GLB缓冲区
-	 * @param strOsgbPath 输入OSGB文件路径
-	 * @param strGlbBuff 输出GLB缓冲区字符串
-	 * @param nNodeType 节点类型
-	 * @param bEnableTextureCompress 是否启用纹理压缩
-	 * @param bEnableMeshOpt 是否启用网格优化
-	 * @param bEnableDraco 是否启用Draco压缩
-	 * @return 返回转换是否成功
-	 */
-	bool ToGlbBuf(
-		std::string strOsgbPath, std::string& strGlbBuff, int nNodeType,
-		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
+	B3DMResult ToB3DM(
+		const std::string strInPath,
+		const std::string& strOutPath,
+		double dCenterX,
+		double dCenterY,
+		int nMaxLevel,
+		bool bEnableTextureCompress = false,
+		bool bEnableMeshOpt = false,
+		bool bEnableDraco = false);
 
 	/**
 	 * @brief 将单个OSGB文件转换为GLB文件
 	 * @param strInPath 输入OSGB文件路径
 	 * @param strOutPath 输出GLB文件路径
+	 * @param bBinary 是否输出二进制文件
 	 * @param bEnableTextureCompress 是否启用纹理压缩
 	 * @param bEnableMeshOpt 是否启用网格优化
 	 * @param bEnableDraco 是否启用Draco压缩
 	 * @return 返回转换是否成功
 	 */
-	bool ToGlb(
-		const std::string& strInPath, const std::string& strOutPath,
-		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
+	bool ToGLB(
+		const std::string& strInPath, 
+		const std::string& strOutPath,
+		bool bBinary = true,
+		bool bEnableTextureCompress = false, 
+		bool bEnableMeshOpt = false,
+		bool bEnableDraco = false);
 
 	/**
 	 * @brief 将单个OSGB文件转换为GLB字节数组
 	 * @param strOsgbPath 输入OSGB文件路径
 	 * @param nNodeType 节点类型
+	 * @param bBinary 是否输出二进制文件
 	 * @param bEnableTextureCompress 是否启用纹理压缩
 	 * @param bEnableMeshOpt 是否启用网格优化
 	 * @param bEnableDraco 是否启用Draco压缩
 	 * @return 返回GLB字节数组，失败返回空数组
 	 */
-	std::vector<uint8_t> ToGlbBufBytes(
-		std::string strOsgbPath, int nNodeType,
-		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
+	std::vector<uint8_t> ToGLBBuf(
+		std::string strOsgbPath, 
+		int nNodeType,
+		bool bBinary = true,
+		bool bEnableTextureCompress = false, 
+		bool bEnableMeshOpt = false, 
+		bool bEnableDraco = false);
 
 	/**
 	 * @brief 批量处理整个倾斜摄影数据集
@@ -243,10 +259,15 @@ public:
 	 * @param bEnableDraco 是否启用Draco压缩
 	 * @return 返回成功或失败
 	 */
-	bool To3dTileBatch(
-		const std::string& pDataDir, const std::string& strOutputDir,
-		double dCenterX, double dCenterY, int nMaxLevel,
-		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
+	bool ToB3DMBatch(
+		const std::string& pDataDir, 
+		const std::string& strOutputDir,
+		double dCenterX, 
+		double dCenterY, 
+		int nMaxLevel,
+		bool bEnableTextureCompress = false, 
+		bool bEnableMeshOpt = false, 
+		bool bEnableDraco = false);
 
 private:
 	/**
@@ -255,14 +276,22 @@ private:
 	 * @param glb_buff 输出GLB缓冲区字符串
 	 * @param mesh_info 输出网格信息结构体
 	 * @param node_type 节点类型
+	 * @param bBinary 是否输出二进制文件
 	 * @param enable_texture_compress 是否启用纹理压缩
 	 * @param enable_meshopt 是否启用网格优化
 	 * @param enable_draco 是否启用Draco压缩
 	 * @return 返回转换是否成功
 	 */
-	bool ToGlbBuf(
-		std::string path, std::string& glb_buff, MeshInfo& mesh_info, int node_type,
-		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false, bool need_mesh_info = true);
+	bool ToGLBBuf(
+		std::string path, 
+		std::string& glb_buff, 
+		MeshInfo& mesh_info, 
+		int node_type,
+		bool bBinary = true,
+		bool enable_texture_compress = false, 
+		bool enable_meshopt = false, 
+		bool enable_draco = false, 
+		bool need_mesh_info = true);
 
 	/**
 	 * @brief 将OSGB文件转换为B3DM缓冲区
@@ -275,9 +304,14 @@ private:
 	 * @param enable_draco 是否启用Draco压缩
 	 * @return 返回转换是否成功
 	 */
-	bool ToB3dmBuf(
-		std::string path, std::string& b3dm_buf, TileBox& tile_box, int node_type,
-		bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
+	bool ToB3DMBuf(
+		std::string path, 
+		std::string& b3dm_buf, 
+		TileBox& tile_box, 
+		int node_type,
+		bool enable_texture_compress = false, 
+		bool enable_meshopt = false, 
+		bool enable_draco = false);
 
 	/**
 	 * @brief 处理切片任务
@@ -289,7 +323,13 @@ private:
 	 * @param enable_draco 是否启用Draco压缩
 	 * @return void
 	 */
-	void DoTileJob(OSGTree& tree, std::string out_path, int max_lvl, bool enable_texture_compress = false, bool enable_meshopt = false, bool enable_draco = false);
+	void DoTileJob(
+		OSGTree& tree, 
+		std::string out_path, 
+		int max_lvl, 
+		bool enable_texture_compress = false, 
+		bool enable_meshopt = false, 
+		bool enable_draco = false);
 
 	/**
 	 * @brief 编码切片JSON字符串

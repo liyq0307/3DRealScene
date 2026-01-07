@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <tuple>
 #include <array>
 %}
 
@@ -25,10 +24,13 @@
 %include "typemaps.i"
 
 /* ============================================================================
- * std::vector<uint8_t> 映射 - 用于 ToGlbBufBytes 返回值
+ * std::vector<uint8_t> 映射 - 用于 ToGLBBuf 返回值
  * ============================================================================ */
 
-%template(VectorUInt8) std::vector<uint8_t>;
+// 定义 std::vector<uint8_t> 模板，元素类型为 unsigned char (byte)
+namespace std {
+    %template(VectorUInt8) vector<unsigned char>;
+}
 
 // 将 std::vector<uint8_t> 转换为 C# byte[]
 %typemap(cstype) std::vector<uint8_t> "byte[]"
@@ -38,7 +40,7 @@
 
     byte[] result = new byte[tempVector.Count];
     for (int i = 0; i < tempVector.Count; i++) {
-        result[i] = (byte)tempVector[i];
+        result[i] = tempVector[i];
     }
 
     tempVector.Dispose();
@@ -46,37 +48,11 @@
 }
 
 /* ============================================================================
- * std::tuple 映射 - 用于 To3dTile 返回值
+ * std::array 映射 - 用于 B3DMResult.boundingBox
  * ============================================================================ */
-
-// 定义 tuple 返回类型的包装结构
-%inline %{
-struct TileConversionResult {
-    bool success;
-    std::string tilesetJson;
-    std::array<double, 6> bbox;
-
-    TileConversionResult() : success(false), bbox{} {}
-    TileConversionResult(bool s, const std::string& json, const std::array<double, 6>& box)
-        : success(s), tilesetJson(json), bbox(box) {}
-};
-%}
 
 // 为 std::array<double, 6> 创建模板
 %template(ArrayDouble6) std::array<double, 6>;
-
-// 扩展 OSGB23dTiles 类，添加返回包装结构的方法
-%extend OSGB23dTiles {
-    TileConversionResult To3dTileWrapped(
-        const std::string& strInPath, const std::string& strOutPath,
-        double dCenterX, double dCenterY, int nMaxLevel,
-        bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false)
-    {
-        auto result = $self->To3dTile(strInPath, strOutPath, dCenterX, dCenterY, nMaxLevel,
-                                      bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
-        return TileConversionResult(std::get<0>(result), std::get<1>(result), std::get<2>(result));
-    }
-}
 
 /* ============================================================================
  * 忽略不需要的类型和成员
@@ -94,13 +70,12 @@ struct TileConversionResult {
 %ignore InfoVisitor;
 %ignore OsgBuildState;
 
-// 忽略 OSGB23dTiles 类的私有方法和原始tuple返回方法
-%ignore OSGB23dTiles::ToGlbBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
-%ignore OSGB23dTiles::ToB3dmBuf;
+// 忽略 OSGB23dTiles 类的私有方法
+%ignore OSGB23dTiles::ToGLBBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
+%ignore OSGB23dTiles::ToB3DMBuf;
 %ignore OSGB23dTiles::DoTileJob;
 %ignore OSGB23dTiles::EncodeTileJSON;
 %ignore OSGB23dTiles::GetAllTree;
-%ignore OSGB23dTiles::To3dTile;  // 忽略原始tuple返回方法，使用包装方法
 
 /* ============================================================================
  * 包含C++头文件
@@ -145,9 +120,10 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            return reader.ToGlb(
+            return reader.ToGLB(
                 osgbPath,
                 glbPath,
+                true,
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
@@ -162,9 +138,10 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            byte[] glbBytes = reader.ToGlbBufBytes(
+            byte[] glbBytes = reader.ToGLBBuf(
                 osgbPath,
                 -1,  // node_type: -1 表示自动判断
+                true,
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
@@ -178,23 +155,23 @@ using System.Runtime.InteropServices;
         }
 
         /// <summary>
-        /// 将 OSGB 转换为 3D Tiles（返回tileset.json字符串）
+        /// 将 OSGB 转换为 B3DM
         /// </summary>
-        public (bool success, string? tilesetJson, double[]? bbox) ConvertTo3dTiles(
+        public (bool success, string? tilesetJson, double[]? bbox) ConvertToB3DM(
             string inPath,
             string outPath,
-            double offsetX = 0.0,
-            double offsetY = 0.0,
+            double centerX = 0.0,
+            double centerY = 0.0,
             int maxLevel = 0,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            TileConversionResult result = reader.To3dTileWrapped(
+            B3DMResult result = reader.ToB3DM(
                 inPath,
                 outPath,
-                offsetX,
-                offsetY,
+                centerX,
+                centerY,
                 maxLevel,
                 enableTextureCompression,
                 enableMeshOptimization,
@@ -205,9 +182,9 @@ using System.Runtime.InteropServices;
                 return (false, null, null);
             }
 
-            // 从包装结构中提取值
+            // 从结构体中提取值
             string tilesetJson = result.tilesetJson;
-            ArrayDouble6 bboxArray = result.bbox;
+            ArrayDouble6 bboxArray = result.boundingBox;
 
             double[] bbox = new double[6];
             for (int i = 0; i < 6; i++)
@@ -221,21 +198,21 @@ using System.Runtime.InteropServices;
         /// <summary>
         /// 批量转换整个倾斜摄影数据集
         /// </summary>
-        public bool ConvertTo3dTilesBatch(
+        public bool ConvertToB3DMBatch(
             string dataDir,
             string outputDir,
-            double offsetX = 0.0,
-            double offsetY = 0.0,
+            double centerX = 0.0,
+            double centerY = 0.0,
             int maxLevel = 0,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            return reader.To3dTileBatch(
+            return reader.ToB3DMBatch(
                 dataDir,
                 outputDir,
-                offsetX,
-                offsetY,
+                centerX,
+                centerY,
                 maxLevel,
                 enableTextureCompression,
                 enableMeshOptimization,

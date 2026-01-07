@@ -450,7 +450,6 @@ builder.Services.AddScoped<TilesetGenerator>();
 // OSGB PagedLOD 分层切片服务（用于 OSGB 数据按精细层切片）
 builder.Services.AddScoped<OsgbLODSlicingService>();
 builder.Services.AddScoped<OsgbTiledDatasetSlicingService>();
-builder.Services.AddScoped<RealScene3D.Application.Services.Parsers.OsgbMetadataParser>();
 
 // 独立功能服务（依赖其他注册的服务，需要通过DI注入）
 builder.Services.AddScoped<IncrementalUpdateService>();

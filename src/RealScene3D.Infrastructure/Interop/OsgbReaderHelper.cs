@@ -30,84 +30,93 @@ namespace RealScene3D.Lib.OSGB.Interop
         public bool ConvertToGlb(
             string osgbPath,
             string glbPath,
+            bool bBinary,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            return reader.ToGlb(
+            return reader.ToGLB(
                 osgbPath,
                 glbPath,
+                bBinary,
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
         }
 
         /// <summary>
-        /// 将 OSGB 转换为 3D Tiles
+        /// 将 OSGB 转换为 B3DM
         /// </summary>
         /// <param name="inPath">输入OSGB文件路径</param>
         /// <param name="outPath">输出3D Tiles目录路径</param>
         /// <param name="bbox">输出参数：包围盒数组 [maxX, maxY, maxZ, minX, minY, minZ]</param>
-        /// <param name="offsetX">X轴偏移（经度）</param>
-        /// <param name="offsetY">Y轴偏移（纬度）</param>
+        /// <param name="centerX">中心点X坐标（经度）</param>
+        /// <param name="centerY">中心点Y坐标（纬度）</param>
         /// <param name="maxLevel">最大层级（0表示不限制）</param>
         /// <param name="enableTextureCompression">是否启用纹理压缩</param>
         /// <param name="enableMeshOptimization">是否启用网格优化</param>
         /// <param name="enableDracoCompression">是否启用Draco压缩</param>
         /// <returns>tileset.json内容</returns>
-        public string? ConvertTo3dTiles(
+        public string? ConvertToB3DM(
             string inPath,
             string outPath,
             out double[]? bbox,
-            double offsetX = 0.0,
-            double offsetY = 0.0,
+            double centerX = 0.0,
+            double centerY = 0.0,
             int maxLevel = 0,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            // 准备输出参数：6个元素的包围盒数组
-            double[] bboxArray = new double[6];
-            int[] jsonLen = new int[1];
-
-            // 调用SWIG生成的方法
-            string result = reader.To3dTile(
+            // 调用新的 ToB3DM API，返回 B3DMResult 结构体
+            B3DMResult result = reader.ToB3DM(
                 inPath,
                 outPath,
-                bboxArray,
-                jsonLen,
-                offsetX,
-                offsetY,
+                centerX,
+                centerY,
                 maxLevel,
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            // 返回包围盒（如果成功）
-            bbox = string.IsNullOrEmpty(result) ? null : bboxArray;
+            // 检查转换是否成功
+            if (!result.success)
+            {
+                bbox = null;
+                return null;
+            }
 
-            return string.IsNullOrEmpty(result) ? null : result;
+            // 从结构体中提取包围盒数组
+            ArrayDouble6 bboxArray = result.boundingBox;
+            double[] bboxOutput = new double[6];
+            for (int i = 0; i < 6; i++)
+            {
+                bboxOutput[i] = bboxArray[i];
+            }
+
+            bbox = bboxOutput;
+            return string.IsNullOrEmpty(result.tilesetJson) ? null : result.tilesetJson;
         }
 
         /// <summary>
-        /// 将 OSGB 转换为 3D Tiles（简化版本，不返回bbox）
+        /// 将 OSGB 转换为 B3DM（3D Tiles，简化版本，不返回bbox）
         /// </summary>
-        public string? ConvertTo3dTiles(
+        public string? ConvertToB3DM(
             string inPath,
             string outPath,
-            double offsetX = 0.0,
-            double offsetY = 0.0,
+            double centerX = 0.0,
+            double centerY = 0.0,
             int maxLevel = 0,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            return ConvertTo3dTiles(
+            return ConvertToB3DM(
                 inPath,
                 outPath,
                 out _,
-                offsetX,
-                offsetY,
+                centerX,
+                centerY,
                 maxLevel,
                 enableTextureCompression,
                 enableMeshOptimization,
@@ -119,70 +128,35 @@ namespace RealScene3D.Lib.OSGB.Interop
         /// </summary>
         /// <param name="dataDir">输入数据目录（包含多个Tile_xxx子目录）</param>
         /// <param name="outputDir">输出3D Tiles目录</param>
-        /// <param name="mergedBox">输出参数：合并后的包围盒 [maxX, maxY, maxZ, minX, minY, minZ]</param>
-        /// <param name="offsetX">X轴偏移（经度）</param>
-        /// <param name="offsetY">Y轴偏移（纬度）</param>
+        /// <param name="centerX">中心点X坐标（经度）</param>
+        /// <param name="centerY">中心点Y坐标（纬度）</param>
         /// <param name="maxLevel">最大层级（0表示不限制）</param>
         /// <param name="enableTextureCompression">是否启用纹理压缩</param>
         /// <param name="enableMeshOptimization">是否启用网格优化</param>
         /// <param name="enableDracoCompression">是否启用Draco压缩</param>
-        /// <returns>tileset.json内容</returns>
-        public string? ConvertTo3dTilesBatch(
+        /// <returns>转换是否成功</returns>
+        public bool ConvertToB3DMBatch(
             string dataDir,
             string outputDir,
-            out double[]? mergedBox,
-            double offsetX = 0.0,
-            double offsetY = 0.0,
+            double centerX = 0.0,
+            double centerY = 0.0,
             int maxLevel = 0,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            // 准备输出参数
-            double[] mergedBoxArray = new double[6];
-            int[] jsonLen = new int[1];
-
-            string result = reader.To3dTileBatch(
+            // 调用 ToB3DMBatch API
+            bool success = reader.ToB3DMBatch(
                 dataDir,
                 outputDir,
-                mergedBoxArray,
-                jsonLen,
-                offsetX,
-                offsetY,
+                centerX,
+                centerY,
                 maxLevel,
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            // 返回合并包围盒（如果成功）
-            mergedBox = string.IsNullOrEmpty(result) ? null : mergedBoxArray;
-
-            return string.IsNullOrEmpty(result) ? null : result;
-        }
-
-        /// <summary>
-        /// 批量处理整个倾斜摄影数据集（简化版本，不返回mergedBox）
-        /// </summary>
-        public string? ConvertTo3dTilesBatch(
-            string dataDir,
-            string outputDir,
-            double offsetX = 0.0,
-            double offsetY = 0.0,
-            int maxLevel = 0,
-            bool enableTextureCompression = false,
-            bool enableMeshOptimization = false,
-            bool enableDracoCompression = false)
-        {
-            return ConvertTo3dTilesBatch(
-                dataDir,
-                outputDir,
-                out _,
-                offsetX,
-                offsetY,
-                maxLevel,
-                enableTextureCompression,
-                enableMeshOptimization,
-                enableDracoCompression);
+            return success;
         }
 
         public void Dispose()

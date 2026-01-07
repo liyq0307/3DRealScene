@@ -60,6 +60,7 @@ public class OsgbModelLoader : ModelLoader
                         reader.ConvertToGlb(
                             modelPath,
                             tempGlbPath,
+                            bBinary: true,
                             enableTextureCompression: false,
                             enableMeshOptimization: false,
                             enableDracoCompression: false

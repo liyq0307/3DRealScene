@@ -30,7 +30,6 @@ class Program
         services.AddTransient<B3dmGenerator>();
         services.AddTransient<TilesetGenerator>();
         services.AddTransient<OsgbLODSlicingService>();
-        services.AddTransient<RealScene3D.Application.Services.Parsers.OsgbMetadataParser>();
         services.AddTransient<OsgbTiledDatasetSlicingService>();
 
         var serviceProvider = services.BuildServiceProvider();
@@ -677,10 +676,10 @@ class Program
         // 获取服务并处理数据集
         var datasetSlicingService = serviceProvider.GetRequiredService<OsgbTiledDatasetSlicingService>();
 
-        List<Slice> allSlices;
+        bool success;
         try
         {
-            allSlices = await datasetSlicingService.ProcessDatasetAsync(
+            success = await datasetSlicingService.ProcessDatasetAsync(
                 datasetPath,
                 outputDir,
                 config);
@@ -693,91 +692,33 @@ class Program
 
         var elapsed = DateTime.UtcNow - startTime;
 
+        if (!success)
+        {
+            logger.LogError("❌ 数据集处理返回失败状态");
+            return;
+        }
+
         logger.LogInformation("");
         logger.LogInformation("✅ 数据集处理完成!");
         logger.LogInformation("  耗时: {Elapsed:F2} 秒", elapsed.TotalSeconds);
-        logger.LogInformation("  总切片数: {Count}", allSlices.Count);
         logger.LogInformation("");
 
-        // 按瓦片分组统计
-        var tileStats = allSlices
-            .GroupBy(s => {
-                // 从文件路径中提取瓦片名称
-                var parts = s.FilePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-                var dataIndex = Array.FindIndex(parts, p => p == "Data");
-                return dataIndex >= 0 && dataIndex + 1 < parts.Length
-                    ? parts[dataIndex + 1]
-                    : "Unknown";
-            })
-            .Select(g => new
-            {
-                TileName = g.Key,
-                Count = g.Count(),
-                TotalSize = g.Sum(s => s.FileSize),
-                Levels = g.Select(s => s.Level).Distinct().Count()
-            })
-            .OrderBy(t => t.TileName)
-            .ToList();
-
-        logger.LogInformation("瓦片统计:");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        logger.LogInformation("{0,-20} {1,-10} {2,-10} {3,-15}",
-            "瓦片名称", "切片数", "LOD层级", "总大小(MB)");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-        foreach (var stat in tileStats)
-        {
-            logger.LogInformation("{0,-20} {1,-10} {2,-10} {3,-15:F2}",
-                stat.TileName,
-                stat.Count,
-                stat.Levels,
-                stat.TotalSize / (1024.0 * 1024.0));
-        }
-
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-        // 按 LOD 层级统计
-        var lodStats = allSlices
-            .GroupBy(s => s.Level)
-            .OrderBy(g => g.Key)
-            .Select(g => new
-            {
-                Level = g.Key,
-                Count = g.Count(),
-                TotalSize = g.Sum(s => s.FileSize)
-            })
-            .ToList();
-
-        logger.LogInformation("");
-        logger.LogInformation("LOD 层级统计:");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        logger.LogInformation("{0,-10} {1,-10} {2,-15}",
-            "LOD 层级", "切片数", "总大小(MB)");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-        foreach (var stat in lodStats)
-        {
-            logger.LogInformation("{0,-10} {1,-10} {2,-15:F2}",
-                $"LOD-{stat.Level}",
-                stat.Count,
-                stat.TotalSize / (1024.0 * 1024.0));
-        }
-
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        logger.LogInformation("");
-
-        // 检查根 tileset.json
-        var rootTilesetPath = Path.Combine(outputDir, "tileset.json");
+        // 验证输出文件
+        string rootTilesetPath = Path.Combine(outputDir, "tileset.json");
         if (File.Exists(rootTilesetPath))
         {
-            var fileInfo = new FileInfo(rootTilesetPath);
-            logger.LogInformation("✅ 根 tileset.json 已生成");
-            logger.LogInformation("  路径: {Path}", rootTilesetPath);
-            logger.LogInformation("  大小: {Size:N0} 字节", fileInfo.Length);
+            logger.LogInformation("✅ 根 tileset.json 已生成: {Path}", rootTilesetPath);
+
+            // 统计生成的 .b3dm 文件
+            var b3dmFiles = Directory.GetFiles(outputDir, "*.b3dm", SearchOption.AllDirectories);
+            long totalSize = b3dmFiles.Sum(f => new FileInfo(f).Length);
+
+            logger.LogInformation("  生成的 B3DM 文件数: {Count}", b3dmFiles.Length);
+            logger.LogInformation("  总文件大小: {Size:F2} MB", totalSize / 1024.0 / 1024.0);
         }
         else
         {
-            logger.LogWarning("⚠️ 根 tileset.json 未生成");
+            logger.LogWarning("⚠️ 未找到根 tileset.json");
         }
 
         logger.LogInformation("");
@@ -786,22 +727,31 @@ class Program
         logger.LogInformation("    ├── tileset.json (根 tileset)");
         logger.LogInformation("    └── Data/");
 
-        foreach (var tileStat in tileStats.Take(3))
-        {
-            logger.LogInformation("        ├── {TileName}/", tileStat.TileName);
-            logger.LogInformation("        │   ├── tileset.json");
-            logger.LogInformation("        │   └── LOD-*/ ({Count} 个 .b3dm 文件)",
-                tileStat.Count);
-        }
+        // 扫描瓦片目录
+        // dataDir = Path.Combine(outputDir, "Data");
+        // if (Directory.Exists(dataDir))
+        // {
+        //     var tileDirectories = Directory.GetDirectories(dataDir);
+        //     int displayCount = Math.Min(3, tileDirectories.Length);
 
-        if (tileStats.Count > 3)
-        {
-            logger.LogInformation("        └── ... 还有 {Count} 个瓦片",
-                tileStats.Count - 3);
-        }
+        //     for (int i = 0; i < displayCount; i++)
+        //     {
+        //         string tileName = Path.GetFileName(tileDirectories[i]);
+        //         var b3dmFiles = Directory.GetFiles(tileDirectories[i], "*.b3dm", SearchOption.AllDirectories);
 
-        logger.LogInformation("");
-        logger.LogInformation("💡 提示: 使用 Cesium Viewer 加载根 tileset.json 查看完整数据集");
-        logger.LogInformation("💡 根 tileset 会引用所有瓦片的子 tileset，实现分块加载");
+        //         logger.LogInformation("        ├── {TileName}/", tileName);
+        //         logger.LogInformation("        │   ├── tileset.json");
+        //         logger.LogInformation("        │   └── LOD-*/ ({Count} 个 .b3dm 文件)", b3dmFiles.Length);
+        //     }
+
+        //     if (tileDirectories.Length > 3)
+        //     {
+        //         logger.LogInformation("        └── ... 还有 {Count} 个瓦片", tileDirectories.Length - 3);
+        //     }
+        // }
+
+        // logger.LogInformation("");
+        // logger.LogInformation("💡 提示: 使用 Cesium Viewer 加载根 tileset.json 查看完整数据集");
+        // logger.LogInformation("💡 根 tileset 会引用所有瓦片的子 tileset，实现分块加载");
     }
 }

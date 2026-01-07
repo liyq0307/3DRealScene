@@ -50,13 +50,13 @@ public class OsgbLODSlicingService
             Directory.CreateDirectory(outputDir);
 
             // 准备GPS坐标参数
-            double offsetX = 0.0;
-            double offsetY = 0.0;
+            double centerX = 0.0;
+            double centerY = 0.0;
 
             if (gpsCoords != null)
             {
-                offsetX = gpsCoords.Longitude;
-                offsetY = gpsCoords.Latitude;
+                centerX = gpsCoords.Longitude;
+                centerY = gpsCoords.Latitude;
                 _logger.LogInformation("使用GPS坐标: 经度={Lon}, 纬度={Lat}, 高度={Alt}",
                     gpsCoords.Longitude, gpsCoords.Latitude, gpsCoords.Altitude);
             }
@@ -64,14 +64,14 @@ public class OsgbLODSlicingService
             // 调用原生OsgbReader进行切片生成
             using var reader = new OsgbReaderHelper();
 
-            _logger.LogInformation("调用 OsgbReader::To3dTile 生成切片");
+            _logger.LogInformation("调用 OsgbReader::ToB3DM 生成切片");
 
             string? tilesetJson = await Task.Run(() =>
-                reader.ConvertTo3dTiles(
+                reader.ConvertToB3DM(
                     osgbPath,
                     outputDir,
-                    offsetX,
-                    offsetY,
+                    centerX,
+                    centerY,
                     maxLevel: 0,  // 0表示不限制层级
                     enableTextureCompression: false,
                     enableMeshOptimization: false,
