@@ -160,6 +160,7 @@ set(NATIVE_SOURCES
     Native/MeshProcessor.cpp
     Native/GeoTransform.cpp
     Native/OSGBTools.cpp
+    Native/Tileset.cpp
 )
 
 # 头文件
@@ -169,6 +170,7 @@ set(NATIVE_HEADERS
     Native/GeoTransform.h
     Native/OSGBTools.h
     Native/OSGBFix.h
+    Native/Tileset.h
 )
 
 # 创建动态链接库

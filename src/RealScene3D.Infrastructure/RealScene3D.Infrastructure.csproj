@@ -5,6 +5,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Native OSGB 库引用 -->
+    <Reference Include="RealScene3D.Lib.OSGB">
+      <HintPath>..\..\bin\$(Configuration)\RealScene3D.Lib.OSGB.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+
+    <!-- SWIG 生成的 C# 包装 DLL（可选，如果未使用 SWIG 则跳过）-->
+    <Reference Include="OsgbReaderCS" Condition="Exists('..\..\bin\$(Configuration)\OsgbReaderCS.dll')">
+      <HintPath>..\..\bin\$(Configuration)\OsgbReaderCS.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- EF Core SQL Server -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
@@ -33,6 +47,42 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- 复制 Native DLL 和 OSG 库到输出目录 -->
+  <Target Name="CopyNativeLibraries" AfterTargets="Build">
+    <PropertyGroup>
+      <NativeLibDir>$(MSBuildProjectDirectory)\..\..\bin\$(Configuration)</NativeLibDir>
+    </PropertyGroup>
+
+    <Message Text="正在复制 Native 库从: $(NativeLibDir) 到 $(OutDir)" Importance="high" />
+
+    <!-- 复制所有 DLL 文件 -->
+    <ItemGroup>
+      <NativeDlls Include="$(NativeLibDir)\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeDlls)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(NativeDlls)' != ''" />
+
+    <!-- 使用 xcopy 直接复制 OSG 插件目录的内容，/I 确保目标是目录 -->
+    <Exec Command="if exist &quot;$(NativeLibDir)\osgPlugins-3.6.5&quot; xcopy /E /I /Y &quot;$(NativeLibDir)\osgPlugins-3.6.5\*.*&quot; &quot;$(OutDir)osgPlugins-3.6.5\&quot;"
+          ContinueOnError="false" />
+  </Target>
+
+  <!-- 将 Native DLL 标记为内容文件，以便传递到引用项目 -->
+  <ItemGroup>
+    <!-- 动态添加 Native DLL 作为 None 项，设置为可传递 -->
+    <None Include="..\..\bin\$(Configuration)\*.dll"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- SWIG 生成的 C# 文件 -->
+  <ItemGroup Condition="Exists('..\RealScene3D.Lib\OSGB\Interop\Swig')">
+    <Compile Include="..\RealScene3D.Lib\OSGB\Interop\Swig\*.cs" />
   </ItemGroup>
 
   <PropertyGroup>

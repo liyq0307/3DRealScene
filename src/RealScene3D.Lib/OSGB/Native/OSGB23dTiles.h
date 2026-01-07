@@ -5,8 +5,9 @@
 #include <cmath>
 #include <vector>
 #include <string>
-#include <cstring>
 #include <algorithm>
+#include <iostream>
+#include <iomanip>
 
 #include <osg/Material>
 #include <osg/PagedLOD>
@@ -15,36 +16,21 @@
 #include <osgUtil/Optimizer>
 #include <osgUtil/SmoothingVisitor>
 
+#ifndef STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#endif // !STB_IMAGE_IMPLEMENTATION
+#ifndef STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#endif // !STB_IMAGE_WRITE_IMPLEMENTATION
+#ifndef TINYGLTF_IMPLEMENTATION
+#define TINYGLTF_IMPLEMENTATION
+#endif // !TINYGLTF_IMPLEMENTATION
+#include <tiny_gltf.h>
+#include <json.hpp>
+
+#include "Tileset.h"
+
 using namespace std;
-
-/**
- * @brief 切片包围盒结构体, 包含最大和最小坐标及扩展方法
- */
-struct TileBox
-{
-	// 最大坐标
-	std::vector<double> max;
-
-	// 最小坐标
-	std::vector<double> min;
-
-	// 扩展包围盒，按比例放大
-	void extend(double ratio)
-	{
-		ratio /= 2;
-		double x = max[0] - min[0];
-		double y = max[1] - min[1];
-		double z = max[2] - min[2];
-
-		max[0] += x * ratio;
-		max[1] += y * ratio;
-		max[2] += z * ratio;
-
-		min[0] -= x * ratio;
-		min[1] -= y * ratio;
-		min[2] -= z * ratio;
-	}
-};
 
 /**
  * @brief OSG树节点结构体
@@ -55,7 +41,7 @@ struct OSGTree
 	TileBox bbox;
 
 	// 几何误差
-	double geometricError;
+	double geometricError = 0.0;
 
 	// 文件名
 	std::string file_name;
@@ -65,7 +51,7 @@ struct OSGTree
 
 	// 节点类型：当PagedLOD添加子节点时，创建一个新的子节点
 	// 0: 根节点, 1: PagedLOD节点（默认）, 2: 普通子节点
-	int type;
+	int type = 0;
 };
 
 /**
@@ -96,6 +82,30 @@ struct MeshInfo
 
 	// 最大坐标
 	std::vector<double> max;
+};
+
+/**
+ * @brief OSG构建状态结构体，用于在转换过程中跟踪缓冲区和模型信息
+ */
+struct OsgBuildState
+{
+	// 缓冲区指针
+	tinygltf::Buffer* buffer;
+
+	// 模型指针
+	tinygltf::Model* model;
+
+	// 当前缓冲区偏移量
+	osg::Vec3f point_max;
+
+	// 当前缓冲区偏移量
+	osg::Vec3f point_min;
+
+	// 当前缓冲区偏移量
+	int draw_array_first;
+
+	// 当前缓冲区顶点数量
+	int draw_array_count;
 };
 
 /**
@@ -165,22 +175,20 @@ public:
 	~OSGB23dTiles() = default;
 
 	/**
-	 * @brief 将OSGB文件转换为3D Tiles格式
+	 * @brief 将单个OSGB文件转换为3D Tiles
 	 * @param strInPath 输入OSGB文件路径
-	 * @param strOutPath 输出3D Tiles目录路径
-	 * @param pBox 输出包围盒数组指针，长度为6
-	 * @param pLen 输出JSON字符串长度指针
-	 * @param dCenterX 切片中心X坐标
-	 * @param dCenterY 切片中心Y坐标
+	 * @param strOutPath 输出目录
+	 * @param dCenterX 中心点经度
+	 * @param dCenterY 中心点纬度
 	 * @param nMaxLevel 最大切片层级
 	 * @param bEnableTextureCompress 是否启用纹理压缩
 	 * @param bEnableMeshOpt 是否启用网格优化
 	 * @param bEnableDraco 是否启用Draco压缩
-	 * @return 返回3D Tiles JSON字符串
+	 * @return 返回元组：(是否成功, tileset.json字符串, 包围盒[maxX, maxY, maxZ, minX, minY, minZ])
 	 */
-	std::string To3dTile(
-		const std::string strInPath, const std::string& strOutPath, 
-		double* pBox, int* pLen, double dCenterX, double dCenterY, int nMaxLevel,
+	std::tuple<bool, std::string, std::array<double, 6>> To3dTile(
+		const std::string strInPath, const std::string& strOutPath,
+		double dCenterX, double dCenterY, int nMaxLevel,
 		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
 	/**
@@ -207,26 +215,37 @@ public:
 	 * @return 返回转换是否成功
 	 */
 	bool ToGlb(
-		const std::string&  strInPath, const std::string& strOutPath, 
+		const std::string& strInPath, const std::string& strOutPath,
+		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
+
+	/**
+	 * @brief 将单个OSGB文件转换为GLB字节数组
+	 * @param strOsgbPath 输入OSGB文件路径
+	 * @param nNodeType 节点类型
+	 * @param bEnableTextureCompress 是否启用纹理压缩
+	 * @param bEnableMeshOpt 是否启用网格优化
+	 * @param bEnableDraco 是否启用Draco压缩
+	 * @return 返回GLB字节数组，失败返回空数组
+	 */
+	std::vector<uint8_t> ToGlbBufBytes(
+		std::string strOsgbPath, int nNodeType,
 		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
 	/**
 	 * @brief 批量处理整个倾斜摄影数据集
 	 * @param pDataDir 输入数据目录路径
 	 * @param strOutputDir 输出3D Tiles目录路径
-	 * @param pMergedBox 输出合并包围盒数组指针，长度为6
-	 * @param pJsonLen 输出JSON字符串长度指针
 	 * @param dCenterX 切片中心X坐标
 	 * @param dCenterY 切片中心Y坐标
 	 * @param nMaxLevel 最大切片层级
 	 * @param bEnableTextureCompress 是否启用纹理压缩
 	 * @param bEnableMeshOpt 是否启用网格优化
 	 * @param bEnableDraco 是否启用Draco压缩
-	 * @return 返回3D Tiles JSON字符串
+	 * @return 返回成功或失败
 	 */
-	std::string To3dTileBatch(
-		const std::string& pDataDir, const std::string& strOutputDir, double* pMergedBox, 
-		int* pJsonLen, double dCenterX, double dCenterY, int nMaxLevel,
+	bool To3dTileBatch(
+		const std::string& pDataDir, const std::string& strOutputDir,
+		double dCenterX, double dCenterY, int nMaxLevel,
 		bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false);
 
 private:

@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <sstream>
 #include <algorithm>
+#include <iostream>
+#include <iomanip>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -18,6 +20,40 @@
 
 static const double dPI = std::acos(-1);
 
+bool OSGBTools::MkDirs(const std::string& strPath)
+{
+	try
+	{
+		std::filesystem::create_directories(strPath);
+		return true;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool OSGBTools::WriteFile(const std::string& strFileName, const char* pszBuf, unsigned long nBufLen)
+{
+	try
+	{
+		std::ofstream ofs(strFileName, std::ios::binary);
+		if (!ofs.is_open())
+		{
+			return false;
+		}
+
+		ofs.write(pszBuf, nBufLen);
+		ofs.close();
+
+		return true;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
 bool OSGBTools::IsDirectory(const std::string& strPath)
 {
 #ifdef _WIN32
@@ -25,7 +61,116 @@ bool OSGBTools::IsDirectory(const std::string& strPath)
 	return (attrs != INVALID_FILE_ATTRIBUTES) && (attrs & FILE_ATTRIBUTE_DIRECTORY);
 #else
 	struct stat st;
-	return (stat(path.c_str(), &st) == 0) && S_ISDIR(st.st_mode);
+	return (stat(strPath.c_str(), &st) == 0) && S_ISDIR(st.st_mode);
+#endif
+}
+
+bool OSGBTools::IsRegularFile(const std::string& strPath)
+{
+#ifdef _WIN32
+	DWORD attrs = GetFileAttributesA(strPath.c_str());
+	return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+#else
+	struct stat st;
+	return (stat(strPath.c_str(), &st) == 0) && S_ISREG(st.st_mode);
+#endif
+}
+
+bool OSGBTools::ForEachEntry(const std::string& strDirPath,
+	std::function<bool(const DirectoryEntry&)> callback)
+{
+	// 标准化路径分隔符
+	std::string strNormalizedPath = strDirPath;
+	for (char& c : strNormalizedPath)
+	{
+		if (c == '\\') c = '/';
+	}
+
+	// 移除尾部斜杠
+	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
+	{
+		strNormalizedPath.pop_back();
+	}
+
+#ifdef _WIN32
+	WIN32_FIND_DATAA findData;
+	std::string search_pattern = strNormalizedPath + "/*";
+	HANDLE hFind = FindFirstFileA(search_pattern.c_str(), &findData);
+
+	if (hFind == INVALID_HANDLE_VALUE)
+	{
+		return false;
+	}
+
+	do
+	{
+		DirectoryEntry entry;
+		entry.name = findData.cFileName;
+		entry.is_directory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+		entry.is_regular_file = !entry.is_directory;
+
+		// 跳过 . 和 ..
+		if (entry.name == "." || entry.name == "..")
+		{
+			continue;
+		}
+
+		// 调用回调，如果返回 false 则提前终止
+		if (!callback(entry))
+		{
+			FindClose(hFind);
+			return true;
+		}
+	} while (FindNextFileA(hFind, &findData));
+
+	FindClose(hFind);
+	return true;
+#else
+	// Linux/macOS 实现
+	DIR* dir = opendir(strNormalizedPath.c_str());
+	if (dir == nullptr)
+	{
+		return false;
+	}
+
+	struct dirent* dirent_entry;
+	while ((dirent_entry = readdir(dir)) != nullptr)
+	{
+		DirectoryEntry entry;
+		entry.name = dirent_entry->d_name;
+
+		// 跳过 . 和 ..
+		if (entry.name == "." || entry.name == "..")
+		{
+			continue;
+		}
+
+		// 获取文件类型
+		entry.is_directory = (dirent_entry->d_type == DT_DIR);
+		entry.is_regular_file = (dirent_entry->d_type == DT_REG);
+
+		// 如果 d_type 不可用（某些文件系统），使用 stat
+		if (dirent_entry->d_type == DT_UNKNOWN)
+		{
+			std::string full_path = strNormalizedPath + "/" + entry.name;
+			struct stat st;
+			if (stat(full_path.c_str(), &st) == 0)
+			{
+				entry.is_directory = S_ISDIR(st.st_mode);
+				entry.is_regular_file = S_ISREG(st.st_mode);
+			}
+		}
+
+		// 调用回调，如果返回 false 则提前终止
+		if (!callback(entry))
+		{
+			closedir(dir);
+			return true;
+		}
+	}
+
+	closedir(dir);
+	return true;
 #endif
 }
 
@@ -46,48 +191,42 @@ std::string OSGBTools::FindRootOSGB(const std::string& strDirPath)
 	// 在目录中搜索根 OSGB 的辅助函数
 	auto search_dir = [](const std::string& strSearchPath) -> std::string
 		{
-#ifdef _WIN32
-			WIN32_FIND_DATAA findData;
-			std::string strSearchPattern = strSearchPath + "/*";
-			HANDLE hFind = FindFirstFileA(strSearchPattern.c_str(), &findData);
+			std::string result;
 
-			if (hFind != INVALID_HANDLE_VALUE)
-			{
-				do
+			ForEachEntry(strSearchPath, [&](const DirectoryEntry& entry) -> bool
 				{
-					if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+					if (!entry.is_directory)
 					{
-						std::string subdir = findData.cFileName;
-						if (subdir != "." && subdir != "..")
-						{
-							// 在子目录中搜索根 OSGB
-							std::string subdir_path = strSearchPath + "/" + subdir;
-							std::string osgb_pattern = subdir_path + "/*.osgb";
-							WIN32_FIND_DATAA findOsgb;
-							HANDLE hFindOsgb = FindFirstFileA(osgb_pattern.c_str(), &findOsgb);
-
-							if (hFindOsgb != INVALID_HANDLE_VALUE)
-							{
-								do
-								{
-									std::string filename = findOsgb.cFileName;
-									// 根 OSGB 文件不包含 "_L" 级别指示符
-									if (filename.find("_L") == std::string::npos)
-									{
-										FindClose(hFindOsgb);
-										FindClose(hFind);
-										return subdir_path + "/" + filename;
-									}
-								} while (FindNextFileA(hFindOsgb, &findOsgb));
-								FindClose(hFindOsgb);
-							}
-						}
+						return true; // 继续遍历
 					}
-				} while (FindNextFileA(hFind, &findData));
-				FindClose(hFind);
-			}
-#endif
-			return "";
+
+					// 在子目录中搜索 OSGB 文件
+					std::string subdir_path = strSearchPath + "/" + entry.name;
+
+					ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
+						{
+							if (!subEntry.is_regular_file)
+							{
+								return true;
+							}
+
+							// 检查是否为 OSGB 文件且不包含 "_L" 级别指示符
+							if (subEntry.name.length() > 5 &&
+								subEntry.name.substr(subEntry.name.length() - 5) == ".osgb" &&
+								subEntry.name.find("_L") == std::string::npos)
+							{
+								result = subdir_path + "/" + subEntry.name;
+								return false;  // 找到了，提前终止
+							}
+
+							return true;
+						});
+
+					// 如果找到了，提前终止外层遍历
+					return result.empty();
+				});
+
+			return result;
 		};
 
 	// 检查输入路径本身是否看起来像 Data 目录（包含带有 OSGB 文件的子目录）
@@ -121,86 +260,91 @@ std::vector<std::string> OSGBTools::ScanOSGBFolders(const std::string& strDirPat
 	{
 		if (c == '\\') c = '/';
 	}
+
 	// 移除尾部斜杠
 	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
 	{
 		strNormalizedPath.pop_back();
 	}
 
-#ifdef _WIN32
-	WIN32_FIND_DATAA findData;
-	std::string strSearchPattern = strNormalizedPath + "/*";
-	HANDLE hFind = FindFirstFileA(strSearchPattern.c_str(), &findData);
-
-	if (hFind != INVALID_HANDLE_VALUE)
-	{
-		do
+	ForEachEntry(strNormalizedPath, [&](const DirectoryEntry& entry) -> bool
 		{
-			if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			if (!entry.is_directory)
 			{
-				std::string subdir = findData.cFileName;
-				if (subdir != "." && subdir != "..")
-				{
-					// 检查子目录是否包含OSGB文件
-					std::string subdir_path = strNormalizedPath + "/" + subdir;
-					std::string osgb_pattern = subdir_path + "/*.osgb";
-					WIN32_FIND_DATAA findOsgb;
-					HANDLE hFindOsgb = FindFirstFileA(osgb_pattern.c_str(), &findOsgb);
-
-					if (hFindOsgb != INVALID_HANDLE_VALUE)
-					{
-						folders.push_back(subdir);
-						FindClose(hFindOsgb);
-					}
-				}
+				return true;
 			}
-		} while (FindNextFileA(hFind, &findData));
-		FindClose(hFind);
-	}
-#else
-	// Linux/macOS implementation using filesystem
-	DIR* dir = opendir(strNormalizedPath.c_str());
-	if (dir != nullptr)
-	{
-		struct dirent* entry;
-		while ((entry = readdir(dir)) != nullptr)
-		{
-			if (entry->d_type == DT_DIR)
+
+			// 检查子目录是否包含OSGB文件
+			std::string subdir_path = strNormalizedPath + "/" + entry.name;
+			bool has_osgb = false;
+
+			ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
+				{
+					if (subEntry.is_regular_file &&
+						subEntry.name.length() > 5 &&
+						subEntry.name.substr(subEntry.name.length() - 5) == ".osgb")
+					{
+						has_osgb = true;
+						return false;  // 找到了，提前终止
+					}
+
+					return true;
+				});
+
+			if (has_osgb)
 			{
-				std::string subdir = entry->d_name;
-				if (subdir != "." && subdir != "..")
-				{
-					std::string subdir_path = strNormalizedPath + "/" + subdir;
-					// 检查子目录是否包含OSGB文件
-					DIR* subDir = opendir(subdir_path.c_str());
-					if (subDir != nullptr)
-					{
-						struct dirent* subEntry;
-						bool hasOsgb = false;
-						while ((subEntry = readdir(subDir)) != nullptr)
-						{
-							std::string filename = subEntry->d_name;
-							if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".osgb")
-							{
-								hasOsgb = true;
-								break;
-							}
-						}
-						closedir(subDir);
-
-						if (hasOsgb)
-						{
-							folders.push_back(subdir);
-						}
-					}
-				}
+				folders.emplace_back(entry.name);
 			}
-		}
-		closedir(dir);
-	}
-#endif
+
+			return true;  // 继续遍历
+		});
 
 	return folders;
+}
+
+std::vector<std::string> OSGBTools::ScanTileDirectories(const std::string& strDirPath)
+{
+	std::vector<std::string> tiles;
+
+	// 标准化路径分隔符
+	std::string strNormalizedPath = strDirPath;
+	for (char& c : strNormalizedPath)
+	{
+		if (c == '\\') c = '/';
+	}
+
+	// 移除尾部斜杠
+	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
+	{
+		strNormalizedPath.pop_back();
+	}
+
+	ForEachEntry(strNormalizedPath, [&](const DirectoryEntry& entry) -> bool
+		{
+			if (!entry.is_directory)
+			{
+				return true;
+			}
+
+			// 检查是否为 Tile_ 开头的目录
+			if (entry.name.find("Tile_") != 0)
+			{
+				return true;
+			}
+
+			// 检查是否存在对应的 OSGB 文件
+			std::string tile_dir = strNormalizedPath + "/" + entry.name;
+			std::string osgb_file = tile_dir + "/" + entry.name + ".osgb";
+
+			if (IsRegularFile(osgb_file))
+			{
+				tiles.emplace_back(entry.name);
+			}
+
+			return true;  // 继续遍历
+		});
+
+	return tiles;
 }
 
 std::vector<std::string> OSGBTools::ScanOSGBFiles(const std::string& strDirPath, bool bRecursive)
@@ -213,83 +357,34 @@ std::vector<std::string> OSGBTools::ScanOSGBFiles(const std::string& strDirPath,
 	{
 		if (c == '\\') c = '/';
 	}
+
 	// 移除尾部斜杠
 	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
 	{
 		strNormalizedPath.pop_back();
 	}
 
-#ifdef _WIN32
-	// 扫描当前目录的OSGB文件
-	std::string osgb_pattern = strNormalizedPath + "/*.osgb";
-	WIN32_FIND_DATAA findOsgb;
-	HANDLE hFindOsgb = FindFirstFileA(osgb_pattern.c_str(), &findOsgb);
-
-	if (hFindOsgb != INVALID_HANDLE_VALUE)
-	{
-		do
+	ForEachEntry(strNormalizedPath, [&](const DirectoryEntry& entry) -> bool
 		{
-			std::string filename = findOsgb.cFileName;
-			files.push_back(strNormalizedPath + "/" + filename);
-		} while (FindNextFileA(hFindOsgb, &findOsgb));
-		FindClose(hFindOsgb);
-	}
-
-	// 如果需要递归扫描
-	if (bRecursive)
-	{
-		WIN32_FIND_DATAA findData;
-		std::string strSearchPattern = strNormalizedPath + "/*";
-		HANDLE hFind = FindFirstFileA(strSearchPattern.c_str(), &findData);
-
-		if (hFind != INVALID_HANDLE_VALUE)
-		{
-			do
+			if (entry.is_regular_file)
 			{
-				if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+				// 检查是否为 OSGB 文件
+				if (entry.name.length() > 5 &&
+					entry.name.substr(entry.name.length() - 5) == ".osgb")
 				{
-					std::string subdir = findData.cFileName;
-					if (subdir != "." && subdir != "..")
-					{
-						std::string subdir_path = strNormalizedPath + "/" + subdir;
-						auto subFiles = ScanOSGBFiles(subdir_path, true);
-						files.insert(files.end(), subFiles.begin(), subFiles.end());
-					}
-				}
-			} while (FindNextFileA(hFind, &findData));
-			FindClose(hFind);
-		}
-	}
-#else
-	// Linux/macOS implementation
-	DIR* dir = opendir(strNormalizedPath.c_str());
-	if (dir != nullptr)
-	{
-		struct dirent* entry;
-		while ((entry = readdir(dir)) != nullptr)
-		{
-			std::string filename = entry->d_name;
-
-			if (entry->d_type == DT_REG)  // 普通文件
-			{
-				if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".osgb")
-				{
-					files.push_back(strNormalizedPath + "/" + filename);
+					files.emplace_back(strNormalizedPath + "/" + entry.name);
 				}
 			}
-			else if (bRecursive && entry->d_type == DT_DIR)  // 目录
+			else if (bRecursive && entry.is_directory)
 			{
-				if (filename != "." && filename != "..")
-				{
-					std::string subdir_path = strNormalizedPath + "/" + filename;
-					auto subFiles = ScanOSGBFiles(subdir_path, true);
-					files.insert(files.end(), subFiles.begin(), subFiles.end());
-				}
+				// 递归扫描子目录
+				std::string subdir_path = strNormalizedPath + "/" + entry.name;
+				auto subFiles = ScanOSGBFiles(subdir_path, true);
+				files.insert(files.end(), subFiles.begin(), subFiles.end());
 			}
-		}
-		closedir(dir);
-	}
-#endif
+
+			return true;  // 继续遍历
+		});
 
 	return files;
 }
@@ -375,6 +470,7 @@ int OSGBTools::GetLvlNum(std::string strFileName)
 			else
 				break;
 		}
+
 		std::string substr = stem.substr(p0 + 2, end - p0 - 2);
 		try
 		{
@@ -436,17 +532,21 @@ std::vector<double> transfrom_xyz(double dLonDeg, double dLatDeg, double dHeight
 void OSGBTools::TransformC(double dCenterX, double dCenterY, double dHeightMin, double* pPtr)
 {
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
-	fprintf(stderr, "[TransformC] lon=%.10f lat=%.10f h=%.3f -> ECEF translation: x=%.10f y=%.10f z=%.10f\n",
-		dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
+	std::cerr << "[TransformC] lon=" << std::fixed << std::setprecision(10) << dCenterX
+		<< " lat=" << dCenterY << " h=" << std::setprecision(3) << dHeightMin
+		<< " -> ECEF translation: x=" << std::setprecision(10) << v[12]
+		<< " y=" << v[13] << " z=" << v[14] << std::endl;
 
-	std::memcpy(pPtr, v.data(), v.size() * 8);
+	std::copy(v.begin(), v.end(), pPtr);
 }
 
 void OSGBTools::TransformCWithEnuOffset(double dCenterX, double dCenterY, double dHeightMin, double dEnuOffsetX, double dEnuOffsetY, double dEnuOffsetZ, double* pPtr)
 {
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
-	fprintf(stderr, "[TransformCWithEnuOffset] Base ECEF at lon=%.10f lat=%.10f h=%.3f: x=%.10f y=%.10f z=%.10f\n",
-		dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
+	std::cerr << "[TransformCWithEnuOffset] Base ECEF at lon=" << std::fixed << std::setprecision(10) << dCenterX
+		<< " lat=" << dCenterY << " h=" << std::setprecision(3) << dHeightMin
+		<< ": x=" << std::setprecision(10) << v[12]
+		<< " y=" << v[13] << " z=" << v[14] << std::endl;
 
 	double dLatRad = dCenterY * dPI / 180.0;
 	double dLonRad = dCenterX * dPI / 180.0;
@@ -459,17 +559,19 @@ void OSGBTools::TransformCWithEnuOffset(double dCenterX, double dCenterY, double
 	double dEcefOffsetX = -dSinLon * dEnuOffsetX - dSinLat * dCosLon * dEnuOffsetY + dCosLat * dCosLon * dEnuOffsetZ;
 	double dEcefOffsetY = dCosLon * dEnuOffsetX - dSinLat * dSinLon * dEnuOffsetY + dCosLat * dSinLon * dEnuOffsetZ;
 	double dEcefOffsetZ = dCosLat * dEnuOffsetY + dSinLat * dEnuOffsetZ;
-	fprintf(stderr, "[TransformCWithEnuOffset] ENU offset (%.3f, %.3f, %.3f) -> ECEF offset (%.10f, %.10f, %.10f)\n",
-		dEnuOffsetX, dEnuOffsetY, dEnuOffsetZ, dEcefOffsetX, dEcefOffsetY, dEcefOffsetZ);
+	std::cerr << "[TransformCWithEnuOffset] ENU offset (" << std::setprecision(3) << dEnuOffsetX
+		<< ", " << dEnuOffsetY << ", " << dEnuOffsetZ
+		<< ") -> ECEF offset (" << std::setprecision(10) << dEcefOffsetX
+		<< ", " << dEcefOffsetY << ", " << dEcefOffsetZ << ")" << std::endl;
 
 	v[12] += dEcefOffsetX;
 	v[13] += dEcefOffsetY;
 	v[14] += dEcefOffsetZ;
 
-	fprintf(stderr, "[TransformCWithEnuOffset] Final ECEF translation: x=%.10f y=%.10f z=%.10f\n",
-		v[12], v[13], v[14]);
+	std::cerr << "[TransformCWithEnuOffset] Final ECEF translation: x=" << v[12]
+		<< " y=" << v[13] << " z=" << v[14] << std::endl;
 
-	std::memcpy(pPtr, v.data(), v.size() * 8);
+	std::copy(v.begin(), v.end(), pPtr);
 }
 
 // 简单的 XML 标签提取函数
@@ -502,7 +604,7 @@ std::vector<std::string> split(const std::string& str, char delimiter)
 	std::string token;
 	while (std::getline(ss, token, delimiter))
 	{
-		tokens.push_back(token);
+		tokens.emplace_back(token);
 	}
 
 	return tokens;
@@ -697,149 +799,8 @@ std::vector<LODLevelSettings> OSGBTools::BuildLODLevels(
 
 		lvl.draco = dracoTemplate;
 
-		levels.push_back(lvl);
+		levels.emplace_back(lvl);
 	}
 
 	return levels;
-}
-
-bool OSGBTools::WriteTilesetRegion(Transform* pTrans, Region& region, double dGeometricError, const std::string& strB3dmFile, const std::string& strJsonFile)
-{
-	std::vector<double> matrix;
-	if (nullptr != pTrans)
-	{
-		double dLonDeg = pTrans->dRadianX * 180.0 / std::acos(-1.0);
-		double dLatDeg = pTrans->dRadianY * 180.0 / std::acos(-1.0);
-		matrix = transfrom_xyz(dLonDeg, dLatDeg, pTrans->dMinHeight);
-	}
-
-	std::string stJsonTxt = "{\"asset\": {\"version\": \"1.0\",\"gltfUpAxis\": \"Z\"},\"geometricError\":";
-	stJsonTxt += std::to_string(dGeometricError);
-	stJsonTxt += ",\"root\": {";
-	std::string strTrans = "\"transform\": [";
-	if (nullptr != pTrans)
-	{
-		for (int i = 0; i < 15; i++)
-		{
-			strTrans += std::to_string(matrix[i]);
-			strTrans += ",";
-		}
-		strTrans += "1],";
-		stJsonTxt += strTrans;
-	}
-	stJsonTxt += "\"boundingVolume\": {\"region\": [";
-	double* pRegion = (double*)&region;
-	for (int i = 0; i < 5; i++)
-	{
-		stJsonTxt += std::to_string(pRegion[i]);
-		stJsonTxt += ",";
-	}
-	stJsonTxt += std::to_string(pRegion[5]);
-
-	char last_buf[512];
-	sprintf(last_buf, "]},\"geometricError\": %f,\"refine\": \"REPLACE\",\"content\": {\"uri\": \"%s\"}}}", dGeometricError, strB3dmFile.c_str());
-
-	stJsonTxt += last_buf;
-
-	bool bRet = WriteFile(strJsonFile, stJsonTxt.data(), (unsigned long)stJsonTxt.size());
-	if (!bRet)
-	{
-		LOG_E("write file %s fail", strJsonFile.c_str());
-	}
-
-	return bRet;
-}
-
-bool OSGBTools::WriteTilesetBbox(Transform* pTrans, Box& box, double dGeometricError, const std::string& strB3dmFile, const std::string& strJsonFile)
-{
-	std::vector<double> dMatrix;
-	if (nullptr != pTrans)
-	{
-		double dLonDeg = pTrans->dRadianX * 180.0 / std::acos(-1.0);
-		double dLatDeg = pTrans->dRadianY * 180.0 / std::acos(-1.0);
-		dMatrix = transfrom_xyz(dLonDeg, dLatDeg, pTrans->dMinHeight);
-	}
-
-	std::string strJsonTxt = "{\"asset\": {\"version\": \"1.0\",\"gltfUpAxis\": \"Z\"},\"geometricError\":";
-	strJsonTxt += std::to_string(dGeometricError);
-	strJsonTxt += ",\"root\": {";
-	std::string strTrans = "\"transform\": [";
-	if (nullptr != pTrans)
-	{
-		for (int i = 0; i < 15; i++)
-		{
-			strTrans += std::to_string(dMatrix[i]);
-			strTrans += ",";
-		}
-		strTrans += "1],";
-		strJsonTxt += strTrans;
-	}
-	strJsonTxt += "\"boundingVolume\": {\"box\": [";
-	for (int i = 0; i < 11; i++)
-	{
-		strJsonTxt += std::to_string(box.dMatrix[i]);
-		strJsonTxt += ",";
-	}
-	strJsonTxt += std::to_string(box.dMatrix[11]);
-
-	char last_buf[512];
-	sprintf(last_buf, "]},\"geometricError\": %f,\"refine\": \"REPLACE\",\"content\": {\"uri\": \"%s\"}}}", dGeometricError, strB3dmFile.c_str());
-
-	strJsonTxt += last_buf;
-
-	bool bRet = WriteFile(strJsonFile, strJsonTxt.data(), (unsigned long)strJsonTxt.size());
-	if (!bRet)
-	{
-		LOG_E("write file %s fail", strJsonFile.c_str());
-	}
-
-	return bRet;
-}
-
-bool OSGBTools::WriteTileset(double dLongti, double dLati, double dTileW, double dTileH, double dHeightMin, double dHeightMax, double dGeometricError, const std::string& strFileName, const std::string& strFullPath)
-{
-	double dLonDeg = dLongti * 180.0 / dPI;
-	double dLatDeg = dLati * 180.0 / dPI;
-
-	std::vector<double> matrix = transfrom_xyz(dLonDeg, dLatDeg, dHeightMin);
-
-	double dhalfW = dTileW * 0.5;
-	double dHalfH = dTileH * 0.5;
-	double dHalfZ = (dHeightMax - dHeightMin) * 0.5;
-	double dCenterZ = dHalfZ;
-
-	std::string strjsonTxt = "{\"asset\": {\"version\": \"0.0\",\"gltfUpAxis\": \"Y\"},\"geometricError\":";
-	strjsonTxt += std::to_string(dGeometricError);
-	strjsonTxt += ",\"root\": {\"transform\": [";
-	for (int i = 0; i < 15; i++)
-	{
-		strjsonTxt += std::to_string(matrix[i]);
-		strjsonTxt += ",";
-	}
-	strjsonTxt += "1],\"boundingVolume\": {\"box\": [";
-	double dBoxVals[12] = {
-		0.0, 0.0, dCenterZ,
-		dhalfW, 0.0, 0.0,
-		0.0, dHalfH, 0.0,
-		0.0, 0.0, dHalfZ
-	};
-	for (int i = 0; i < 11; i++)
-	{
-		strjsonTxt += std::to_string(dBoxVals[i]);
-		strjsonTxt += ",";
-	}
-	strjsonTxt += std::to_string(dBoxVals[11]);
-
-	char last_buf[512];
-	sprintf(last_buf, "]},\"geometricError\": %f,\"refine\": \"REPLACE\",\"content\": {\"uri\": \"%s\"}}}", dGeometricError, strFileName.c_str());
-
-	strjsonTxt += last_buf;
-
-	bool bRet = WriteFile(strFullPath, strjsonTxt.data(), (unsigned long)strjsonTxt.size());
-	if (!bRet)
-	{
-		LOG_E("write file %s fail", strFileName.c_str());
-	}
-
-	return bRet;
 }

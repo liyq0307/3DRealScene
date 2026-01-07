@@ -2,57 +2,62 @@
 #define OSGBTOOLS_H
 
 #include <cstdarg>
+#include <iostream>
 #include <cstdio>
 #include <cmath>
 #include <string>
+#include <vector>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 
 #include "MeshProcessor.h"
+#include "Tileset.h"  
 
-// ==========简化的日志宏，使用MSVC兼容的可变参数宏语法=============
-#define LOG_D(format, ...) printf("[DEBUG] " format "\n", ##__VA_ARGS__)
-#define LOG_I(format, ...) printf("[INFO] " format "\n", ##__VA_ARGS__)
-#define LOG_W(format, ...) printf("[WARN] " format "\n", ##__VA_ARGS__)
-#define LOG_E(format, ...) fprintf(stderr, "[ERROR] " format "\n", ##__VA_ARGS__)
-
-#ifdef max
-#undef max
-#endif // max
-#ifdef min
-#undef min
-#endif // max
-
-/**
- * @brief 坐标转换结构体
- * */
-struct Transform
+namespace OSGBLog
 {
-	double dRadianX;
-	double dRadianY;
-	double dMinHeight;
-};
+	// 辅助函数：格式化输出到 stdout
+	template<typename... Args>
+	inline void PrintInfo(const char* level, const char* format, Args&&... args)
+	{
+		std::printf("[%s] ", level);
+		std::printf(format, std::forward<Args>(args)...);
+		std::printf("\n");
+	}
 
-/**
- * @brief 包围盒结构体
- */
-struct Box
-{
-	double dMatrix[12];
-};
+	// 辅助函数：格式化输出到 stderr
+	template<typename... Args>
+	inline void PrintError(const char* level, const char* format, Args&&... args)
+	{
+		std::fprintf(stderr, "[%s] ", level);
+		std::fprintf(stderr, format, std::forward<Args>(args)...);
+		std::fprintf(stderr, "\n");
+	}
 
-/**
- * @brief 范围结构体
- */
-struct Region
-{
-	double dMinX;
-	double dMinY;
-	double dMaxX;
-	double dMaxY;
-	double dMinHeight;
-	double dMaxHeight;
-};
+	// 辅助函数：格式化字符串
+	template < typename... Args>
+	std::string FormatString(const char* format, Args&&... args)
+	{
+		// 计算所需缓冲区大小
+
+		int size = std::snprintf(nullptr, 0, format, std::forward<Args>(args)...);
+		if (size <= 0)
+		{
+			return "";
+		}
+
+		// 分配缓冲区并格式化
+		std::snprintf(&result[0], size + 1, format, std::forward<Args>(args)...);
+		result.resize(size);  // 移除末尾的 '\0'
+
+		return result;
+	}
+}
+
+#define LOG_D(format, ...) OSGBLog::PrintInfo("DEBUG", format, ##__VA_ARGS__)
+#define LOG_I(format, ...) OSGBLog::PrintInfo("INFO", format, ##__VA_ARGS__)
+#define LOG_W(format, ...) OSGBLog::PrintInfo("WARN", format, ##__VA_ARGS__)
+#define LOG_E(format, ...) OSGBLog::PrintError("ERROR", format, ##__VA_ARGS__)
 
 /**
  * @brief metadata.xml 元数据结构
@@ -65,7 +70,7 @@ struct OSGBMetadata
 	// 坐标系统 (例如 "ENU:31.15152,114.51554" 或 "EPSG:4547" 或 WKT字符串)
 	std::string strSrs;
 
-	// 原点偏移 (例如 "-0,-0,0")        
+	// 原点偏移 (例如 "-0,-0,0")
 	std::string strSrsOrigin;
 
 	// =====解析后的值=======
@@ -104,23 +109,23 @@ struct OSGBMetadata
  */
 struct LODLevelSettings
 {
-	 // 目标简化比例：1.0 = 完整精度；0.5 = 保留50%三角面
-	float dTargetRatio = 1.0f;  
-	
-	 // 简化误差预算（匹配 SimplificationParams）
+	// 目标简化比例：1.0 = 完整精度；0.5 = 保留50%三角面
+	float dTargetRatio = 1.0f;
+
+	// 简化误差预算（匹配 SimplificationParams）
 	float dTargetError = 0.01f;
-	
+
 	// 是否对此LOD级别启用网格简化
-	bool bEnableSimplification = false;  
-	
+	bool bEnableSimplification = false;
+
 	// 是否对此LOD级别应用Draco压缩
-	bool bEnableDraco = false;              
+	bool bEnableDraco = false;
 
 	// 基础简化参数（ratio/error会被上面的值覆盖）
-	SimplificationParams simplify;  
-	
+	SimplificationParams simplify;
+
 	// 基础Draco压缩参数
-	DracoCompressionParams draco;           
+	DracoCompressionParams draco;
 };
 
 /**
@@ -131,10 +136,10 @@ struct LODLevelSettings
 struct LODPipelineSettings
 {
 	// 主开关：false时只生成LOD0
-	bool bEnableLOD = false;  
+	bool bEnableLOD = false;
 
 	// LOD级别列表（从粗到细或从细到粗，取决于使用场景）            
-	std::vector<LODLevelSettings> levels;   
+	std::vector<LODLevelSettings> levels;
 };
 
 /**
@@ -151,43 +156,39 @@ public:
 
 	// ==========文件操作辅助函数===========
 	// 创建多级目录
-	static bool MkDirs(const std::string& strPath)
-	{
-		try
-		{
-			std::filesystem::create_directories(strPath);
-			return true;
-		}
-		catch (...)
-		{
-			return false;
-		}
-	}
+	static bool MkDirs(const std::string& strPath);
 
 	// 写文件函数
-	static bool WriteFile(const std::string& strFileName, const char* pszBuf, unsigned long nBufLen)
-	{
-		try
-		{
-			std::ofstream ofs(strFileName, std::ios::binary);
-			if (!ofs.is_open())
-			{
-				return false;
-			}
-
-			ofs.write(pszBuf, nBufLen);
-			ofs.close();
-
-			return true;
-		}
-		catch (...)
-		{
-			return false;
-		}
-	}
+	static bool WriteFile(const std::string& strFileName, const char* pszBuf, unsigned long nBufLen);
 
 	// 判断路径是否为目录
 	static bool IsDirectory(const std::string& strPath);
+
+	// 判断路径是否为常规文件
+	static bool IsRegularFile(const std::string& strPath);
+
+	/**
+	 * @brief 目录条目结构
+	 */
+	struct DirectoryEntry
+	{
+		// 文件/目录名（不含路径）
+		std::string name;
+
+		// 是否为目录
+		bool is_directory = false;
+
+		// 是否为常规文件
+		bool is_regular_file = false;
+	};
+
+	/**
+	 * @brief 遍历目录中的所有条目
+	 * @param strDirPath 目录路径
+	 * @param callback 回调函数，参数为 DirectoryEntry，返回 false 可提前终止遍历
+	 * @return 成功返回 true，失败返回 false
+	 */
+	static bool ForEachEntry(const std::string& strDirPath, std::function<bool(const DirectoryEntry&)> callback);
 
 	// 在目录中查找根 OSGB 文件
 	static std::string FindRootOSGB(const std::string& strDirPath);
@@ -198,6 +199,22 @@ public:
 	 * @return 返回包含OSGB文件的子目录名称列表
 	 */
 	static std::vector<std::string> ScanOSGBFolders(const std::string& strDirPath);
+
+	/**
+	 * @brief 扫描倾斜摄影数据的 Tile_* 目录
+	 *
+	 * 此函数专门用于扫描倾斜摄影数据目录结构，查找所有 Tile_* 格式的子目录，
+	 * 并验证每个目录中是否存在对应的 <tile_name>.osgb 文件。
+	 *
+	 * @param strDirPath 要扫描的目录路径（通常是 Data 目录）
+	 * @return 返回符合条件的 Tile 目录名称列表（如 "Tile_+004_+012"）
+	 *
+	 * @example
+	 * // 扫描倾斜摄影数据目录
+	 * auto tiles = OSGBTools::ScanTileDirectories("E:/Data/3D/Data");
+	 * // 返回: ["Tile_+004_+012", "Tile_+005_+013", ...]
+	 */
+	static std::vector<std::string> ScanTileDirectories(const std::string& strDirPath);
 
 	/**
 	 * @brief 扫描目录中所有OSGB文件
@@ -294,10 +311,10 @@ public:
 	 * SimplificationParams simplify = {.bEnableSimplification = true, .dTargetError = 0.01f};
 	 * DracoCompressionParams draco = {.bEnableCompression = true};
 	 * auto levels = BuildLODLevels({1.0f, 0.7f, 0.5f, 0.3f}, 0.01f, simplify, draco, false);
-	 * // levels[0]: 100%精度，无Draco
-	 * // levels[1]: 70%精度，有Draco
-	 * // levels[2]: 50%精度，有Draco
-	 * // levels[3]: 30%精度，有Draco
+	 * levels[0]: 100%精度，无Draco
+	 * levels[1]: 70%精度，有Draco
+	 * levels[2]: 50%精度，有Draco
+	 * levels[3]: 30%精度，有Draco
 	 */
 	static std::vector<LODLevelSettings> BuildLODLevels(
 		const std::vector<float>& dRatios,
@@ -305,46 +322,6 @@ public:
 		const SimplificationParams& simplifyTemplate,
 		const DracoCompressionParams& dracoTemplate,
 		bool bDracoForLOD0 = false);
-
-	//========= 3D Tiles Tileset文件写入函数===========
-	/**
-	 * @brief 写入Tileset区域函数
-	 * @param pTrans 坐标转换信息指针
-	 * @param region 区域信息
-	 * @param dGeometricError 几何误差
-	 * @param strB3dmFile b3dm文件路径
-	 * @param strJsonFile 输出的tileset json文件路径
-	 * @return true=成功, false=失败
-	 */
-	static bool WriteTilesetRegion(Transform* pTrans, Region& region, double dGeometricError, const std::string& strB3dmFile, const std::string& strJsonFile);
-
-	/**
-	 * @brief 写入Tileset包围盒函数
-	 * @param pTrans 坐标转换信息指针
-	 * @param box 包围盒信息
-	 * @param dGeometricError 几何误差
-	 * @param strB3dmFile b3dm文件路径
-	 * @param strJsonFile 输出的tileset json文件路径
-	 * @return true=成功, false=失败
-	 */
-	static bool WriteTilesetBbox(Transform* pTrans, Box& box, double dGeometricError, const std::string& strB3dmFile, const std::string& strJsonFile);
-
-	/**
-	 * @brief 写入Tileset函数
-	 * @param dLongti 中心点经度（度）
-	 * @param dLati 中心点纬度（度）
-	 * @param dTileW 瓦片宽度（米）
-	 * @param dTileH 瓦片高度（米）
-	 * @param dHeightMin 最小高度（米）
-	 * @param dHeightMax 最大高度（米）
-	 * @param dGeometricError 几何误差
-	 * @param strFileName 输出的tileset json文件路径
-	 * @param strFullPath 输出的完整路径（包含文件名）
-	 * @return true=成功, false=失败
-	 */
-	static bool WriteTileset(
-		double dLongti, double dLati, double dTileW, double dTileH, double dHeightMin, double dHeightMax,
-		double dGeometricError, const std::string& strFileName, const std::string& strFullPath);
 };
 
 #endif // !OSGBTOOLS_H

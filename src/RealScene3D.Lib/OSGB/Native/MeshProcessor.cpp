@@ -283,7 +283,7 @@ bool MeshProcessor::ProcessTexture(osg::Texture* tex, std::vector<unsigned char>
 					{
 						for (int j = 0; j < rowSize; j++)
 						{
-							jpeg_buf.push_back(rgb[rowStep * i + j]);
+							jpeg_buf.emplace_back(rgb[rowStep * i + j]);
 						}
 					}
 					break;

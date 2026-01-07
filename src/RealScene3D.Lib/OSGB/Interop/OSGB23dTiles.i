@@ -7,6 +7,7 @@
 
 %{
 #include "Native/OSGB23dTiles.h"
+#include "Native/Tileset.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -18,6 +19,7 @@
 
 %include "std_string.i"
 %include "std_vector.i"
+%include "std_array.i"
 %include "typemaps.i"
 %include "arrays_csharp.i"
 
@@ -32,9 +34,37 @@
 %apply double INPUT[] { double* pMergedBox };
 %apply int INOUT[] { int* pJsonLen };
 
+// std::vector<uint8_t> 映射 - 用于 ToGlbBufBytes 返回值
+%include "std_vector.i"
+%template(VectorUInt8) std::vector<uint8_t>;
+
+// std::array<double, 6> 映射 - 用于 To3dTile 返回值
+%include "std_array.i"
+%template(ArrayDouble6) std::array<double, 6>;
+
 /* ============================================================================
  * 忽略不需要的类型和成员
  * ============================================================================ */
+
+// 从 Tileset.h 中忽略不需要导出的类型
+%ignore BoundingVolumeType;
+%ignore BoundingVolume;
+%ignore TilesetNode;
+%ignore Box;
+%ignore Region;
+%ignore BoundingVolumeFromTileBox;
+
+// 从 OSGB23dTiles.h 中忽略内部实现类
+%ignore InfoVisitor;
+%ignore OsgBuildState;
+
+// 忽略 OSGB23dTiles 类的私有方法
+%ignore OSGB23dTiles::ToGlbBuf;
+%ignore OSGB23dTiles::ToGlbBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
+%ignore OSGB23dTiles::ToB3dmBuf;
+%ignore OSGB23dTiles::DoTileJob;
+%ignore OSGB23dTiles::EncodeTileJSON;
+%ignore OSGB23dTiles::GetAllTree;
 
 /* ============================================================================
  * 内存管理 - 使用 C# 的 IDisposable 模式
@@ -68,145 +98,14 @@ using System.Runtime.InteropServices;
 %enddef
 
 /* ============================================================================
- * 结构体定义
+ * 包含C++头文件
  * ============================================================================ */
 
-// TileBox 结构体
-%ignore TileBox::extend;  // 忽略成员函数，稍后手动绑定
+// 包含 Tileset.h（获取 TileBox 等定义）
+%include "Native/Tileset.h"
 
-struct TileBox {
-    std::vector<double> max;
-    std::vector<double> min;
-};
-
-// 手动添加 extend 方法
-%extend TileBox {
-    void extend(double ratio) {
-        $self->extend(ratio);
-    }
-}
-
-// OSGTree 结构体
-struct OSGTree {
-    TileBox bbox;
-    double geometricError;
-    std::string file_name;
-    std::vector<OSGTree> sub_nodes;
-    int type;
-};
-
-// PrimitiveState 结构体
-struct PrimitiveState {
-    int vertexAccessor;
-    int normalAccessor;
-    int textcdAccessor;
-};
-
-// MeshInfo 结构体
-struct MeshInfo {
-    std::string name;
-    std::vector<double> min;
-    std::vector<double> max;
-};
-
-/* ============================================================================
- * 类定义
- * ============================================================================ */
-
-// OSGB23dTiles 类 - 主类
-%ignore OSGB23dTiles::ToGlbBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
-%ignore OSGB23dTiles::ToB3dmBuf;
-%ignore OSGB23dTiles::DoTileJob;
-%ignore OSGB23dTiles::EncodeTileJson;
-%ignore OSGB23dTiles::GetAllTree;
-
-class OSGB23dTiles {
-public:
-    OSGB23dTiles();
-    ~OSGB23dTiles();
-
-    // 将 OSGB 转换为 3D Tiles（返回tileset.json字符串）
-    std::string To3dTile(
-        const std::string strInPath,
-        const std::string& strOutPath,
-        double* pBox,
-        int* pLen,
-        double dCenterX,
-        double dCenterY,
-        int nMaxLevel,
-        bool bEnableTextureCompress = false,
-        bool bEnableMeshOpt = false,
-        bool bEnableDraco = false
-    );
-
-    // 批量转换整个倾斜摄影数据集
-    std::string To3dTileBatch(
-        const std::string& pDataDir,
-        const std::string& strOutputDir,
-        double* pMergedBox,
-        int* pJsonLen,
-        double dCenterX,
-        double dCenterY,
-        int nMaxLevel,
-        bool bEnableTextureCompress = false,
-        bool bEnableMeshOpt = false,
-        bool bEnableDraco = false
-    );
-
-    // 将 OSGB 文件转换为 GLB 缓冲区
-    bool ToGlbBuf(
-        std::string strOsgbPath,
-        std::string& strGlbBuff,
-        int nNodeType,
-        bool bEnableTextureCompress = false,
-        bool bEnableMeshOpt = false,
-        bool bEnableDraco = false
-    );
-
-    // OSGB 转 GLB 文件
-    bool ToGlb(
-        const std::string& strInPath,
-        const std::string& strOutPath,
-        bool bEnableTextureCompress = false,
-        bool bEnableMeshOpt = false,
-        bool bEnableDraco = false
-    );
-
-private:
-    // 私有方法 - 不暴露给 C#
-    bool ToGlbBuf(
-        std::string path,
-        std::string& glb_buff,
-        MeshInfo& mesh_info,
-        int node_type,
-        bool enable_texture_compression = false,
-        bool enable_meshopt = false,
-        bool enable_draco = false,
-        bool need_mesh_info = true
-    );
-
-    bool ToB3dmBuf(
-        std::string path,
-        std::string& b3dm_buf,
-        TileBox& tile_box,
-        int node_type,
-        bool enable_texture_compression = false,
-        bool enable_meshopt = false,
-        bool enable_draco = false
-    );
-
-    void DoTileJob(
-        OSGTree& tree,
-        std::string out_path,
-        int max_lvl,
-        bool enable_texture_compression = false,
-        bool enable_meshopt = false,
-        bool enable_draco = false
-    );
-
-    std::string EncodeTileJson(OSGTree& tree, double x, double y);
-    OSGTree GetAllTree(std::string& file_name);
-};
+// 包含 OSGB23dTiles.h（获取所有结构体和类定义）
+%include "Native/OSGB23dTiles.h"
 
 /* ============================================================================
  * 自定义 C# 辅助类 - 提供更友好的 API
@@ -258,31 +157,28 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            string glbBuffer;
-            bool success = reader.ToGlbBuf(
+            SWIGTYPE_p_std__vectorT_unsigned_char_t glbBytes = reader.ToGlbBufBytes(
                 osgbPath,
-                out glbBuffer,
                 -1,  // node_type: -1 表示自动判断
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            if (!success || string.IsNullOrEmpty(glbBuffer))
+            if (glbBytes == null)
             {
                 return null;
             }
 
-            // 注意：std::string 中存储的是二进制数据，需要正确转换
-            return System.Text.Encoding.Latin1.GetBytes(glbBuffer);
+            // 将 SWIG 生成的 vector<uint8_t> 转换为 byte[]
+            return OSGB23dTilesCS.VectorUInt8ToByteArray(glbBytes);
         }
 
         /// <summary>
         /// 将 OSGB 转换为 3D Tiles（返回tileset.json字符串）
         /// </summary>
-        public string? ConvertTo3dTiles(
+        public (bool success, string? tilesetJson, double[]? bbox) ConvertTo3dTiles(
             string inPath,
             string outPath,
-            double[]? bbox = null,
             double offsetX = 0.0,
             double offsetY = 0.0,
             int maxLevel = 0,
@@ -290,17 +186,9 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            if (bbox != null && bbox.Length != 6)
-            {
-                throw new ArgumentException("bbox must contain exactly 6 elements [minX, minY, minZ, maxX, maxY, maxZ]");
-            }
-
-            int bboxLen = bbox?.Length ?? 0;
-            string result = reader.To3dTile(
+            SWIGTYPE_p_std__tupleT_bool_std__string_std__arrayT_double_6_t result = reader.To3dTile(
                 inPath,
                 outPath,
-                bbox,
-                ref bboxLen,
                 offsetX,
                 offsetY,
                 maxLevel,
@@ -308,13 +196,23 @@ using System.Runtime.InteropServices;
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            return string.IsNullOrEmpty(result) ? null : result;
+            if (result == null)
+            {
+                return (false, null, null);
+            }
+
+            // 从 tuple 中提取值
+            bool success = OSGB23dTilesCS.TupleGetBool(result);
+            string tilesetJson = OSGB23dTilesCS.TupleGetString(result);
+            double[] bbox = OSGB23dTilesCS.TupleGetArrayDouble6(result);
+
+            return (success, string.IsNullOrEmpty(tilesetJson) ? null : tilesetJson, bbox);
         }
 
         /// <summary>
         /// 批量转换整个倾斜摄影数据集
         /// </summary>
-        public string? ConvertTo3dTilesBatch(
+        public bool ConvertTo3dTilesBatch(
             string dataDir,
             string outputDir,
             double[]? mergedBox = null,
@@ -331,7 +229,7 @@ using System.Runtime.InteropServices;
             }
 
             int jsonLen = 0;
-            string result = reader.To3dTileBatch(
+            return reader.To3dTileBatch(
                 dataDir,
                 outputDir,
                 mergedBox,
@@ -342,8 +240,6 @@ using System.Runtime.InteropServices;
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
-
-            return string.IsNullOrEmpty(result) ? null : result;
         }
 
         public void Dispose()

@@ -9,8 +9,24 @@
 #include <cstdio>
 #include <cmath>
 #include <filesystem>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
 
 #include "GeoTransform.h"
+
+// =================静态成员初始化=================
+PJ* GeoTransform::projTransform = nullptr;					// PROJ转换对象
+PJ_CONTEXT* GeoTransform::projContext = nullptr;			// PROJ上下文
+double GeoTransform::OriginX = 0.0;							// 原点X坐标
+double GeoTransform::OriginY = 0.0;							// 原点Y坐标
+double GeoTransform::OriginZ = 0.0;							// 原点Z坐标
+double GeoTransform::GeoOriginLon = 0.0;					// 地理原点经度
+double GeoTransform::GeoOriginLat = 0.0;					// 地理原点纬度
+double GeoTransform::GeoOriginHeight = 0.0;					// 地理原点高度
+bool GeoTransform::IsENU = false;							// 是否使用ENU坐标系
+glm::dmat4 GeoTransform::EcefToEnuMatrix = glm::dmat4(1);	// ECEF到ENU的转换矩阵
+std::string GeoTransform::lastError = "";					// 最后的错误信息
 
 // 辅助函数：配置PROJ上下文，设置正确的数据搜索路径
 static void ConfigureProjContext(PJ_CONTEXT* ctx)
@@ -49,7 +65,7 @@ static void ConfigureProjContext(PJ_CONTEXT* ctx)
 	std::string exeDir = GetExecutableDirectory();
 	if (exeDir.empty())
 	{
-		fprintf(stderr, "[PROJ] Warning: Cannot determine executable directory\n");
+		std::cerr << "[PROJ] Warning: Cannot determine executable directory" << std::endl;
 		return;
 	}
 
@@ -59,8 +75,8 @@ static void ConfigureProjContext(PJ_CONTEXT* ctx)
 	// 3. 检查proj.db是否存在
 	if (!std::filesystem::exists(projDbPath))
 	{
-		fprintf(stderr, "[PROJ] Warning: proj.db not found at: %s\n", projDbPath.string().c_str());
-		fprintf(stderr, "[PROJ] PROJ will use system default search paths (may cause version conflicts)\n");
+		std::cerr << "[PROJ] Warning: proj.db not found at: " << projDbPath.string() << std::endl;
+		std::cerr << "[PROJ] PROJ will use system default search paths (may cause version conflicts)" << std::endl;
 		return;
 	}
 
@@ -68,22 +84,9 @@ static void ConfigureProjContext(PJ_CONTEXT* ctx)
 	const char* search_paths[] = { exeDir.c_str() };
 	proj_context_set_search_paths(ctx, 1, search_paths);
 
-	fprintf(stderr, "[PROJ] Data directory set to: %s\n", exeDir.c_str());
-	fprintf(stderr, "[PROJ] Using proj.db: %s\n", projDbPath.string().c_str());
+	std::cerr << "[PROJ] Data directory set to: " << exeDir << std::endl;
+	std::cerr << "[PROJ] Using proj.db: " << projDbPath.string() << std::endl;
 }
-
-// 静态成员初始化
-PJ* GeoTransform::projTransform = nullptr;      // PROJ转换对象
-PJ_CONTEXT* GeoTransform::projContext = nullptr; // PROJ上下文
-double GeoTransform::OriginX = 0.0;              // 原点X坐标
-double GeoTransform::OriginY = 0.0;              // 原点Y坐标
-double GeoTransform::OriginZ = 0.0;              // 原点Z坐标
-double GeoTransform::GeoOriginLon = 0.0;         // 地理原点经度
-double GeoTransform::GeoOriginLat = 0.0;         // 地理原点纬度
-double GeoTransform::GeoOriginHeight = 0.0;      // 地理原点高度
-bool GeoTransform::IsENU = false;                // 是否使用ENU坐标系
-glm::dmat4 GeoTransform::EcefToEnuMatrix = glm::dmat4(1); // ECEF到ENU的转换矩阵
-std::string GeoTransform::lastError = "";        // 最后的错误信息
 
 glm::dmat4 GeoTransform::CalcEnuToEcefMatrix(double lnt, double lat, double height_min)
 {
@@ -163,8 +166,8 @@ void GeoTransform::Init(PJ* transform, double* origin)
 	glm::dvec3 originLocal = { OriginX, OriginY, OriginZ };
 	glm::dvec3 originCartographic = originLocal;
 
-	fprintf(stderr, "[GeoTransform] Origin: x=%.8f y=%.8f z=%.3f\n",
-		originLocal.x, originLocal.y, originLocal.z);
+	std::cerr << "[GeoTransform] Origin: x=" << std::fixed << std::setprecision(8) << originLocal.x
+		<< " y=" << originLocal.y << " z=" << std::setprecision(3) << originLocal.z << std::endl;
 
 	if (projTransform)
 	{
@@ -185,12 +188,12 @@ void GeoTransform::Init(PJ* transform, double* origin)
 			originCartographic.y = result.xyzt.y;
 			originCartographic.z = result.xyzt.z;
 
-			fprintf(stderr, "[GeoTransform] Cartographic: lon=%.10f lat=%.10f h=%.3f\n",
-				originCartographic.x, originCartographic.y, originCartographic.z);
+			std::cerr << "[GeoTransform] Cartographic: lon=" << std::setprecision(10) << originCartographic.x
+				<< " lat=" << originCartographic.y << " h=" << std::setprecision(3) << originCartographic.z << std::endl;
 		}
 		else
 		{
-			fprintf(stderr, "[GeoTransform] WARNING: Coordinate transformation failed!\n");
+			std::cerr << "[GeoTransform] WARNING: Coordinate transformation failed!" << std::endl;
 		}
 	}
 
@@ -217,8 +220,8 @@ void GeoTransform::SetGeographicOrigin(double lon, double lat, double height)
 	glm::dmat4 EnuToEcefMatrix = CalcEnuToEcefMatrix(lon, lat, height);
 	EcefToEnuMatrix = glm::inverse(EnuToEcefMatrix);
 
-	fprintf(stderr, "[GeoTransform] Geographic origin set: lon=%.10f lat=%.10f h=%.3f\n",
-		lon, lat, height);
+	std::cerr << "[GeoTransform] Geographic origin set: lon=" << std::fixed << std::setprecision(10) << lon
+		<< " lat=" << lat << " h=" << std::setprecision(3) << height << std::endl;
 }
 
 void GeoTransform::Cleanup()
@@ -269,23 +272,21 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 	ConfigureProjContext(ctx);
 
 	// 构建坐标系转换字符串：EPSG:xxxx -> EPSG:4326(WGS84)
-	char crs_from[64], crs_to[64];
-	snprintf(crs_from, sizeof(crs_from), "EPSG:%d", epsg_code);
-	snprintf(crs_to, sizeof(crs_to), "EPSG:4326");
+	std::string crs_from = "EPSG:" + std::to_string(epsg_code);
+	std::string crs_to = "EPSG:4326";
 
-	fprintf(stderr, "[GeoTransform::InitFromEPSG] %s -> %s\n", crs_from, crs_to);
-	fprintf(stderr, "[GeoTransform::InitFromEPSG] Origin: x=%.6f y=%.6f z=%.3f\n",
-		origin[0], origin[1], origin[2]);
+	std::cerr << "[GeoTransform::InitFromEPSG] " << crs_from << " -> " << crs_to << std::endl;
+	std::cerr << "[GeoTransform::InitFromEPSG] Origin: x=" << std::fixed << std::setprecision(6) << origin[0]
+		<< " y=" << origin[1] << " z=" << std::setprecision(3) << origin[2] << std::endl;
 
 	// 创建坐标系转换对象
-	PJ* transform = proj_create_crs_to_crs(ctx, crs_from, crs_to, nullptr);
+	PJ* transform = proj_create_crs_to_crs(ctx, crs_from.c_str(), crs_to.c_str(), nullptr);
 	if (!transform)
 	{
-		char err_msg[256];
-		snprintf(err_msg, sizeof(err_msg),
-			"Failed to create transformation from %s to %s: %s",
-			crs_from, crs_to, proj_errno_string(proj_context_errno(ctx)));
-		lastError = err_msg;
+		std::ostringstream oss;
+		oss << "Failed to create transformation from " << crs_from << " to " << crs_to
+			<< ": " << proj_errno_string(proj_context_errno(ctx));
+		lastError = oss.str();
 		proj_context_destroy(ctx);
 		return false;
 	}
@@ -302,7 +303,7 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 	projContext = ctx;
 	Init(transform, origin);
 
-	fprintf(stderr, "[GeoTransform::InitFromEPSG] Initialization successful\n");
+	std::cerr << "[GeoTransform::InitFromEPSG] Initialization successful" << std::endl;
 	return true;
 }
 
@@ -320,8 +321,9 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 		return false;
 	}
 
-	fprintf(stderr, "[GeoTransform::InitFromENU] ENU: lon=%.7f lat=%.7f (offset: %.3f, %.3f, %.3f)\n",
-		lon, lat, origin_enu[0], origin_enu[1], origin_enu[2]);
+	std::cerr << "[GeoTransform::InitFromENU] ENU: lon=" << std::fixed << std::setprecision(7) << lon
+		<< " lat=" << lat << " (offset: " << std::setprecision(3) << origin_enu[0]
+		<< ", " << origin_enu[1] << ", " << origin_enu[2] << ")" << std::endl;
 
 	// 创建PROJ上下文
 	PJ_CONTEXT* ctx = proj_context_create();
@@ -352,7 +354,7 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 	// 设置ENU地理原点
 	SetGeographicOrigin(lon, lat, 0.0);
 
-	fprintf(stderr, "[GeoTransform::InitFromENU] Initialization successful\n");
+	std::cerr << "[GeoTransform::InitFromENU] Initialization successful" << std::endl;
 	return true;
 }
 
@@ -381,19 +383,17 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 	// 配置PROJ数据搜索路径，避免使用系统PATH中的旧版proj.db
 	ConfigureProjContext(ctx);
 
-	fprintf(stderr, "[GeoTransform::InitFromWKT] WKT -> EPSG:4326\n");
-	fprintf(stderr, "[GeoTransform::InitFromWKT] Origin: x=%.6f y=%.6f z=%.3f\n",
-		origin[0], origin[1], origin[2]);
+	std::cerr << "[GeoTransform::InitFromWKT] WKT -> EPSG:4326" << std::endl;
+	std::cerr << "[GeoTransform::InitFromWKT] Origin: x=" << std::fixed << std::setprecision(6) << origin[0]
+		<< " y=" << origin[1] << " z=" << std::setprecision(3) << origin[2] << std::endl;
 
 	// 从WKT创建源坐标系
 	PJ* crs_src = proj_create(ctx, wkt);
 	if (!crs_src)
 	{
-		char err_msg[256];
-		snprintf(err_msg, sizeof(err_msg),
-			"Failed to parse WKT: %s",
-			proj_errno_string(proj_context_errno(ctx)));
-		lastError = err_msg;
+		std::ostringstream oss;
+		oss << "Failed to parse WKT: " << proj_errno_string(proj_context_errno(ctx));
+		lastError = oss.str();
 		proj_context_destroy(ctx);
 		return false;
 	}
@@ -415,11 +415,9 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 
 	if (!transform)
 	{
-		char err_msg[256];
-		snprintf(err_msg, sizeof(err_msg),
-			"Failed to create transformation: %s",
-			proj_errno_string(proj_context_errno(ctx)));
-		lastError = err_msg;
+		std::ostringstream oss;
+		oss << "Failed to create transformation: " << proj_errno_string(proj_context_errno(ctx));
+		lastError = oss.str();
 		proj_context_destroy(ctx);
 		return false;
 	}
@@ -436,7 +434,7 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 	projContext = ctx;
 	Init(transform, origin);
 
-	fprintf(stderr, "[GeoTransform::InitFromWKT] Initialization successful\n");
+	std::cerr << "[GeoTransform::InitFromWKT] Initialization successful" << std::endl;
 	return true;
 }
 

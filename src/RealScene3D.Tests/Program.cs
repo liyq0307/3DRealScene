@@ -40,7 +40,7 @@ class Program
 
         // 定义测试文件路径（请根据实际情况修改）
         string objFilePath = @"E:\Data\3D\odm_texturing\odm_textured_model_geo.obj";
-        string osgbFilePath = @"E:\Data\3D\Tile_+005_+006\Tile_+005_+006_L20_000002020.osgb";
+        string osgbFilePath = @"E:\Data\3D\Tile_+005_+006_L21_0000034000.osgb";
         string osgbRootFilePath = @"E:\Data\3D\Tile_+005_+006\Tile_+005_+006.osgb";
         string osgbDatasetPath = @"E:\Data\3D\g_tsg_osgb";  // 倾斜摄影数据集根目录
         string glbInputPath = @"E:\Data\3D\odm_texturing\odm_textured_model_geo.glb";
@@ -117,7 +117,31 @@ class Program
     }
 
     /// <summary>
-    /// 测试5: OSGB PagedLOD 层次结构加载
+    /// 设置 OSG 环境变量
+    /// </summary>
+    static void SetOsgEnvironmentVariables()
+    {
+        // 获取当前程序所在目录
+        string currentDir = AppDomain.CurrentDomain.BaseDirectory;
+        string binDir = Path.GetFullPath(Path.Combine(currentDir, "..", "..", "..", "..", "bin", "Debug"));
+
+        // 设置 OSG_LIBRARY_PATH 环境变量
+        string osgLibraryPath = binDir;
+        Environment.SetEnvironmentVariable("OSG_LIBRARY_PATH", osgLibraryPath);
+
+        // 设置 OSG_FILE_PATH 环境变量（可选，用于查找纹理等资源文件）
+        Environment.SetEnvironmentVariable("OSG_FILE_PATH", binDir);
+
+        // 设置 PATH 环境变量，确保 OSG DLL 可以被找到
+        string path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        if (!path.Contains(binDir))
+        {
+            Environment.SetEnvironmentVariable("PATH", binDir + ";" + path);
+        }
+    }
+
+    /// <summary>
+    /// 测试5: OSGB PagedLOD 切片生成
     /// </summary>
     static async Task TestOsgbLODHierarchy(
         ILogger<Program> logger,
@@ -125,7 +149,7 @@ class Program
         string osgbRootPath)
     {
         logger.LogInformation("========================================");
-        logger.LogInformation("测试5：OSGB PagedLOD 层次结构加载");
+        logger.LogInformation("测试5：OSGB PagedLOD 切片生成");
         logger.LogInformation("========================================");
         logger.LogInformation("输入文件: {OsgbPath}", osgbRootPath);
         logger.LogInformation("========================================");
@@ -139,62 +163,95 @@ class Program
 
         var lodSlicingService = serviceProvider.GetRequiredService<OsgbLODSlicingService>();
 
-        logger.LogInformation("步骤1: 加载 PagedLOD 层次结构...");
+        logger.LogInformation("步骤1: 生成 OSGB PagedLOD 切片...");
 
-        var lodTiles = await lodSlicingService.LoadWithLODHierarchyAsync(osgbRootPath, maxDepth: 0);
+        // 创建临时输出目录
+        string tempOutputDir = Path.Combine(Path.GetTempPath(), $"osgb_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempOutputDir);
 
-        logger.LogInformation("✅ 加载成功! 共 {Count} 个 LOD 层级", lodTiles.Count);
-        logger.LogInformation("");
-
-        // 按层级分组统计
-        var lodStats = lodTiles.GroupBy(t => t.Level)
-            .OrderBy(g => g.Key)
-            .Select(g => new
+        try
+        {
+            var config = new SlicingConfig
             {
-                Level = g.Key,
-                Count = g.Count(),
-                TotalFaces = g.Sum(t => t.Mesh.FacesCount),
-                TotalVertices = g.Sum(t => t.Mesh.VertexCount)
-            })
-            .ToList();
+                GenerateTileset = true
+            };
 
-        logger.LogInformation("层级统计:");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        logger.LogInformation("{0,-10} {1,-10} {2,-15} {3,-15}", "LOD 层级", "切片数", "总面数", "总顶点数");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            var slices = await lodSlicingService.GenerateLODTilesAsync(
+                osgbRootPath,
+                tempOutputDir,
+                config,
+                gpsCoords: null,
+                CancellationToken.None);
 
-        foreach (var stat in lodStats)
-        {
-            logger.LogInformation("{0,-10} {1,-10} {2,-15:N0} {3,-15:N0}",
-                $"LOD-{stat.Level}",
-                stat.Count,
-                stat.TotalFaces,
-                stat.TotalVertices);
-        }
-
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        logger.LogInformation("");
-
-        // 显示前 5 个详细信息
-        logger.LogInformation("前 5 个切片详细信息:");
-        logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-        foreach (var tile in lodTiles.Take(5))
-        {
-            logger.LogInformation("LOD-{Level}: {File}", tile.Level, Path.GetFileName(tile.FileName));
-            logger.LogInformation("  路径: {RelPath}", tile.RelativePath);
-            logger.LogInformation("  顶点: {Vertices:N0}, 面: {Faces:N0}",
-                tile.Mesh.VertexCount, tile.Mesh.FacesCount);
-            logger.LogInformation("  几何误差: {Error:F2}", tile.GeometricError);
-            logger.LogInformation("  包围盒: [{MinX:F2}, {MinY:F2}, {MinZ:F2}] -> [{MaxX:F2}, {MaxY:F2}, {MaxZ:F2}]",
-                tile.BoundingBox.Min.X, tile.BoundingBox.Min.Y, tile.BoundingBox.Min.Z,
-                tile.BoundingBox.Max.X, tile.BoundingBox.Max.Y, tile.BoundingBox.Max.Z);
+            logger.LogInformation("✅ 切片生成成功! 共 {Count} 个切片", slices.Count);
             logger.LogInformation("");
-        }
 
-        if (lodTiles.Count > 5)
+            // 按层级分组统计
+            var lodStats = slices.GroupBy(s => s.Level)
+                .OrderBy(g => g.Key)
+                .Select(g => new
+                {
+                    Level = g.Key,
+                    Count = g.Count(),
+                    TotalSize = g.Sum(s => s.FileSize)
+                })
+                .ToList();
+
+            logger.LogInformation("层级统计:");
+            logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            logger.LogInformation("{0,-10} {1,-10} {2,-15}", "LOD 层级", "切片数", "总大小");
+            logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            foreach (var stat in lodStats)
+            {
+                logger.LogInformation("{0,-10} {1,-10} {2,-15}",
+                    $"LOD-{stat.Level}",
+                    stat.Count,
+                    $"{stat.TotalSize / 1024.0:F2} KB");
+            }
+
+            logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            logger.LogInformation("");
+
+            // 显示前 5 个详细信息
+            logger.LogInformation("前 5 个切片详细信息:");
+            logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            foreach (var slice in slices.Take(5))
+            {
+                logger.LogInformation("LOD-{Level}: {File}", slice.Level, Path.GetFileName(slice.FilePath));
+                logger.LogInformation("  大小: {Size:F2} KB", slice.FileSize / 1024.0);
+                logger.LogInformation("  创建时间: {Time}", slice.CreatedAt);
+                logger.LogInformation("");
+            }
+
+            if (slices.Count > 5)
+            {
+                logger.LogInformation("... 还有 {Count} 个切片未显示", slices.Count - 5);
+            }
+
+            // 检查tileset.json是否生成
+            string tilesetPath = Path.Combine(tempOutputDir, "tileset.json");
+            if (File.Exists(tilesetPath))
+            {
+                logger.LogInformation("✅ tileset.json 已生成: {Path}", tilesetPath);
+            }
+        }
+        finally
         {
-            logger.LogInformation("... 还有 {Count} 个切片未显示", lodTiles.Count - 5);
+            // 清理临时目录
+            try
+            {
+                if (Directory.Exists(tempOutputDir))
+                {
+                    Directory.Delete(tempOutputDir, true);
+                    logger.LogInformation("临时目录已清理");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "清理临时目录失败: {Path}", tempOutputDir);
+            }
         }
     }
 

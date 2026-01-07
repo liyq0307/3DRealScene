@@ -341,11 +341,27 @@ public class OsgbTiledDatasetSlicingService
             var (lon, lat, height) = metadata.GeoOrigin.Value;
 
             // 对于 ENU 系统，使用高度 0.0（与 3dtiles 一致）
-            // SRSOrigin 的偏移已经烘焙到瓦片几何坐标中
+            // 注意：ENU 偏移量需要加到变换矩阵中
             if (metadata.IsENU)
             {
                 _logger.LogInformation("ENU 系统：使用高度 0.0 进行根变换（经度={Lon}, 纬度={Lat}）", lon, lat);
-                return TransformXYZ(lon, lat, 0.0);
+                _logger.LogInformation("ENU 偏移量: X={X}, Y={Y}, Z={Z}", 
+                    metadata.SrsOrigin.X, metadata.SrsOrigin.Y, metadata.SrsOrigin.Z);
+                
+                var matrix = TransformXYZ(lon, lat, 0.0);
+                
+                // 将 ENU 偏移量转换为 ECEF 偏移量并加到变换矩阵中
+                var (offsetX, offsetY, offsetZ) = metadata.SrsOrigin;
+                var ecefOffset = ConvertEnuOffsetToEcef(lon, lat, offsetX, offsetY, offsetZ);
+                
+                matrix[12] += ecefOffset.X;
+                matrix[13] += ecefOffset.Y;
+                matrix[14] += ecefOffset.Z;
+                
+                _logger.LogInformation("ENU 偏移量转换为 ECEF 偏移量: X={X}, Y={Y}, Z={Z}", 
+                    ecefOffset.X, ecefOffset.Y, ecefOffset.Z);
+                
+                return matrix;
             }
             else
             {
@@ -363,6 +379,28 @@ public class OsgbTiledDatasetSlicingService
             _logger.LogWarning("未找到地理坐标原点，使用默认转换");
             return TransformXYZ(0, 0, centerZ);
         }
+    }
+
+    /// <summary>
+    /// 将 ENU 偏移量转换为 ECEF 偏移量
+    /// </summary>
+    private (double X, double Y, double Z) ConvertEnuOffsetToEcef(
+        double lonDeg, double latDeg, double enuX, double enuY, double enuZ)
+    {
+        double lon = lonDeg * Math.PI / 180.0;
+        double lat = latDeg * Math.PI / 180.0;
+
+        double sinLat = Math.Sin(lat);
+        double cosLat = Math.Cos(lat);
+        double sinLon = Math.Sin(lon);
+        double cosLon = Math.Cos(lon);
+
+        // ENU 偏移量转换为 ECEF 偏移量
+        double ecefOffsetX = -sinLon * enuX - sinLat * cosLon * enuY + cosLat * cosLon * enuZ;
+        double ecefOffsetY = cosLon * enuX - sinLat * sinLon * enuY + cosLat * sinLon * enuZ;
+        double ecefOffsetZ = cosLat * enuY + sinLat * enuZ;
+
+        return (ecefOffsetX, ecefOffsetY, ecefOffsetZ);
     }
 
     /// <summary>

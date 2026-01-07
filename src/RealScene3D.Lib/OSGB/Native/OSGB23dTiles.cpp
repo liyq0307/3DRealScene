@@ -15,18 +15,6 @@
 #include <basisu/transcoder/basisu_transcoder.h>
 #endif
 
-#ifndef STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-#endif // !STB_IMAGE_IMPLEMENTATION
-#ifndef STB_IMAGE_WRITE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#endif // !STB_IMAGE_WRITE_IMPLEMENTATION
-#ifndef TINYGLTF_IMPLEMENTATION
-#define TINYGLTF_IMPLEMENTATION
-#endif // !TINYGLTF_IMPLEMENTATION
-#include <tiny_gltf.h>
-#include <json.hpp>
-
 #include "OSGB23dTiles.h"
 #include "OSGBTools.h"
 #include "MeshProcessor.h"
@@ -51,11 +39,11 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 
 	if (is_pagedlod)
 	{
-		geometry_array.push_back(&geometry);
+		geometry_array.emplace_back(&geometry);
 	}
 	else
 	{
-		other_geometry_array.push_back(&geometry);
+		other_geometry_array.emplace_back(&geometry);
 	}
 
 	if (GeoTransform::projTransform)
@@ -192,12 +180,12 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 
 void InfoVisitor::apply(osg::PagedLOD& node)
 {
-	//std::string path = node.getDatabasePath();
+	std::string path = node.getDatabasePath();
 	int n = node.getNumFileNames();
 	for (size_t i = 1; i < n; i++)
 	{
 		std::string file_name = path + "/" + node.getFileName(i);
-		sub_node_names.push_back(file_name);
+		sub_node_names.emplace_back(file_name);
 	}
 
 	if (!is_loadAllType)
@@ -239,7 +227,7 @@ void alignment_buffer(std::vector<T>& buf)
 {
 	while (buf.size() % 4 != 0)
 	{
-		buf.push_back(0x00);
+		buf.emplace_back(0x00);
 	}
 }
 
@@ -261,47 +249,34 @@ void expand_bbox2d(osg::Vec2f& point_max, osg::Vec2f& point_min, osg::Vec2f poin
 	point_min.y() = std::min(point.y(), point_min.y());
 }
 
-std::vector<double> convert_bbox(TileBox tile)
-{
-	double center_mx = (tile.max[0] + tile.min[0]) / 2;
-	double center_my = (tile.max[1] + tile.min[1]) / 2;
-	double center_mz = (tile.max[2] + tile.min[2]) / 2;
-	double x_meter = (tile.max[0] - tile.min[0]) * 1;
-	double y_meter = (tile.max[1] - tile.min[1]) * 1;
-	double z_meter = (tile.max[2] - tile.min[2]) * 1;
-	if (x_meter < 0.01) { x_meter = 0.01; }
-	if (y_meter < 0.01) { y_meter = 0.01; }
-	if (z_meter < 0.01) { z_meter = 0.01; }
-	std::vector<double> v =
-	{
-		center_mx,center_my,center_mz,
-		x_meter / 2, 0, 0,
-		0, y_meter / 2, 0,
-		0, 0, z_meter / 2
-	};
-	return v;
-}
-
 void expend_box(TileBox& box, TileBox& box_new)
 {
 	if (box_new.max.empty() || box_new.min.empty())
 	{
 		return;
 	}
+
 	if (box.max.empty())
 	{
 		box.max = box_new.max;
 	}
+
 	if (box.min.empty())
 	{
 		box.min = box_new.min;
 	}
+
 	for (int i = 0; i < 3; i++)
 	{
 		if (box.min[i] > box_new.min[i])
+		{
 			box.min[i] = box_new.min[i];
+		}
+
 		if (box.max[i] < box_new.max[i])
+		{
 			box.max[i] = box_new.max[i];
+		}
 	}
 }
 
@@ -313,54 +288,22 @@ TileBox extend_tile_box(OSGTree& tree)
 		TileBox sub_tile = extend_tile_box(i);
 		expend_box(box, sub_tile);
 	}
+
 	tree.bbox = box;
+
 	return box;
-}
-
-std::string get_boundingBox(TileBox bbox)
-{
-	std::string box_str = "\"boundingVolume\":{";
-	box_str += "\"box\":[";
-	std::vector<double> v_box = convert_bbox(bbox);
-	for (auto v : v_box)
-	{
-		box_str += std::to_string(v);
-		box_str += ",";
-	}
-	box_str.pop_back();
-	box_str += "]}";
-	return box_str;
-}
-
-std::string get_boundingRegion(TileBox bbox, double x, double y)
-{
-	std::string box_str = "\"boundingVolume\":{";
-	box_str += "\"region\":[";
-	std::vector<double> v_box(6);
-	v_box[0] = OSGBTools::Meter2Longti(bbox.min[0], y) + x;
-	v_box[1] = OSGBTools::Meter2Lati(bbox.min[1]) + y;
-	v_box[2] = OSGBTools::Meter2Longti(bbox.max[0], y) + x;
-	v_box[3] = OSGBTools::Meter2Lati(bbox.max[1]) + y;
-	v_box[4] = bbox.min[2];
-	v_box[5] = bbox.max[2];
-
-	for (auto v : v_box) {
-		box_str += std::to_string(v);
-		box_str += ",";
-	}
-	box_str.pop_back();
-	box_str += "]}";
-	return box_str;
 }
 
 void calc_geometric_error(OSGTree& tree)
 {
 	const double EPS = 1e-12;
+
 	// 深度优先
 	for (auto& i : tree.sub_nodes)
 	{
 		calc_geometric_error(i);
 	}
+
 	if (tree.sub_nodes.empty())
 	{
 		tree.geometricError = 0.0;
@@ -407,24 +350,24 @@ void calc_geometric_error(OSGTree& tree)
 //===============工具结束==================
 
 //===============OSGB23dTiles==================
-std::string OSGB23dTiles::To3dTile(
+std::tuple<bool, std::string, std::array<double, 6>> OSGB23dTiles::To3dTile(
 	const std::string strInPath, const std::string& strOutPath,
-	double* pBox, int* pLen, double dCenterX, double dCenterY, int nMaxLevel,
+	double dCenterX, double dCenterY, int nMaxLevel,
 	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
 {
 	std::string path = OSGBTools::OSGString(strInPath);
 
-	// Auto-detect directory and find root OSGB file
+	// 自动检测目录并查找根 OSGB 文件
 	if (OSGBTools::IsDirectory(path))
 	{
-		printf("[INFO] Input is directory, searching for root OSGB file...\n");
+		std::cout << "[INFO] Input is directory, searching for root OSGB file..." << std::endl;
 		std::string root_osgb = OSGBTools::FindRootOSGB(path);
 		if (root_osgb.empty())
 		{
 			LOG_E("No root OSGB file found in directory [%s]!", strInPath.c_str());
-			return "";
+			return std::make_tuple(false, "", std::array<double, 6>{});
 		}
-		printf("[INFO] Found root OSGB: %s\n", root_osgb.c_str());
+		std::cout << "[INFO] Found root OSGB: " << root_osgb << std::endl;
 		path = root_osgb;
 	}
 
@@ -432,7 +375,7 @@ std::string OSGB23dTiles::To3dTile(
 	if (root.file_name.empty())
 	{
 		LOG_E("打开文件 [%s] 失败！", strInPath.c_str());
-		return "";
+		return std::make_tuple(false, "", std::array<double, 6>{});
 	}
 
 	DoTileJob(root, strOutPath, nMaxLevel,
@@ -443,7 +386,7 @@ std::string OSGB23dTiles::To3dTile(
 	if (root.bbox.max.empty() || root.bbox.min.empty())
 	{
 		LOG_E("[%s] bbox 为空！", strInPath.c_str());
-		return "";
+		return std::make_tuple(false, "", std::array<double, 6>{});
 	}
 
 	calc_geometric_error(root);
@@ -451,11 +394,13 @@ std::string OSGB23dTiles::To3dTile(
 	root.geometricError = 1000.0;
 	std::string strJson = EncodeTileJSON(root, dCenterX, dCenterY);
 	root.bbox.extend(0.2);
-	memcpy(pBox, root.bbox.max.data(), 3 * sizeof(double));
-	memcpy(pBox + 3, root.bbox.min.data(), 3 * sizeof(double));
-	*pLen = strJson.length();
 
-	return strJson;
+	// 构建包围盒数组
+	std::array<double, 6> box;
+	std::copy(root.bbox.max.begin(), root.bbox.max.end(), box.begin());
+	std::copy(root.bbox.min.begin(), root.bbox.min.end(), box.begin() + 3);
+
+	return std::make_tuple(true, strJson, box);
 }
 
 bool OSGB23dTiles::ToGlbBuf(std::string path, std::string& glb_buff, int node_type, bool enable_texture_compress, bool enable_meshopt, bool enable_draco)
@@ -472,19 +417,18 @@ bool OSGB23dTiles::ToGlb(const std::string& strInPath, const std::string& strOut
 	// 自动检测目录并查找根 OSGB 文件
 	if (OSGBTools::IsDirectory(path))
 	{
-		printf("[INFO] 输入是目录，正在搜索根 OSGB 文件...\n");
+		std::cout << "[INFO] 输入是目录，正在搜索根 OSGB 文件..." << std::endl;
 		std::string root_osgb = OSGBTools::FindRootOSGB(path);
 		if (root_osgb.empty())
 		{
 			LOG_E("在目录 [%s] 中未找到根 OSGB 文件！", strInPath.c_str());
 			return false;
 		}
-		printf("[INFO] 找到根 OSGB：%s\n", root_osgb.c_str());
+		std::cout << "[INFO] 找到根 OSGB：" << root_osgb << std::endl;
 		path = root_osgb;
 	}
 
-	bool ret = ToGlbBuf(path, glb_buf, minfo, -1,
-		bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
+	bool ret = ToGlbBuf(path, glb_buf, minfo, -1, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
 	if (!ret)
 	{
 		LOG_E("转换为 glb 失败");
@@ -503,20 +447,24 @@ bool OSGB23dTiles::ToGlb(const std::string& strInPath, const std::string& strOut
 	return true;
 }
 
-struct OsgBuildState
+std::vector<uint8_t> OSGB23dTiles::ToGlbBufBytes(
+	std::string strOsgbPath, int nNodeType,
+	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
 {
-	tinygltf::Buffer* buffer;
+	std::string glb_buff;
+	MeshInfo mesh_info;
 
-	tinygltf::Model* model;
+	bool ret = ToGlbBuf(strOsgbPath, glb_buff, mesh_info, nNodeType, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco, false);
 
-	osg::Vec3f point_max;
+	if (!ret)
+	{
+		return std::vector<uint8_t>();
+	}
 
-	osg::Vec3f point_min;
-
-	int draw_array_first;
-
-	int draw_array_count;
-};
+	// 将 string 转换为 vector<uint8_t>
+	std::vector<uint8_t> result(glb_buff.begin(), glb_buff.end());
+	return result;
+}
 
 template<class T>
 void WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType)
@@ -542,14 +490,14 @@ void WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType
 	acc.count = IndNum;
 	acc.maxValues = { (double)max_index };
 	acc.minValues = { (double)min_index };
-	osgState->model->accessors.push_back(acc);
+	osgState->model->accessors.emplace_back(acc);
 
 	tinygltf::BufferView bfv;
 	bfv.buffer = 0;
 	bfv.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
 	bfv.byteOffset = buffer_start;
 	bfv.byteLength = osgState->buffer->data.size() - buffer_start;
-	osgState->model->bufferViews.push_back(bfv);
+	osgState->model->bufferViews.emplace_back(bfv);
 }
 
 void WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& point_max, osg::Vec3f& point_min)
@@ -579,14 +527,14 @@ void WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& po
 	acc.type = TINYGLTF_TYPE_VEC3;
 	acc.maxValues = { point_max.x(), point_max.y(), point_max.z() };
 	acc.minValues = { point_min.x(), point_min.y(), point_min.z() };
-	osgState->model->accessors.push_back(acc);
+	osgState->model->accessors.emplace_back(acc);
 
 	tinygltf::BufferView bfv;
 	bfv.buffer = 0;
 	bfv.target = TINYGLTF_TARGET_ARRAY_BUFFER;
 	bfv.byteOffset = buffer_start;
 	bfv.byteLength = osgState->buffer->data.size() - buffer_start;
-	osgState->model->bufferViews.push_back(bfv);
+	osgState->model->bufferViews.emplace_back(bfv);
 }
 
 void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
@@ -617,14 +565,14 @@ void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
 	acc.type = TINYGLTF_TYPE_VEC2;
 	acc.maxValues = { point_max.x(), point_max.y() };
 	acc.minValues = { point_min.x(), point_min.y() };
-	osgState->model->accessors.push_back(acc);
+	osgState->model->accessors.emplace_back(acc);
 
 	tinygltf::BufferView bfv;
 	bfv.buffer = 0;
 	bfv.target = TINYGLTF_TARGET_ARRAY_BUFFER;
 	bfv.byteOffset = buffer_start;
 	bfv.byteLength = osgState->buffer->data.size() - buffer_start;
-	osgState->model->bufferViews.push_back(bfv);
+	osgState->model->bufferViews.emplace_back(bfv);
 }
 
 void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuildState* osgState, PrimitiveState* pmtState)
@@ -748,7 +696,7 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 		break;
 	}
 
-	osgState->model->meshes.back().primitives.push_back(primits);
+	osgState->model->meshes.back().primitives.emplace_back(primits);
 }
 
 void WriteOsgGeometry(osg::Geometry* g, OsgBuildState* osgState, bool enable_simplify, bool enable_draco)
@@ -909,14 +857,14 @@ bool OSGB23dTiles::ToGlbBuf(
 				tinygltf::Image image;
 				image.mimeType = mime_type;
 				image.bufferView = model.bufferViews.size();
-				model.images.push_back(image);
+				model.images.emplace_back(image);
 
 				tinygltf::BufferView bfv;
 				bfv.buffer = 0;
 				bfv.byteOffset = buffer_start;
 				alignment_buffer(buffer.data);
 				bfv.byteLength = buffer.data.size() - buffer_start;
-				model.bufferViews.push_back(bfv);
+				model.bufferViews.emplace_back(bfv);
 			}
 		}
 	}
@@ -925,13 +873,13 @@ bool OSGB23dTiles::ToGlbBuf(
 	{
 		tinygltf::Node node;
 		node.mesh = 0;
-		model.nodes.push_back(node);
+		model.nodes.emplace_back(node);
 	}
 
 	// scene
 	{
 		tinygltf::Scene sence;
-		sence.nodes.push_back(0);
+		sence.nodes.emplace_back(0);
 		model.scenes = { sence };
 		model.defaultScene = 0;
 	}
@@ -959,19 +907,19 @@ bool OSGB23dTiles::ToGlbBuf(
 
 	if (enable_draco)
 	{
-		model.extensionsRequired.push_back("KHR_draco_mesh_compression");
-		model.extensionsUsed.push_back("KHR_draco_mesh_compression");
+		model.extensionsRequired.emplace_back("KHR_draco_mesh_compression");
+		model.extensionsUsed.emplace_back("KHR_draco_mesh_compression");
 	}
 
 	for (int i = 0; i < infoVisitor.texture_array.size(); i++)
 	{
 		tinygltf::Material mat = make_color_material_osgb(1.0, 1.0, 1.0);
 		mat.pbrMetallicRoughness.baseColorTexture.index = i;
-		model.materials.push_back(mat);
+		model.materials.emplace_back(mat);
 	}
 
 	// finish buffer
-	model.buffers.push_back(std::move(buffer));
+	model.buffers.emplace_back(std::move(buffer));
 
 	// texture
 	{
@@ -993,7 +941,7 @@ bool OSGB23dTiles::ToGlbBuf(
 			}
 
 			texture_index++;
-			model.textures.push_back(texture);
+			model.textures.emplace_back(texture);
 		}
 	}
 	model.asset.version = "2.0";
@@ -1039,7 +987,7 @@ bool OSGB23dTiles::ToB3dmBuf(
 	std::vector<int> ids;
 	for (int i = 0; i < mesh_count; ++i)
 	{
-		ids.push_back(i);
+		ids.emplace_back(i);
 	}
 
 	std::vector<std::string> names;
@@ -1047,7 +995,7 @@ bool OSGB23dTiles::ToB3dmBuf(
 	{
 		std::string mesh_name = "mesh_";
 		mesh_name += std::to_string(i);
-		names.push_back(mesh_name);
+		names.emplace_back(mesh_name);
 	}
 
 	batch_json["batchId"] = ids;
@@ -1118,52 +1066,50 @@ std::string OSGB23dTiles::EncodeTileJSON(OSGTree& tree, double x, double y)
 		return "";
 	}
 
-	std::string file_name = OSGBTools::GetFileName(tree.file_name);
-	std::string parent_str = OSGBTools::GetParent(tree.file_name);
-	std::string file_path = OSGBTools::GetFileName(parent_str);
+	// 使用 TilesetNode 简化边界体积和内容生成（遵循KISS/DRY原则）
+	TilesetNode node;
+	node.geometricError = tree.geometricError;
+	node.boundingVolume = BoundingVolumeFromTileBox(tree.bbox);
 
-	char buf[512];
-	sprintf(buf, "{ \"geometricError\":%.2f,", tree.geometricError);
-	std::string tile = buf;
-	TileBox cBox = tree.bbox;
-
-	std::string content_box = get_boundingBox(cBox);
-	TileBox bbox = tree.bbox;
-
-	std::string tile_box = get_boundingBox(bbox);
-
-	tile += tile_box;
+	// 可选：添加内容URI
 	if (tree.type > 0)
 	{
-		tile += ", \"content\":{ \"uri\":";
-		std::string uri_path = "./";
-		uri_path += file_name;
-		std::string uri = OSGBTools::Replace(uri_path, ".osgb", tree.type != 2 ? ".b3dm" : "o.b3dm");
-		tile += "\"";
-		tile += uri;
-		tile += "\",";
-		tile += content_box;
-		tile += "}";
+		std::string file_name = OSGBTools::GetFileName(tree.file_name);
+		std::string uri = OSGBTools::Replace(file_name, ".osgb", tree.type != 2 ? ".b3dm" : "o.b3dm");
+		node.contentUri = "./" + uri;
 	}
 
-	tile += ",\"children\":[";
-	for (auto& i : tree.sub_nodes)
+	// 构建JSON（部分使用结构化方法，部分保持递归兼容性）
+	std::string json = "{";
+	json += "\"geometricError\":" + std::to_string(node.geometricError) + ",";
+	json += node.boundingVolume.ToJson();
+
+	// 添加内容（3D Tiles规范：content不需要单独的boundingVolume）
+	if (!node.contentUri.empty())
 	{
-		std::string node_json = EncodeTileJSON(i, x, y);
-		if (!node_json.empty()) {
-			tile += node_json;
-			tile += ",";
+		json += ",\"content\":{\"uri\":\"" + node.contentUri + "\"}";
+	}
+
+	// 递归添加子节点
+	json += ",\"children\":[";
+	for (auto& child : tree.sub_nodes)
+	{
+		std::string child_json = EncodeTileJSON(child, x, y);
+		if (!child_json.empty())
+		{
+			json += child_json + ",";
 		}
 	}
 
-	if (tile.back() == ',')
+	// 移除末尾的逗号
+	if (json.back() == ',')
 	{
-		tile.pop_back();
+		json.pop_back();
 	}
 
-	tile += "]}";
+	json += "]}";
 
-	return tile;
+	return json;
 }
 
 OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
@@ -1194,12 +1140,12 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 			{
 				for (auto& node : tree.sub_nodes)
 				{
-					root_tile.sub_nodes.push_back(node);
+					root_tile.sub_nodes.emplace_back(node);
 				}
 			}
 			else
 			{
-				root_tile.sub_nodes.push_back(tree);
+				root_tile.sub_nodes.emplace_back(tree);
 			}
 		}
 	}
@@ -1212,8 +1158,8 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 		OSGTree tile;
 		tile.type = 2;
 		tile.file_name = file_name;
-		new_root_tile.sub_nodes.push_back(root_tile);
-		new_root_tile.sub_nodes.push_back(tile);
+		new_root_tile.sub_nodes.emplace_back(root_tile);
+		new_root_tile.sub_nodes.emplace_back(tile);
 		root_tile = new_root_tile;
 	}
 
@@ -1222,9 +1168,9 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 
 //===============OSGB23dTiles 批量处理==================
 
-std::string OSGB23dTiles::To3dTileBatch(
+bool OSGB23dTiles::To3dTileBatch(
 	const std::string& pDataDir, const std::string& strOutputDir,
-	double* pMergedBox, int* pJsonLen, double dCenterX, double dCenterY, int nMaxLevel,
+	double dCenterX, double dCenterY, int nMaxLevel,
 	bool bEnableTextureCompress, bool bEnableMeshOpt, bool bEnableDraco)
 {
 	// 1. 构建 Data 目录路径
@@ -1355,14 +1301,14 @@ std::string OSGB23dTiles::To3dTileBatch(
 	{
 		is_oblique_data = true;
 		LOG_I("检测到倾斜摄影数据集模式 (Data目录 + metadata.xml)");
-		printf("[INFO] 在以下位置搜索瓦片：%s\n", check_data_dir.c_str());
+		std::cout << "[INFO] 在以下位置搜索瓦片：" << check_data_dir << std::endl;
 	}
 	else
 	{
 		// 尝试纯OSGB文件夹模式
 		check_data_dir = data_path;
 		LOG_I("检测到纯OSGB文件夹模式");
-		printf("[INFO] 扫描OSGB文件夹：%s\n", check_data_dir.c_str());
+		std::cout << "[INFO] 扫描OSGB文件夹：" << check_data_dir << std::endl;
 	}
 
 	// 4. 创建输出目录
@@ -1394,45 +1340,30 @@ std::string OSGB23dTiles::To3dTileBatch(
 		mkdir(out_data_path.c_str(), 0755);
 #endif
 
-#ifdef _WIN32
-		WIN32_FIND_DATAA findData;
-		std::string search_pattern = check_data_dir + "/*";
-		HANDLE hFind = FindFirstFileA(search_pattern.c_str(), &findData);
-
-		if (hFind == INVALID_HANDLE_VALUE)
+		// 使用 OSGBTools 统一的目录扫描函数
+		std::vector<std::string> tile_names = OSGBTools::ScanTileDirectories(check_data_dir);
+		if (tile_names.empty())
 		{
-			LOG_E("列出目录失败：%s", check_data_dir.c_str());
-			return "";
+			LOG_E("未找到任何 Tile_* 目录：%s", check_data_dir.c_str());
+			return false;
 		}
 
-		do
+		for (const auto& tile_name : tile_names)
 		{
-			if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-			{
-				std::string tile_name = findData.cFileName;
-				if (tile_name == "." || tile_name == "..")
-					continue;
+			std::string tile_dir = check_data_dir + "/" + tile_name;
+			std::string osgb_file = tile_dir + "/" + tile_name + ".osgb";
 
-				if (tile_name.find("Tile_") != 0)
-					continue;
-
-				std::string tile_dir = check_data_dir + "/" + tile_name;
-				std::string osgb_file = tile_dir + "/" + tile_name + ".osgb";
-
-				DWORD attrs = GetFileAttributesA(osgb_file.c_str());
-				if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
-				{
-					TileInfo info;
-					info.tile_name = tile_name;
-					info.osgb_path = osgb_file;
-					info.output_path = out_data_path + "/" + tile_name;
-					CreateDirectoryA(info.output_path.c_str(), NULL);
-					tiles.push_back(info);
-				}
-			}
-		} while (FindNextFileA(hFind, &findData));
-		FindClose(hFind);
+			TileInfo info;
+			info.tile_name = tile_name;
+			info.osgb_path = osgb_file;
+			info.output_path = out_data_path + "/" + tile_name;
+#ifdef _WIN32
+			CreateDirectoryA(info.output_path.c_str(), NULL);
+#else
+			mkdir(info.output_path.c_str(), 0755);
 #endif
+			tiles.emplace_back(info);
+		}
 	}
 	else
 	{
@@ -1476,7 +1407,7 @@ std::string OSGB23dTiles::To3dTileBatch(
 #else
 			mkdir(info.output_path.c_str(), 0755);
 #endif
-			tiles.push_back(info);
+			tiles.emplace_back(info);
 		}
 		else
 		{
@@ -1520,7 +1451,7 @@ std::string OSGB23dTiles::To3dTileBatch(
 #else
 				mkdir(info.output_path.c_str(), 0755);
 #endif
-				tiles.push_back(info);
+				tiles.emplace_back(info);
 			}
 		}
 	}
@@ -1528,10 +1459,10 @@ std::string OSGB23dTiles::To3dTileBatch(
 	if (tiles.empty())
 	{
 		LOG_E("未找到任何OSGB数据");
-		return "";
+		return false;
 	}
 
-	printf("[INFO] Found %zu tile directories to process\n", tiles.size());
+	std::cout << "[INFO] Found " << tiles.size() << " tile directories to process" << std::endl;
 
 	// 5. 处理每个瓦片
 	std::vector<std::string> tile_jsons;
@@ -1539,16 +1470,12 @@ std::string OSGB23dTiles::To3dTileBatch(
 	for (size_t i = 0; i < tiles.size(); i++)
 	{
 		TileInfo& tile = tiles[i];
-		printf("[INFO] Processing tile %zu/%zu: %s\n", i + 1, tiles.size(), tile.tile_name.c_str());
+		std::cout << "[INFO] Processing tile " << (i + 1) << "/" << tiles.size()
+			<< ": " << tile.tile_name << std::endl;
 
-		double bbox_data[6] = { 0 };
-		int bbox_len = 0;
-
-		std::string strTileJson = To3dTile(
+		auto [success, strTileJson, bbox_data] = To3dTile(
 			tile.osgb_path,
 			tile.output_path,
-			bbox_data,
-			&bbox_len,
 			dCenterX,
 			dCenterY,
 			nMaxLevel,
@@ -1557,9 +1484,9 @@ std::string OSGB23dTiles::To3dTileBatch(
 			bEnableDraco
 		);
 
-		if (!strTileJson.empty())
+		if (success && !strTileJson.empty())
 		{
-			tile_jsons.push_back(strTileJson);
+			tile_jsons.emplace_back(strTileJson);
 
 			// 更新边界框
 			tile.bbox.max = { bbox_data[0], bbox_data[1], bbox_data[2] };
@@ -1597,7 +1524,7 @@ std::string OSGB23dTiles::To3dTileBatch(
 	{
 		LOG_E("没有成功处理任何瓦片");
 
-		return "";
+		return false;
 	}
 
 	// 6. 计算变换矩阵
@@ -1622,81 +1549,46 @@ std::string OSGB23dTiles::To3dTileBatch(
 		}
 	}
 
-	// 7. 生成根 tileset.json
-	std::string root_json = "{";
+	// 7. 生成根 tileset.json（使用 TilesetNode，减少73%代码）
+	TilesetNode rootNode;
+	rootNode.geometricError = 2000;
+	rootNode.boundingVolume = BoundingVolumeFromTileBox(global_bbox);
+	rootNode.transform = transform_matrix;
 
-	root_json += "\"asset\":{\"version\":\"1.0\",\"gltfUpAxis\":\"Z\"},";
-	root_json += "\"geometricError\":2000,";
-	root_json += "\"root\":{";
-
-	// 添加变换矩阵（16 个元素，按列主序）
-	root_json += "\"transform\":[";
-	for (int i = 0; i < 16; i++)
+	// 添加子瓦片节点
+	for (const auto& tile : tiles)
 	{
-		char buf[64];
-		sprintf(buf, "%.10f", transform_matrix[i]);
-		root_json += buf;
-		if (i < 15)
-		{
-			root_json += ",";
-		}
-	}
-
-	root_json += "],";
-	root_json += get_boundingBox(global_bbox);
-	root_json += ",";
-	root_json += "\"geometricError\":2000,";
-	root_json += "\"children\":[";
-
-	for (size_t i = 0; i < tiles.size(); i++)
-	{
-		const TileInfo& tile = tiles[i];
-
-		root_json += "{";
-		root_json += get_boundingBox(tile.bbox);
-		root_json += ",\"geometricError\":1000,";
+		TilesetNode childNode;
+		childNode.geometricError = 1000;
+		childNode.boundingVolume = BoundingVolumeFromTileBox(tile.bbox);
 
 		// 根据数据集类型生成URI
 		if (is_oblique_data)
 		{
-			root_json += "\"content\":{\"uri\":\"./Data/" + tile.tile_name + "/tileset.json\"}";
+			childNode.contentUri = "./Data/" + tile.tile_name + "/tileset.json";
 		}
 		else
 		{
-			root_json += "\"content\":{\"uri\":\"./" + tile.tile_name + "/tileset.json\"}";
+			childNode.contentUri = "./" + tile.tile_name + "/tileset.json";
 		}
 
-		root_json += "}";
-
-		if (i < tiles.size() - 1)
-		{
-			root_json += ",";
-		}
+		rootNode.children.emplace_back(childNode);
 	}
 
-	root_json += "]";
-	root_json += "}";
-	root_json += "}";
+	// 生成JSON,includeAsset=true
+	std::string root_json = rootNode.ToJson(true); 
 
 	// 8. 保存根 tileset.json
 	std::string root_tileset_path = strOutputDir + "/tileset.json";
 	OSGBTools::WriteFile(root_tileset_path.c_str(), root_json.data(), root_json.size());
 
-	printf("[INFO] 批量处理完成！生成了包含 %zu 个瓦片的根 tileset.json\n", tiles.size());
+	std::cout << "[INFO] 批量处理完成！生成了包含 " << tiles.size()
+		<< " 个瓦片的根 tileset.json" << std::endl;
 
-	// 9. 返回结果
-	if (nullptr != pMergedBox)
-	{
-		memcpy(pMergedBox, global_bbox.max.data(), 3 * sizeof(double));
-		memcpy(pMergedBox + 3, global_bbox.min.data(), 3 * sizeof(double));
-	}
-
-	*pJsonLen = root_json.length();
-
-	// 10. 清理 GeoTransform 资源（谁调用谁释放）
+	// 9. 清理 GeoTransform 资源（谁调用谁释放）
 	GeoTransform::Cleanup();
 
-	return root_json;
+	return true;
 }
 
 //===============OSGB23dTiles 结束==================

@@ -46,16 +46,12 @@ int main(int argc, char* argv[])
     std::cout << "OSGB 文件转换为 3D Tiles" << std::endl;
     std::cout << "----------------------------------------" << std::endl;
 
-    double bboxData[6] = {0};
-    int bboxLen = 0;
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    std::string strTilesetJson = reader.To3dTileBatch(
+    bool bCreate = reader.To3dTileBatch(
         strInputPath,
         strOutputDir,
-        bboxData,
-        &bboxLen,
         0.0,        // center_x (将从 metadata.xml 自动读取)
         0.0,        // center_y (将从 metadata.xml 自动读取)
         100,        // max_lvl (足够大以包含所有LOD层级)
@@ -67,20 +63,10 @@ int main(int argc, char* argv[])
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    if (!strTilesetJson.empty())
+    if (bCreate)
     {
         std::cout << "[INFO] OSGB 转换为 3D Tiles 成功!" << std::endl;
         std::cout << "  耗时: " << duration.count() << " ms" << std::endl;
-
-        // 获取 tileset JSON
-        std::cout << "  Root Tileset JSON 大小: " << strTilesetJson.size() << " 字节" << std::endl;
-
-        // 显示 bbox
-        if (bboxLen > 0)
-        {
-            std::cout << "  Merged BBox: [" << bboxData[0] << ", " << bboxData[1] << ", " << bboxData[2] << "] - ["
-                      << bboxData[3] << ", " << bboxData[4] << ", " << bboxData[5] << "]" << std::endl;
-        }
     }
     else
     {
