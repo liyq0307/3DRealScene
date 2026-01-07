@@ -658,43 +658,43 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* pGeometry, const Simplif
 	{
 	case osg::PrimitiveSet::DrawElementsUBytePrimitiveType:
 	{
-		osg::DrawElementsUByte* newDrawElements = new osg::DrawElementsUByte(primitiveSet->getMode());
+		osg::ref_ptr<osg::DrawElementsUByte> newDrawElements = new osg::DrawElementsUByte(primitiveSet->getMode());
 		for (size_t i = 0; i < simplified_index_count; ++i)
 		{
 			newDrawElements->push_back(static_cast<osg::DrawElementsUByte::value_type>(simplified_indices[i]));
 		}
-		pGeometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements.get());
 		break;
 	}
 	case osg::PrimitiveSet::DrawElementsUShortPrimitiveType:
 	{
-		osg::DrawElementsUShort* newDrawElements = new osg::DrawElementsUShort(primitiveSet->getMode());
+		osg::ref_ptr<osg::DrawElementsUShort> newDrawElements = new osg::DrawElementsUShort(primitiveSet->getMode());
 		for (size_t i = 0; i < simplified_index_count; ++i)
 		{
 			newDrawElements->push_back(static_cast<osg::DrawElementsUShort::value_type>(simplified_indices[i]));
 		}
-		pGeometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements.get());
 		break;
 	}
 	case osg::PrimitiveSet::DrawElementsUIntPrimitiveType:
 	{
-		osg::DrawElementsUInt* newDrawElements = new osg::DrawElementsUInt(primitiveSet->getMode());
+		osg::ref_ptr<osg::DrawElementsUInt> newDrawElements = new osg::DrawElementsUInt(primitiveSet->getMode());
 		for (size_t i = 0; i < simplified_index_count; ++i)
 		{
 			newDrawElements->push_back(simplified_indices[i]);
 		}
-		pGeometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements.get());
 		break;
 	}
 	case osg::PrimitiveSet::DrawArraysPrimitiveType:
 	{
 		// For DrawArrays, we need to create a new DrawElements
-		osg::DrawElementsUInt* newDrawElements = new osg::DrawElementsUInt(primitiveSet->getMode());
+		osg::ref_ptr<osg::DrawElementsUInt> newDrawElements = new osg::DrawElementsUInt(primitiveSet->getMode());
 		for (size_t i = 0; i < simplified_index_count; ++i)
 		{
 			newDrawElements->push_back(simplified_indices[i]);
 		}
-		pGeometry->setPrimitiveSet(0, newDrawElements);
+		pGeometry->setPrimitiveSet(0, newDrawElements.get());
 		break;
 	}
 	}

@@ -813,15 +813,20 @@ bool OSGB23dTiles::ToGlbBuf(
 	{
 		return false;
 	}
+
 	InfoVisitor infoVisitor(parent_path, node_type == -1);
 	root->accept(infoVisitor);
+
 	if (node_type == 2 || infoVisitor.geometry_array.empty())
 	{
 		infoVisitor.geometry_array = infoVisitor.other_geometry_array;
 		infoVisitor.texture_array = infoVisitor.other_texture_array;
 	}
+
 	if (infoVisitor.geometry_array.empty())
+	{
 		return false;
+	}
 
 	osgUtil::SmoothingVisitor sv;
 	root->accept(sv);
@@ -840,7 +845,9 @@ bool OSGB23dTiles::ToGlbBuf(
 	for (auto g : infoVisitor.geometry_array)
 	{
 		if (!g->getVertexArray() || g->getVertexArray()->getDataSize() == 0)
+		{
 			continue;
+		}
 
 		WriteOsgGeometry(g, &osgState, enable_meshopt, enable_draco);
 		if (infoVisitor.texture_array.size())
@@ -854,15 +861,21 @@ bool OSGB23dTiles::ToGlbBuf(
 					{
 						model.meshes[0].primitives[primitive_idx].material++;
 						if (tex == texture)
+						{
 							break;
+						}
 					}
 				}
+
 				primitive_idx++;
 			}
 		}
 	}
+
 	if (model.meshes[0].primitives.empty())
+	{
 		return false;
+	}
 
 	if (need_mesh_info)
 	{
@@ -959,6 +972,7 @@ bool OSGB23dTiles::ToGlbBuf(
 
 	// finish buffer
 	model.buffers.push_back(std::move(buffer));
+
 	// texture
 	{
 		int texture_index = 0;
@@ -992,7 +1006,7 @@ bool OSGB23dTiles::ToGlbBuf(
 		glb_buff = ss.str();
 	}
 
-	return true;
+	return res;
 }
 
 bool OSGB23dTiles::ToB3dmBuf(
@@ -1003,8 +1017,7 @@ bool OSGB23dTiles::ToB3dmBuf(
 
 	std::string glb_buf;
 	MeshInfo minfo;
-	bool ret = ToGlbBuf(path, glb_buf, minfo, node_type, enable_texture_compress, enable_meshopt, enable_draco);
-	if (!ret)
+	if (!ToGlbBuf(path, glb_buf, minfo, node_type, enable_texture_compress, enable_meshopt, enable_draco))
 	{
 		return false;
 	}
@@ -1142,6 +1155,7 @@ std::string OSGB23dTiles::EncodeTileJSON(OSGTree& tree, double x, double y)
 			tile += ",";
 		}
 	}
+
 	if (tile.back() == ',')
 	{
 		tile.pop_back();
@@ -1179,7 +1193,9 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 			if (tree.type == 0)
 			{
 				for (auto& node : tree.sub_nodes)
+				{
 					root_tile.sub_nodes.push_back(node);
+				}
 			}
 			else
 			{
@@ -1252,8 +1268,7 @@ std::string OSGB23dTiles::To3dTileBatch(
 			// ENU 坐标系统
 			LOG_I("Using ENU coordinate system");
 			LOG_I("  Geographic origin: lat=%.6f, lon=%.6f", metadata.dCenterLat, metadata.dCenterLon);
-			LOG_I("  SRSOrigin offset: x=%.3f, y=%.3f, z=%.3f",
-				metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
+			LOG_I("  SRSOrigin offset: x=%.3f, y=%.3f, z=%.3f", metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
 
 			// 调用 enu_init 初始化 GeoTransform
 			// 注意：enu_init 需要经度在前，纬度在后
@@ -1677,6 +1692,9 @@ std::string OSGB23dTiles::To3dTileBatch(
 	}
 
 	*pJsonLen = root_json.length();
+
+	// 10. 清理 GeoTransform 资源（谁调用谁释放）
+	GeoTransform::Cleanup();
 
 	return root_json;
 }

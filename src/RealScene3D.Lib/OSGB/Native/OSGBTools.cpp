@@ -436,7 +436,7 @@ std::vector<double> transfrom_xyz(double dLonDeg, double dLatDeg, double dHeight
 void OSGBTools::TransformC(double dCenterX, double dCenterY, double dHeightMin, double* pPtr)
 {
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
-	fprintf(stderr, "[transform_c] lon=%.10f lat=%.10f h=%.3f -> ECEF translation: x=%.10f y=%.10f z=%.10f\n",
+	fprintf(stderr, "[TransformC] lon=%.10f lat=%.10f h=%.3f -> ECEF translation: x=%.10f y=%.10f z=%.10f\n",
 		dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
 
 	std::memcpy(pPtr, v.data(), v.size() * 8);
@@ -445,7 +445,7 @@ void OSGBTools::TransformC(double dCenterX, double dCenterY, double dHeightMin, 
 void OSGBTools::TransformCWithEnuOffset(double dCenterX, double dCenterY, double dHeightMin, double dEnuOffsetX, double dEnuOffsetY, double dEnuOffsetZ, double* pPtr)
 {
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
-	fprintf(stderr, "[transform_c_with_enu_offset] Base ECEF at lon=%.10f lat=%.10f h=%.3f: x=%.10f y=%.10f z=%.10f\n",
+	fprintf(stderr, "[TransformCWithEnuOffset] Base ECEF at lon=%.10f lat=%.10f h=%.3f: x=%.10f y=%.10f z=%.10f\n",
 		dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
 
 	double dLatRad = dCenterY * dPI / 180.0;
@@ -459,14 +459,14 @@ void OSGBTools::TransformCWithEnuOffset(double dCenterX, double dCenterY, double
 	double dEcefOffsetX = -dSinLon * dEnuOffsetX - dSinLat * dCosLon * dEnuOffsetY + dCosLat * dCosLon * dEnuOffsetZ;
 	double dEcefOffsetY = dCosLon * dEnuOffsetX - dSinLat * dSinLon * dEnuOffsetY + dCosLat * dSinLon * dEnuOffsetZ;
 	double dEcefOffsetZ = dCosLat * dEnuOffsetY + dSinLat * dEnuOffsetZ;
-	fprintf(stderr, "[transform_c_with_enu_offset] ENU offset (%.3f, %.3f, %.3f) -> ECEF offset (%.10f, %.10f, %.10f)\n",
+	fprintf(stderr, "[TransformCWithEnuOffset] ENU offset (%.3f, %.3f, %.3f) -> ECEF offset (%.10f, %.10f, %.10f)\n",
 		dEnuOffsetX, dEnuOffsetY, dEnuOffsetZ, dEcefOffsetX, dEcefOffsetY, dEcefOffsetZ);
 
 	v[12] += dEcefOffsetX;
 	v[13] += dEcefOffsetY;
 	v[14] += dEcefOffsetZ;
 
-	fprintf(stderr, "[transform_c_with_enu_offset] Final ECEF translation: x=%.10f y=%.10f z=%.10f\n",
+	fprintf(stderr, "[TransformCWithEnuOffset] Final ECEF translation: x=%.10f y=%.10f z=%.10f\n",
 		v[12], v[13], v[14]);
 
 	std::memcpy(pPtr, v.data(), v.size() * 8);

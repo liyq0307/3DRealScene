@@ -394,6 +394,68 @@ if(PROJ_FOUND)
     message(STATUS "Found PROJ - coordinate transformations enabled")
     target_link_libraries(${PROJECT_NAME} PRIVATE PROJ::proj)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_PROJ)
+
+    # 拷贝 proj.db 数据文件到输出目录
+    if(WIN32)
+        # 获取 PROJ 安装路径并查找 proj.db
+        get_target_property(PROJ_LOCATION PROJ::proj LOCATION)
+        if(PROJ_LOCATION)
+            get_filename_component(PROJ_BIN_DIR "${PROJ_LOCATION}" DIRECTORY)
+            get_filename_component(PROJ_ROOT_DIR "${PROJ_BIN_DIR}" DIRECTORY)
+
+            # vcpkg 安装：proj.db 在 x64-windows/share/proj（共享数据目录，不区分 debug/release）
+            # 预编译版本：proj.db 在 <root>/share/proj
+            # 尝试多个可能的路径
+            set(PROJ_DATA_DIR "")
+            set(POSSIBLE_PATHS
+                "${PROJ_ROOT_DIR}/../share/proj"        # vcpkg: x64-windows/share/proj
+                "${PROJ_ROOT_DIR}/share/proj"            # 预编译版本
+                "${PROJ_ROOT_DIR}/../../share/proj"      # 其他可能的结构
+            )
+
+            foreach(POSSIBLE_PATH ${POSSIBLE_PATHS})
+                get_filename_component(ABS_PATH "${POSSIBLE_PATH}" ABSOLUTE)
+                if(EXISTS "${ABS_PATH}/proj.db")
+                    set(PROJ_DATA_DIR "${ABS_PATH}")
+                    break()
+                endif()
+            endforeach()
+
+            if(PROJ_DATA_DIR)
+                message(STATUS "Found proj.db: ${PROJ_DATA_DIR}/proj.db")
+
+                set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../../../bin")
+
+                if(CMAKE_CONFIGURATION_TYPES)
+                    # 多配置生成器 - 为 Debug 和 Release 分别复制
+                    foreach(CONFIG_TYPE Debug Release)
+                        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                            COMMAND $<$<CONFIG:${CONFIG_TYPE}>:${CMAKE_COMMAND}>
+                                $<$<CONFIG:${CONFIG_TYPE}>:-E>
+                                $<$<CONFIG:${CONFIG_TYPE}>:copy_if_different>
+                                $<$<CONFIG:${CONFIG_TYPE}>:"${PROJ_DATA_DIR}/proj.db">
+                                $<$<CONFIG:${CONFIG_TYPE}>:"${OUTPUT_DIR}/${CONFIG_TYPE}/proj.db">
+                            COMMENT "Copying proj.db for ${CONFIG_TYPE}"
+                        )
+                    endforeach()
+                else()
+                    # 单配置生成器
+                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${PROJ_DATA_DIR}/proj.db"
+                            "${OUTPUT_DIR}/${CMAKE_BUILD_TYPE}/proj.db"
+                        COMMENT "Copying proj.db for ${CMAKE_BUILD_TYPE}"
+                    )
+                endif()
+            else()
+                message(WARNING "proj.db not found. Searched paths:")
+                foreach(POSSIBLE_PATH ${POSSIBLE_PATHS})
+                    get_filename_component(ABS_PATH "${POSSIBLE_PATH}" ABSOLUTE)
+                    message(WARNING "  - ${ABS_PATH}/proj.db")
+                endforeach()
+            endif()
+        endif()
+    endif()
 else()
     message(STATUS "PROJ not found - coordinate transformations disabled")
 endif()

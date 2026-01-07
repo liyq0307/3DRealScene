@@ -1,6 +1,76 @@
-#include "GeoTransform.h"
+#ifdef _WIN32
+#include <windows.h>
+#include <libloaderapi.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
+
 #include <cstdio>
 #include <cmath>
+#include <filesystem>
+
+#include "GeoTransform.h"
+
+// 辅助函数：配置PROJ上下文，设置正确的数据搜索路径
+static void ConfigureProjContext(PJ_CONTEXT* ctx)
+{
+	if (!ctx)
+	{
+		return;
+	}
+
+	// 辅助函数：获取可执行文件所在目录
+	auto GetExecutableDirectory = []() -> std::string
+		{
+#ifdef _WIN32
+			char path[MAX_PATH];
+			HMODULE hModule = GetModuleHandleA(nullptr);
+			if (hModule != nullptr)
+			{
+				GetModuleFileNameA(hModule, path, MAX_PATH);
+				std::filesystem::path exePath(path);
+				return exePath.parent_path().string();
+			}
+#else
+			char path[PATH_MAX];
+			ssize_t count = readlink("/proc/self/exe", path, PATH_MAX);
+			if (count != -1)
+			{
+				path[count] = '\0';
+				std::filesystem::path exePath(path);
+				return exePath.parent_path().string();
+			}
+#endif
+			return "";
+		};
+
+	// 1. 获取可执行文件目录
+	std::string exeDir = GetExecutableDirectory();
+	if (exeDir.empty())
+	{
+		fprintf(stderr, "[PROJ] Warning: Cannot determine executable directory\n");
+		return;
+	}
+
+	// 2. 构建proj.db预期路径（与可执行文件同目录）
+	std::filesystem::path projDbPath = std::filesystem::path(exeDir) / "proj.db";
+
+	// 3. 检查proj.db是否存在
+	if (!std::filesystem::exists(projDbPath))
+	{
+		fprintf(stderr, "[PROJ] Warning: proj.db not found at: %s\n", projDbPath.string().c_str());
+		fprintf(stderr, "[PROJ] PROJ will use system default search paths (may cause version conflicts)\n");
+		return;
+	}
+
+	// 4. 设置PROJ数据搜索路径（优先使用可执行文件目录）
+	const char* search_paths[] = { exeDir.c_str() };
+	proj_context_set_search_paths(ctx, 1, search_paths);
+
+	fprintf(stderr, "[PROJ] Data directory set to: %s\n", exeDir.c_str());
+	fprintf(stderr, "[PROJ] Using proj.db: %s\n", projDbPath.string().c_str());
+}
 
 // 静态成员初始化
 PJ* GeoTransform::projTransform = nullptr;      // PROJ转换对象
@@ -175,6 +245,12 @@ void GeoTransform::Cleanup()
 
 bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 {
+	// 清理旧资源，防止重复初始化导致内存泄漏
+	if (projContext || projTransform)
+	{
+		Cleanup();
+	}
+
 	if (!origin)
 	{
 		lastError = "origin is null";
@@ -188,6 +264,9 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 		lastError = "Failed to create PROJ context";
 		return false;
 	}
+
+	// 配置PROJ数据搜索路径，避免使用系统PATH中的旧版proj.db
+	ConfigureProjContext(ctx);
 
 	// 构建坐标系转换字符串：EPSG:xxxx -> EPSG:4326(WGS84)
 	char crs_from[64], crs_to[64];
@@ -229,6 +308,12 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 
 bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 {
+	// 清理旧资源，防止重复初始化导致内存泄漏
+	if (projContext || projTransform)
+	{
+		Cleanup();
+	}
+
 	if (!origin_enu)
 	{
 		lastError = "origin_enu is null";
@@ -245,6 +330,9 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 		lastError = "Failed to create PROJ context";
 		return false;
 	}
+
+	// 配置PROJ数据搜索路径，避免使用系统PATH中的旧版proj.db
+	ConfigureProjContext(ctx);
 
 	// ENU使用恒等变换（已经在正确坐标系中）
 	PJ* transform = proj_create_crs_to_crs(ctx, "EPSG:4326", "EPSG:4326", nullptr);
@@ -270,6 +358,12 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 
 bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 {
+	// 清理旧资源，防止重复初始化导致内存泄漏
+	if (projContext || projTransform)
+	{
+		Cleanup();
+	}
+
 	if (!wkt || !origin)
 	{
 		lastError = "wkt or origin is null";
@@ -283,6 +377,9 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		lastError = "Failed to create PROJ context";
 		return false;
 	}
+
+	// 配置PROJ数据搜索路径，避免使用系统PATH中的旧版proj.db
+	ConfigureProjContext(ctx);
 
 	fprintf(stderr, "[GeoTransform::InitFromWKT] WKT -> EPSG:4326\n");
 	fprintf(stderr, "[GeoTransform::InitFromWKT] Origin: x=%.6f y=%.6f z=%.3f\n",
