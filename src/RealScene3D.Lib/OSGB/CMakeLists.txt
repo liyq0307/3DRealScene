@@ -279,7 +279,7 @@ if(OpenSceneGraph_FOUND)
                 message(STATUS "OSG DLL复制: ${OSG_PREBUILT_DIR}/bin")
             endif()
 
-            # Debug配置 - 复制所有DLL和插件
+            # Debug配置 - 仅在Debug构建时复制DLL和插件
             if(EXISTS "${OSG_DEBUG_BIN}")
                 file(GLOB_RECURSE OSG_DEBUG_DLLS
                     "${OSG_DEBUG_BIN}/*.dll"
@@ -289,16 +289,16 @@ if(OpenSceneGraph_FOUND)
                     file(RELATIVE_PATH REL_PATH "${OSG_DEBUG_BIN}" "${DLL_FILE}")
                     get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
                     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_DIR}/Debug/${REL_DIR}"
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                            "${DLL_FILE}"
-                            "${OUTPUT_DIR}/Debug/${REL_PATH}"
+                        COMMAND $<$<CONFIG:Debug>:${CMAKE_COMMAND}> $<$<CONFIG:Debug>:-E> $<$<CONFIG:Debug>:make_directory> $<$<CONFIG:Debug>:"${OUTPUT_DIR}/Debug/${REL_DIR}">
+                        COMMAND $<$<CONFIG:Debug>:${CMAKE_COMMAND}> $<$<CONFIG:Debug>:-E> $<$<CONFIG:Debug>:copy_if_different>
+                            $<$<CONFIG:Debug>:"${DLL_FILE}">
+                            $<$<CONFIG:Debug>:"${OUTPUT_DIR}/Debug/${REL_PATH}">
                         COMMENT "Copying Debug: ${REL_PATH}"
                     )
                 endforeach()
             endif()
 
-            # Release配置 - 复制所有DLL和插件
+            # Release配置 - 仅在Release构建时复制DLL和插件
             if(EXISTS "${OSG_RELEASE_BIN}")
                 file(GLOB_RECURSE OSG_RELEASE_DLLS
                     "${OSG_RELEASE_BIN}/*.dll"
@@ -308,10 +308,10 @@ if(OpenSceneGraph_FOUND)
                     file(RELATIVE_PATH REL_PATH "${OSG_RELEASE_BIN}" "${DLL_FILE}")
                     get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
                     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_DIR}/Release/${REL_DIR}"
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                            "${DLL_FILE}"
-                            "${OUTPUT_DIR}/Release/${REL_PATH}"
+                        COMMAND $<$<CONFIG:Release>:${CMAKE_COMMAND}> $<$<CONFIG:Release>:-E> $<$<CONFIG:Release>:make_directory> $<$<CONFIG:Release>:"${OUTPUT_DIR}/Release/${REL_DIR}">
+                        COMMAND $<$<CONFIG:Release>:${CMAKE_COMMAND}> $<$<CONFIG:Release>:-E> $<$<CONFIG:Release>:copy_if_different>
+                            $<$<CONFIG:Release>:"${DLL_FILE}">
+                            $<$<CONFIG:Release>:"${OUTPUT_DIR}/Release/${REL_PATH}">
                         COMMENT "Copying Release: ${REL_PATH}"
                     )
                 endforeach()
