@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <tuple>
+#include <array>
 %}
 
 /* ============================================================================
@@ -21,26 +23,60 @@
 %include "std_vector.i"
 %include "std_array.i"
 %include "typemaps.i"
-%include "arrays_csharp.i"
 
 /* ============================================================================
- * 类型映射和异常处理
+ * std::vector<uint8_t> 映射 - 用于 ToGlbBufBytes 返回值
  * ============================================================================ */
 
-// 数组参数映射 - 用于 origin[3], bbox[6] 等
-%apply double INPUT[] { double* origin };
-%apply double INPUT[] { double* pBox };
-%apply int INOUT[] { int* pLen };
-%apply double INPUT[] { double* pMergedBox };
-%apply int INOUT[] { int* pJsonLen };
-
-// std::vector<uint8_t> 映射 - 用于 ToGlbBufBytes 返回值
-%include "std_vector.i"
 %template(VectorUInt8) std::vector<uint8_t>;
 
-// std::array<double, 6> 映射 - 用于 To3dTile 返回值
-%include "std_array.i"
+// 将 std::vector<uint8_t> 转换为 C# byte[]
+%typemap(cstype) std::vector<uint8_t> "byte[]"
+%typemap(csout) std::vector<uint8_t> {
+    global::System.IntPtr cPtr = $imcall;
+    VectorUInt8 tempVector = new VectorUInt8(cPtr, true);
+
+    byte[] result = new byte[tempVector.Count];
+    for (int i = 0; i < tempVector.Count; i++) {
+        result[i] = (byte)tempVector[i];
+    }
+
+    tempVector.Dispose();
+    return result;
+}
+
+/* ============================================================================
+ * std::tuple 映射 - 用于 To3dTile 返回值
+ * ============================================================================ */
+
+// 定义 tuple 返回类型的包装结构
+%inline %{
+struct TileConversionResult {
+    bool success;
+    std::string tilesetJson;
+    std::array<double, 6> bbox;
+
+    TileConversionResult() : success(false), bbox{} {}
+    TileConversionResult(bool s, const std::string& json, const std::array<double, 6>& box)
+        : success(s), tilesetJson(json), bbox(box) {}
+};
+%}
+
+// 为 std::array<double, 6> 创建模板
 %template(ArrayDouble6) std::array<double, 6>;
+
+// 扩展 OSGB23dTiles 类，添加返回包装结构的方法
+%extend OSGB23dTiles {
+    TileConversionResult To3dTileWrapped(
+        const std::string& strInPath, const std::string& strOutPath,
+        double dCenterX, double dCenterY, int nMaxLevel,
+        bool bEnableTextureCompress = false, bool bEnableMeshOpt = false, bool bEnableDraco = false)
+    {
+        auto result = $self->To3dTile(strInPath, strOutPath, dCenterX, dCenterY, nMaxLevel,
+                                      bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
+        return TileConversionResult(std::get<0>(result), std::get<1>(result), std::get<2>(result));
+    }
+}
 
 /* ============================================================================
  * 忽略不需要的类型和成员
@@ -58,44 +94,13 @@
 %ignore InfoVisitor;
 %ignore OsgBuildState;
 
-// 忽略 OSGB23dTiles 类的私有方法
-%ignore OSGB23dTiles::ToGlbBuf;
+// 忽略 OSGB23dTiles 类的私有方法和原始tuple返回方法
 %ignore OSGB23dTiles::ToGlbBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
 %ignore OSGB23dTiles::ToB3dmBuf;
 %ignore OSGB23dTiles::DoTileJob;
 %ignore OSGB23dTiles::EncodeTileJSON;
 %ignore OSGB23dTiles::GetAllTree;
-
-/* ============================================================================
- * 内存管理 - 使用 C# 的 IDisposable 模式
- * ============================================================================ */
-
-%define MANAGED_PTR(TYPE)
-%typemap(csimports) TYPE %{
-using System;
-using System.Runtime.InteropServices;
-%}
-
-%typemap(cscode) TYPE %{
-  private HandleRef swigCPtr;
-
-  public TYPE(IntPtr cPtr, bool cMemoryOwn) {
-    swigCPtr = new HandleRef(this, cPtr);
-    swigCMemOwn = cMemoryOwn;
-  }
-
-  public static HandleRef getCPtr(TYPE obj) {
-    return (obj == null) ? new HandleRef(null, IntPtr.Zero) : obj.swigCPtr;
-  }
-%}
-
-%typemap(csfinalize) TYPE %{
-  ~$csclassname() {
-    Dispose();
-  }
-%}
-
-%enddef
+%ignore OSGB23dTiles::To3dTile;  // 忽略原始tuple返回方法，使用包装方法
 
 /* ============================================================================
  * 包含C++头文件
@@ -157,20 +162,19 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            SWIGTYPE_p_std__vectorT_unsigned_char_t glbBytes = reader.ToGlbBufBytes(
+            byte[] glbBytes = reader.ToGlbBufBytes(
                 osgbPath,
                 -1,  // node_type: -1 表示自动判断
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            if (glbBytes == null)
+            if (glbBytes == null || glbBytes.Length == 0)
             {
                 return null;
             }
 
-            // 将 SWIG 生成的 vector<uint8_t> 转换为 byte[]
-            return OSGB23dTilesCS.VectorUInt8ToByteArray(glbBytes);
+            return glbBytes;
         }
 
         /// <summary>
@@ -186,7 +190,7 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            SWIGTYPE_p_std__tupleT_bool_std__string_std__arrayT_double_6_t result = reader.To3dTile(
+            TileConversionResult result = reader.To3dTileWrapped(
                 inPath,
                 outPath,
                 offsetX,
@@ -196,17 +200,22 @@ using System.Runtime.InteropServices;
                 enableMeshOptimization,
                 enableDracoCompression);
 
-            if (result == null)
+            if (!result.success)
             {
                 return (false, null, null);
             }
 
-            // 从 tuple 中提取值
-            bool success = OSGB23dTilesCS.TupleGetBool(result);
-            string tilesetJson = OSGB23dTilesCS.TupleGetString(result);
-            double[] bbox = OSGB23dTilesCS.TupleGetArrayDouble6(result);
+            // 从包装结构中提取值
+            string tilesetJson = result.tilesetJson;
+            ArrayDouble6 bboxArray = result.bbox;
 
-            return (success, string.IsNullOrEmpty(tilesetJson) ? null : tilesetJson, bbox);
+            double[] bbox = new double[6];
+            for (int i = 0; i < 6; i++)
+            {
+                bbox[i] = bboxArray[i];
+            }
+
+            return (true, string.IsNullOrEmpty(tilesetJson) ? null : tilesetJson, bbox);
         }
 
         /// <summary>
@@ -215,7 +224,6 @@ using System.Runtime.InteropServices;
         public bool ConvertTo3dTilesBatch(
             string dataDir,
             string outputDir,
-            double[]? mergedBox = null,
             double offsetX = 0.0,
             double offsetY = 0.0,
             int maxLevel = 0,
@@ -223,17 +231,9 @@ using System.Runtime.InteropServices;
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
         {
-            if (mergedBox != null && mergedBox.Length != 6)
-            {
-                throw new ArgumentException("mergedBox must contain exactly 6 elements [minX, minY, minZ, maxX, maxY, maxZ]");
-            }
-
-            int jsonLen = 0;
             return reader.To3dTileBatch(
                 dataDir,
                 outputDir,
-                mergedBox,
-                ref jsonLen,
                 offsetX,
                 offsetY,
                 maxLevel,
