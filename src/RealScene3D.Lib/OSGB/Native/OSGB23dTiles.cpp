@@ -48,7 +48,7 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 
 	if (GeoTransform::projTransform)
 	{
-		osg::Vec3Array* vertexArr = (osg::Vec3Array*)geometry.getVertexArray();
+		osg::ref_ptr<osg::Vec3Array> vertexArr = (osg::Vec3Array*)geometry.getVertexArray();
 		void* transform = GeoTransform::projTransform;
 
 		glm::dvec3 Min = glm::dvec3(DBL_MAX);
@@ -61,8 +61,6 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 			Max = glm::max(vertex, Max);
 		}
 
-		/**
-		 */
 		auto Correction = [&](glm::dvec3 Point)
 			{
 				if (GeoTransform::IsENU)
@@ -125,8 +123,6 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 			CorrectedPoints[i] = glm::dvec4(Correction(OriginalPoints[i]), 1);
 		}
 
-		/**
-		*/
 		Eigen::MatrixXd A, B;
 		A.resize(8, 4);
 		B.resize(8, 4);
@@ -142,8 +138,6 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 		Eigen::BDCSVD<Eigen::MatrixXd> SVD(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
 		Eigen::MatrixXd X = SVD.solve(B);
 
-		/*
-		*/
 		glm::dmat4 Transform = glm::dmat4(
 			X(0, 0), X(0, 1), X(0, 2), X(0, 3),
 			X(1, 0), X(1, 1), X(1, 2), X(1, 3),
@@ -159,21 +153,45 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 		}
 	}
 
-	if (auto ss = geometry.getStateSet())
+	if (auto state = geometry.getStateSet())
 	{
-		osg::Texture* tex = dynamic_cast<osg::Texture*>(ss->getTextureAttribute(0, osg::StateAttribute::TEXTURE));
-		if (tex)
+		osg::ref_ptr<osg::Material> material = (osg::Material*)state->getAttribute(osg::StateAttribute::MATERIAL);
+		if (material)
+		{
+			//设置环境光参数
+			osg::Vec4 vec4 = material->getAmbient(osg::Material::FRONT_AND_BACK);
+			//pMaterial->SetAmbient(vec4[0], vec4[1], vec4[2], vec4[3]);
+
+			//设置漫反射参数
+			vec4 = material->getDiffuse(osg::Material::FRONT_AND_BACK);
+			//pMaterial->SetDiffuse(vec4[0], vec4[1], vec4[2], vec4[3]);
+
+			//设置自发光参数
+			vec4 = material->getEmission(osg::Material::FRONT_AND_BACK);
+			//pMaterial->SetEmmissive(vec4[0], vec4[1], vec4[2], vec4[3]);
+
+			//设置镜面反射参数
+			vec4 = material->getSpecular(osg::Material::FRONT_AND_BACK);
+			//pMaterial->SetSpecular(vec4[0], vec4[1], vec4[2], vec4[3]);
+
+			//设置光照强度
+			float value = material->getShininess(osg::Material::FRONT_AND_BACK);
+			//pMaterial->SetShininess(value);
+		}
+
+		osg::ref_ptr<osg::Texture> texture = dynamic_cast<osg::Texture*>(state->getTextureAttribute(0, osg::StateAttribute::TEXTURE));
+		if (texture)
 		{
 			if (is_pagedlod)
 			{
-				texture_array.insert(tex);
+				texture_array.insert(texture);
 			}
 			else
 			{
-				other_texture_array.insert(tex);
+				other_texture_array.insert(texture);
 			}
 
-			texture_map[&geometry] = tex;
+			texture_map[&geometry] = texture;
 		}
 	}
 }
@@ -1067,7 +1085,7 @@ void OSGB23dTiles::DoTileJob(
 	}
 
 	int lvl = OSGBTools::GetLvlNum(tree.file_name);
-	if (lvl > max_lvl)
+	if (max_lvl != -1 && lvl > max_lvl)
 	{
 		return;
 	}

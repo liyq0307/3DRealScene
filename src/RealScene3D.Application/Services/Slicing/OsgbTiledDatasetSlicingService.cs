@@ -62,7 +62,7 @@ public class OsgbTiledDatasetSlicingService
         }
 
         // 3. 直接调用 C++ ToB3DMBatch 一站式处理
-        using var reader = new OsgbReaderHelper();
+        using var reader = new OSGB23dTilesHelper();
 
         _logger.LogInformation("调用 OsgbReader::ToB3DMBatch 批量生成 3D Tiles");
 
@@ -72,7 +72,7 @@ public class OsgbTiledDatasetSlicingService
                 outputDir,
                 centerX: 0.0,  // C++ 会从 metadata.xml 自动读取
                 centerY: 0.0,
-                maxLevel: 0,   // 0 表示不限制层级，处理所有 LOD
+                maxLevel: -1,   // - 表示不限制层级，处理所有 LOD
                 enableTextureCompression: false,
                 enableMeshOptimization: false,
                 enableDracoCompression: false

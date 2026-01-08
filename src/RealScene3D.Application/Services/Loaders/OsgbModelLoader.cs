@@ -54,7 +54,7 @@ public class OsgbModelLoader : ModelLoader
                 // 1. 使用OsgbReader SWIG API转换为GLB
                 _logger.LogInformation("转换OSGB到GLB: {TempPath}", tempGlbPath);
 
-                using (var reader = new OsgbReaderHelper())
+                using (var reader = new OSGB23dTilesHelper())
                 {
                     bool success = await Task.Run(() =>
                         reader.ConvertToGlb(

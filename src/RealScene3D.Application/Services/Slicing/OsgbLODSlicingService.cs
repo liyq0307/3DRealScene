@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Application.Services.Generators;
 using RealScene3D.Domain.Entities;
-using RealScene3D.Domain.Geometry;
 using RealScene3D.Lib.OSGB.Interop;
 
 namespace RealScene3D.Application.Services.Slicing;
@@ -17,14 +16,11 @@ namespace RealScene3D.Application.Services.Slicing;
 public class OsgbLODSlicingService
 {
     private readonly ILogger<OsgbLODSlicingService> _logger;
-    private readonly B3dmGenerator _b3dmGenerator;
 
     public OsgbLODSlicingService(
-        ILogger<OsgbLODSlicingService> logger,
-        B3dmGenerator b3dmGenerator)
+        ILogger<OsgbLODSlicingService> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _b3dmGenerator = b3dmGenerator ?? throw new ArgumentNullException(nameof(b3dmGenerator));
     }
 
     /// <summary>
@@ -35,7 +31,6 @@ public class OsgbLODSlicingService
         string osgbPath,
         string outputDir,
         SlicingConfig config,
-        GpsCoords? gpsCoords = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("========== 开始 OSGB PagedLOD 分层切片 ==========");
@@ -53,18 +48,10 @@ public class OsgbLODSlicingService
             double centerX = 0.0;
             double centerY = 0.0;
 
-            if (gpsCoords != null)
-            {
-                centerX = gpsCoords.Longitude;
-                centerY = gpsCoords.Latitude;
-                _logger.LogInformation("使用GPS坐标: 经度={Lon}, 纬度={Lat}, 高度={Alt}",
-                    gpsCoords.Longitude, gpsCoords.Latitude, gpsCoords.Altitude);
-            }
+            // 调用原生OSGB23dTilesHelper进行切片生成
+            using var reader = new OSGB23dTilesHelper();
 
-            // 调用原生OsgbReader进行切片生成
-            using var reader = new OsgbReaderHelper();
-
-            _logger.LogInformation("调用 OsgbReader::ToB3DM 生成切片");
+            _logger.LogInformation("调用 OSGB23dTilesHelper::ToB3DM 生成切片");
 
             string? tilesetJson = await Task.Run(() =>
                 reader.ConvertToB3DM(
@@ -72,7 +59,7 @@ public class OsgbLODSlicingService
                     outputDir,
                     centerX,
                     centerY,
-                    maxLevel: 0,  // 0表示不限制层级
+                    maxLevel: -1,  // -1表示不限制层级
                     enableTextureCompression: false,
                     enableMeshOptimization: false,
                     enableDracoCompression: false

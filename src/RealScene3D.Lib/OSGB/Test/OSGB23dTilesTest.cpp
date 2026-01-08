@@ -28,8 +28,8 @@ int main(int argc, char* argv[])
     std::cout << "========================================" << std::endl;
 
     // 设置输入输出路径
-    std::string strInputPath = "F:/Data/3D/Tile_+005_+006";
-    std::string strOutputDir = "F:/Data/3D/output_osgb_batch";
+    std::string strInputPath = "E:/Data/3D/Tile_+005_+006";
+    std::string strOutputDir = "E:/Data/3D/output_osgb_batch";
 
     std::cout << "输入目录: " << strInputPath.c_str() << std::endl;
     std::cout << "输出目录: " << strOutputDir.c_str() << std::endl;

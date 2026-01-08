@@ -71,7 +71,7 @@ struct DracoCompressionParams
 };
 
 /**
- * @brief LOD级别设置
+ * @brief 网格处理类，提供网格简化和Draco压缩功能
  */
 class MeshProcessor
 {

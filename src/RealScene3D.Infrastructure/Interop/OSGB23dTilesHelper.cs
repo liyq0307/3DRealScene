@@ -1,25 +1,21 @@
-// ============================================================================
-// OSGB 读取器辅助类 - 提供更易用的 C# API
-// ============================================================================
-// 这个文件提供了对 OSGB23dTiles SWIG 封装的更友好的接口
-//
-// ============================================================================
-
 using System;
 using System.Runtime.InteropServices;
 using RealScene3D.Lib.OSGB.Interop;
 
+/// <summary>
+/// OSGB 读取器辅助类 - 提供更易用的 C# API
+/// </summary>
 namespace RealScene3D.Lib.OSGB.Interop
 {
     /// <summary>
     /// OSGB 读取器辅助类 - 提供更易用的 C# API
     /// </summary>
-    public class OsgbReaderHelper : IDisposable
+    public class OSGB23dTilesHelper : IDisposable
     {
         private OSGB23dTiles reader;
         private bool disposed = false;
 
-        public OsgbReaderHelper()
+        public OSGB23dTilesHelper()
         {
             reader = new OSGB23dTiles();
         }
@@ -45,6 +41,43 @@ namespace RealScene3D.Lib.OSGB.Interop
         }
 
         /// <summary>
+        /// 将 OSGB 文件转换为 GLB，返回内存中的字节数组
+        /// </summary>
+        /// <param name="osgbPath">输入OSGB文件路径</param>
+        /// <param name="bBinary">是否生成二进制GLB</param>
+        /// <param name="enableTextureCompression">是否启用纹理压缩</param>
+        /// <param name="enableMeshOptimization">是否启用网格优化</param>
+        /// <param name="enableDracoCompression">是否启用Draco压缩</param>
+        /// <returns>GLB文件的字节数组，转换失败返回null</returns>
+        /// <remarks>
+        /// 该方法将OSGB文件转换为GLB格式，并返回内存中的字节数组。
+        /// </remarks>
+        /// <returns></returns>
+        public byte[]? ConvertToGlbInMemory(
+            string osgbPath,
+            bool bBinary = true,
+            bool enableTextureCompression = false,
+            bool enableMeshOptimization = false,
+            bool enableDracoCompression = false)
+        {
+
+            byte[] glbBuffer = reader.ToGLBBuf(
+                 osgbPath,
+                 -1,
+                 bBinary,
+                 enableTextureCompression,
+                 enableMeshOptimization,
+                 enableDracoCompression);
+
+            if (glbBuffer == null || glbBuffer.Length <= 0)
+            {
+                return null;
+            }
+
+            return glbBuffer;
+        }
+
+        /// <summary>
         /// 将 OSGB 转换为 B3DM
         /// </summary>
         /// <param name="inPath">输入OSGB文件路径</param>
@@ -52,7 +85,7 @@ namespace RealScene3D.Lib.OSGB.Interop
         /// <param name="bbox">输出参数：包围盒数组 [maxX, maxY, maxZ, minX, minY, minZ]</param>
         /// <param name="centerX">中心点X坐标（经度）</param>
         /// <param name="centerY">中心点Y坐标（纬度）</param>
-        /// <param name="maxLevel">最大层级（0表示不限制）</param>
+        /// <param name="maxLevel">最大层级（-1表示不限制）</param>
         /// <param name="enableTextureCompression">是否启用纹理压缩</param>
         /// <param name="enableMeshOptimization">是否启用网格优化</param>
         /// <param name="enableDracoCompression">是否启用Draco压缩</param>
@@ -63,7 +96,7 @@ namespace RealScene3D.Lib.OSGB.Interop
             out double[]? bbox,
             double centerX = 0.0,
             double centerY = 0.0,
-            int maxLevel = 0,
+            int maxLevel = -1,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
@@ -99,14 +132,14 @@ namespace RealScene3D.Lib.OSGB.Interop
         }
 
         /// <summary>
-        /// 将 OSGB 转换为 B3DM（3D Tiles，简化版本，不返回bbox）
+        /// 将 OSGB 转换为 B3DM
         /// </summary>
         public string? ConvertToB3DM(
             string inPath,
             string outPath,
             double centerX = 0.0,
             double centerY = 0.0,
-            int maxLevel = 0,
+            int maxLevel = -1,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
@@ -140,7 +173,7 @@ namespace RealScene3D.Lib.OSGB.Interop
             string outputDir,
             double centerX = 0.0,
             double centerY = 0.0,
-            int maxLevel = 0,
+            int maxLevel = -1,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)

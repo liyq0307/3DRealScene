@@ -179,7 +179,6 @@ class Program
                 osgbRootPath,
                 tempOutputDir,
                 config,
-                gpsCoords: null,
                 CancellationToken.None);
 
             logger.LogInformation("✅ 切片生成成功! 共 {Count} 个切片", slices.Count);
@@ -309,9 +308,7 @@ class Program
         var slices = await lodSlicingService.GenerateLODTilesAsync(
             osgbRootPath,
             outputDir,
-            config,
-            gpsCoords
-        );
+            config);
 
         var elapsed = DateTime.UtcNow - startTime;
 

@@ -134,6 +134,7 @@ using System.Runtime.InteropServices;
         /// </summary>
         public byte[]? ConvertToGlbBuffer(
             string osgbPath,
+            bool bBainary = true,
             bool enableTextureCompression = false,
             bool enableMeshOptimization = false,
             bool enableDracoCompression = false)
@@ -141,7 +142,7 @@ using System.Runtime.InteropServices;
             byte[] glbBytes = reader.ToGLBBuf(
                 osgbPath,
                 -1,  // node_type: -1 表示自动判断
-                true,
+                bBainary,
                 enableTextureCompression,
                 enableMeshOptimization,
                 enableDracoCompression);
