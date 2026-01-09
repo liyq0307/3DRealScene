@@ -124,6 +124,30 @@ struct OsgBuildState
 };
 
 /**
+ * @brief Draco压缩状态结构体，用于存储Draco压缩相关信息
+ */
+struct DracoState
+{
+	// 是否已压缩
+	bool compressed = false;
+
+	// 缓冲区视图索引
+	int bufferView = -1;
+
+	// 顶点坐标访问器索引
+	int posId = -1;
+
+	// 法线方向访问器索引
+	int normId = -1;
+
+	// 纹理坐标访问器索引
+	int texId = -1;
+
+	// 批次ID访问器索引
+	int batchId = -1;
+};
+
+/**
  * @brief 信息访问器类，用于遍历OSG场景图并收集几何和纹理信息
  */
 class InfoVisitor : public osg::NodeVisitor
@@ -157,6 +181,12 @@ public:
 
 	// 存储PagedLOD纹理
 	std::set<osg::Texture*> texture_array;
+
+	// 存储PagedLOD材质映射关系
+	std::set<osg::Material*> material_set;
+
+	// 几何体和材质映射关系
+	std::map<osg::Geometry*, osg::Material*> material_map;
 
 	// 几何体与纹理映射关系
 	std::map<osg::Geometry*, osg::Texture*> texture_map;
@@ -270,6 +300,56 @@ public:
 		bool bEnableDraco = false);
 
 private:
+	/**
+	 * @brief 写入OSG索引数据到GLTF构建状态
+	 * @tparam T 索引数据类型
+	 * @param drawElements 输入OSG绘制元素指针
+	 * @param osgState OSG构建状态指针
+	 * @param componentType 索引组件类型
+	 * @return void
+	 */
+	template<class T>
+	void WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType);
+
+	/**
+	 * @brief 写入OSG三维向量数组到GLTF构建状态
+	 * @param v3f 输入OSG三维向量数组指针
+	 * @param osgState OSG构建状态指针
+	 * @param point_max 输出最大坐标
+	 * @param point_min 输出最小坐标
+	 * @return void
+	 */
+	void WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& point_max, osg::Vec3f& point_min);
+
+	/**
+	 * @brief 写入OSG二维向量数组到GLTF构建状态
+	 * @param v2f 输入OSG二维向量数组指针
+	 * @param osgState OSG构建状态指针
+	 * @return void
+	 */
+	void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState);
+
+	/**
+	 * @brief 写入OSG图元数据到GLTF构建状态
+	 * @param pGeometry 输入OSG几何体指针
+	 * @param ps 输入OSG图元集指针
+	 * @param osgState OSG构建状态指针
+	 * @param pmtState 图元状态指针
+	 * @param dracoState Draco压缩状态指针
+	 * @return void
+	 */
+	void WriteElementArrayPrimitive(osg::Geometry* pGeometry, osg::PrimitiveSet* ps, OsgBuildState* osgState, PrimitiveState* pmtState, DracoState* dracoState);
+
+	/**
+	 * @brief 写入OSG几何体数据到GLTF构建状态
+	 * @param pGeometry 输入OSG几何体指针
+	 * @param osgState OSG构建状态指针
+	 * @param bEnableSimplification 是否启用网格简化
+	 * @param bEnableDraco 是否启用Draco压缩
+	 * @return void
+	 */	
+	void WriteOsgGeometry(osg::Geometry* pGeometry, OsgBuildState* osgState, bool bEnableSimplification, bool bEnableDraco);
+
 	/**
 	 * @brief 将OSGB文件转换为GLB缓冲区（带网格信息）
 	 * @param path 输入OSGB文件路径

@@ -155,28 +155,14 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 
 	if (auto state = geometry.getStateSet())
 	{
-		osg::ref_ptr<osg::Material> material = (osg::Material*)state->getAttribute(osg::StateAttribute::MATERIAL);
+		osg::ref_ptr<osg::Material> material = dynamic_cast<osg::Material*>(state->getAttribute(osg::StateAttribute::MATERIAL));
 		if (material)
 		{
-			//设置环境光参数
-			osg::Vec4 vec4 = material->getAmbient(osg::Material::FRONT_AND_BACK);
-			//pMaterial->SetAmbient(vec4[0], vec4[1], vec4[2], vec4[3]);
+			// 存储材质供后续使用                                                                                                                                                    
+			material_set.insert(material);
 
-			//设置漫反射参数
-			vec4 = material->getDiffuse(osg::Material::FRONT_AND_BACK);
-			//pMaterial->SetDiffuse(vec4[0], vec4[1], vec4[2], vec4[3]);
-
-			//设置自发光参数
-			vec4 = material->getEmission(osg::Material::FRONT_AND_BACK);
-			//pMaterial->SetEmmissive(vec4[0], vec4[1], vec4[2], vec4[3]);
-
-			//设置镜面反射参数
-			vec4 = material->getSpecular(osg::Material::FRONT_AND_BACK);
-			//pMaterial->SetSpecular(vec4[0], vec4[1], vec4[2], vec4[3]);
-
-			//设置光照强度
-			float value = material->getShininess(osg::Material::FRONT_AND_BACK);
-			//pMaterial->SetShininess(value);
+			// 建立Geometry到Material的映射                                                                                                                                          
+			material_map[&geometry] = material;
 		}
 
 		osg::ref_ptr<osg::Texture> texture = dynamic_cast<osg::Texture*>(state->getTextureAttribute(0, osg::StateAttribute::TEXTURE));
@@ -223,25 +209,25 @@ void InfoVisitor::apply(osg::PagedLOD& node)
 
 //=================== 工具函数 ===================
 template<class T>
-void put_val(std::vector<unsigned char>& buf, T val)
+void PutVal(std::vector<unsigned char>& buf, T val)
 {
 	buf.insert(buf.end(), (unsigned char*)&val, (unsigned char*)&val + sizeof(T));
 }
 
 template<class T>
-void put_val(std::string& buf, T val)
+void PutVal(std::string& buf, T val)
 {
 	buf.append((unsigned char*)&val, (unsigned char*)&val + sizeof(T));
 }
 
-void write_buf(void* context, void* data, int len)
+void WriteBuf(void* context, void* data, int len)
 {
 	std::vector<char>* buf = (std::vector<char>*)context;
 	buf->insert(buf->end(), (char*)data, (char*)data + len);
 }
 
 template<class T>
-void alignment_buffer(std::vector<T>& buf)
+void AlignmentBuffer(std::vector<T>& buf)
 {
 	while (buf.size() % 4 != 0)
 	{
@@ -249,7 +235,7 @@ void alignment_buffer(std::vector<T>& buf)
 	}
 }
 
-void expand_bbox3d(osg::Vec3f& point_max, osg::Vec3f& point_min, osg::Vec3f point)
+void ExpandBbox3d(osg::Vec3f& point_max, osg::Vec3f& point_min, osg::Vec3f point)
 {
 	point_max.x() = std::max(point.x(), point_max.x());
 	point_min.x() = std::min(point.x(), point_min.x());
@@ -259,7 +245,7 @@ void expand_bbox3d(osg::Vec3f& point_max, osg::Vec3f& point_min, osg::Vec3f poin
 	point_min.z() = std::min(point.z(), point_min.z());
 }
 
-void expand_bbox2d(osg::Vec2f& point_max, osg::Vec2f& point_min, osg::Vec2f point)
+void ExpandBbox2d(osg::Vec2f& point_max, osg::Vec2f& point_min, osg::Vec2f point)
 {
 	point_max.x() = std::max(point.x(), point_max.x());
 	point_min.x() = std::min(point.x(), point_min.x());
@@ -267,7 +253,7 @@ void expand_bbox2d(osg::Vec2f& point_max, osg::Vec2f& point_min, osg::Vec2f poin
 	point_min.y() = std::min(point.y(), point_min.y());
 }
 
-void expend_box(TileBox& box, TileBox& box_new)
+void ExpandBox(TileBox& box, TileBox& box_new)
 {
 	if (box_new.max.empty() || box_new.min.empty())
 	{
@@ -298,13 +284,13 @@ void expend_box(TileBox& box, TileBox& box_new)
 	}
 }
 
-TileBox extend_tile_box(OSGTree& tree)
+TileBox ExtendTileBox(OSGTree& tree)
 {
 	TileBox box = tree.bbox;
 	for (auto& i : tree.sub_nodes)
 	{
-		TileBox sub_tile = extend_tile_box(i);
-		expend_box(box, sub_tile);
+		TileBox sub_tile = ExtendTileBox(i);
+		ExpandBox(box, sub_tile);
 	}
 
 	tree.bbox = box;
@@ -312,14 +298,14 @@ TileBox extend_tile_box(OSGTree& tree)
 	return box;
 }
 
-void calc_geometric_error(OSGTree& tree)
+void CalcGeometricError(OSGTree& tree)
 {
 	const double EPS = 1e-12;
 
 	// 深度优先
 	for (auto& i : tree.sub_nodes)
 	{
-		calc_geometric_error(i);
+		CalcGeometricError(i);
 	}
 
 	if (tree.sub_nodes.empty())
@@ -339,7 +325,7 @@ void calc_geometric_error(OSGTree& tree)
 			}
 		}
 
-		auto get_geometric_error = [](TileBox& bbox)
+		auto GetGeometricError = [](TileBox& bbox)
 			{
 				if (bbox.max.empty() || bbox.min.empty())
 				{
@@ -356,13 +342,151 @@ void calc_geometric_error(OSGTree& tree)
 
 		if (has == false)
 		{
-			tree.geometricError = get_geometric_error(tree.bbox);
+			tree.geometricError = GetGeometricError(tree.bbox);
 		}
 		else
 		{
 			tree.geometricError = leaf.geometricError * 2.0;
 		}
 	}
+}
+
+/**
+ * @brief 创建一个默认颜色的材质
+ * @note 该材质使用 KHR_materials_unlit 扩展，适用于不需要光照计算的场景
+ */
+tinygltf::Material MakeDefaultColorMaterial(double r, double g, double b)
+{
+	tinygltf::Material material;
+	material.name = "default";
+
+	// PBR 材质配置
+	material.pbrMetallicRoughness.baseColorFactor = { r, g, b, 1.0 };
+	material.pbrMetallicRoughness.metallicFactor = 0.0;   // 非金属
+	material.pbrMetallicRoughness.roughnessFactor = 1.0;  // 完全粗糙（漫反射）
+
+	// 启用 unlit 扩展：禁用光照计算，等效于 shader 的 texture2D 直接输出
+	tinygltf::Value::Object unlit_ext;
+	material.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
+
+	return material;
+}
+
+/** 
+ * @brief 将 OSG 材质转换为 PBR 材质
+ * @note 该方法适用于大多数常见材质类型，但可能无法完美保留所有复杂材质的外观
+ */
+tinygltf::Material ConvertOSGBMaterialToPBR(osg::Material* osgMaterial)
+{
+	tinygltf::Material gltfMaterial;
+	gltfMaterial.name = "converted_pbr";
+
+	// 1. 提取OSGB材质属性                                                                                                                                                       
+	osg::Vec4 ambient = osgMaterial->getAmbient(osg::Material::FRONT_AND_BACK);
+	osg::Vec4 diffuse = osgMaterial->getDiffuse(osg::Material::FRONT_AND_BACK);
+	osg::Vec4 specular = osgMaterial->getSpecular(osg::Material::FRONT_AND_BACK);
+	osg::Vec4 emission = osgMaterial->getEmission(osg::Material::FRONT_AND_BACK);
+	float shininess = osgMaterial->getShininess(osg::Material::FRONT_AND_BACK);
+
+	// 2. BaseColor转换：使用Diffuse作为基础颜色                                                                                                                                 
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor = 
+	{
+		diffuse[0], diffuse[1], diffuse[2], diffuse[3]
+	};
+
+	// 3. Roughness转换：从Shininess推导粗糙度                                                                                                                                   
+	// Shininess范围通常是0-128，值越大越光滑                                                                                                                                    
+	// Roughness范围是0-1，值越大越粗糙                                                                                                                                          
+	float roughness = 1.0f - std::sqrt(shininess / 128.0f);
+	roughness = std::clamp(roughness, 0.0f, 1.0f);
+	gltfMaterial.pbrMetallicRoughness.roughnessFactor = roughness;
+
+	// 4. Metallic转换：根据Specular强度推导金属度                                                                                                                               
+	// 计算Specular的亮度值                                                                                                                                                      
+	float specularLuminance = (specular[0] + specular[1] + specular[2]) / 3.0f;
+
+	// 如果Specular很强且接近白色，可能是金属材质                                                                                                                                
+	float metallic = 0.0f;
+	if (specularLuminance > 0.5f) 
+	{
+		// 检查Specular是否接近白色（金属特征）                                                                                                                                  
+		float colorVariance = std::abs(specular[0] - specular[1]) + std::abs(specular[1] - specular[2]);
+		if (colorVariance < 0.1f) 
+		{
+			metallic = specularLuminance;
+		}
+	}
+	gltfMaterial.pbrMetallicRoughness.metallicFactor = metallic;
+
+	// 5. Emissive转换：直接映射                                                                                                                                                 
+	gltfMaterial.emissiveFactor = 
+	{
+		emission[0], emission[1], emission[2]
+	};
+
+	// 6. 处理Ambient（PBR中没有直接对应）                                                                                                                                       
+	// 选项A: 添加到BaseColor中（提亮效果）                                                                                                                                      
+	// 选项B: 添加到EmissiveFactor中                                                                                                                                             
+	// 选项C: 忽略（环境光由场景控制）                                                                                                                                           
+	// 这里选择选项A                                                                                                                                                             
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor[0] += ambient[0] * 0.2;
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor[1] += ambient[1] * 0.2;
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor[2] += ambient[2] * 0.2;
+
+	// 确保颜色值在[0,1]范围内                                                                                                                                                   
+	for (int i = 0; i < 3; i++) 
+	{
+		gltfMaterial.pbrMetallicRoughness.baseColorFactor[i] =
+			std::clamp(gltfMaterial.pbrMetallicRoughness.baseColorFactor[i], 0.0, 1.0);
+	}
+
+	return gltfMaterial;
+}
+
+/**
+ * @brief 将 OSG 材质转换为 PBR 材质，使用 KHR_materials_specular 扩展保留 Specular 信息
+ * @note 该方法允许更精确地保留原始材质的外观，适用于需要高保真转换的场景
+ */
+tinygltf::Material ConvertOSGBMaterialWithSpecularExt(osg::Material* osgMaterial)
+{
+	tinygltf::Material gltfMaterial;
+
+	// 基础PBR属性                                                                                                                                                               
+	osg::Vec4 diffuse = osgMaterial->getDiffuse(osg::Material::FRONT_AND_BACK);
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor = 
+	{
+		diffuse[0], diffuse[1], diffuse[2], diffuse[3]
+	};
+
+	// 从Shininess转换粗糙度                                                                                                                                                     
+	float shininess = osgMaterial->getShininess(osg::Material::FRONT_AND_BACK);
+	gltfMaterial.pbrMetallicRoughness.roughnessFactor = 1.0f - std::sqrt(shininess / 128.0f);
+	gltfMaterial.pbrMetallicRoughness.metallicFactor = 0.0f; // 非金属                                                                                                           
+
+	// 使用KHR_materials_specular扩展保留Specular                                                                                                                                
+	osg::Vec4 specular = osgMaterial->getSpecular(osg::Material::FRONT_AND_BACK);
+	tinygltf::Value::Object specularExt;
+
+	// specularFactor: Specular强度                                                                                                                                              
+	float specularStrength = (specular[0] + specular[1] + specular[2]) / 3.0f;
+	specularExt["specularFactor"] = tinygltf::Value(specularStrength);
+
+	// specularColorFactor: Specular颜色                                                                                                                                         
+	tinygltf::Value::Array specularColor = 
+	{
+		tinygltf::Value(specular[0]),
+		tinygltf::Value(specular[1]),
+		tinygltf::Value(specular[2])
+	};
+	specularExt["specularColorFactor"] = tinygltf::Value(specularColor);
+
+	gltfMaterial.extensions["KHR_materials_specular"] = tinygltf::Value(specularExt);
+
+	// Emission                                                                                                                                                                  
+	osg::Vec4 emission = osgMaterial->getEmission(osg::Material::FRONT_AND_BACK);
+	gltfMaterial.emissiveFactor = { emission[0], emission[1], emission[2] };
+
+	return gltfMaterial;
 }
 
 //===============工具结束==================
@@ -407,7 +531,7 @@ B3DMResult OSGB23dTiles::ToB3DM(
 	DoTileJob(root, strOutPath, nMaxLevel,
 		bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
 
-	extend_tile_box(root);
+	ExtendTileBox(root);
 
 	if (root.bbox.max.empty() || root.bbox.min.empty())
 	{
@@ -415,7 +539,7 @@ B3DMResult OSGB23dTiles::ToB3DM(
 		return result;
 	}
 
-	calc_geometric_error(root);
+	CalcGeometricError(root);
 
 	root.geometricError = 1000.0;
 	std::string strJson = EncodeTileJSON(root, dCenterX, dCenterY);
@@ -431,11 +555,11 @@ B3DMResult OSGB23dTiles::ToB3DM(
 }
 
 bool OSGB23dTiles::ToGLB(
-	const std::string& strInPath, 
+	const std::string& strInPath,
 	const std::string& strOutPath,
 	bool bBinary/* = true*/,
-	bool bEnableTextureCompress/* = false*/, 
-	bool bEnableMeshOpt/* = false*/, 
+	bool bEnableTextureCompress/* = false*/,
+	bool bEnableMeshOpt/* = false*/,
 	bool bEnableDraco/* = false*/)
 {
 	MeshInfo minfo;
@@ -476,16 +600,16 @@ bool OSGB23dTiles::ToGLB(
 }
 
 std::vector<uint8_t> OSGB23dTiles::ToGLBBuf(
-	std::string strOsgbPath, 
-	int nNodeType, 
-	bool bBinary, 
-	bool bEnableTextureCompress, 
-	bool bEnableMeshOpt, 
+	std::string strOsgbPath,
+	int nNodeType,
+	bool bBinary,
+	bool bEnableTextureCompress,
+	bool bEnableMeshOpt,
 	bool bEnableDraco)
 {
 	std::string glb_buff;
 
-	bool ret = ToGLBBuf(strOsgbPath, glb_buff, MeshInfo(),
+	bool ret = ToGLBBuf(OSGBTools::OSGString(strOsgbPath), glb_buff, MeshInfo(),
 		nNodeType, bBinary, bEnableTextureCompress, bEnableMeshOpt, bEnableDraco, false);
 
 	if (!ret)
@@ -499,7 +623,7 @@ std::vector<uint8_t> OSGB23dTiles::ToGLBBuf(
 }
 
 template<class T>
-void WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType)
+void OSGB23dTiles::WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType)
 {
 	unsigned max_index = 0;
 	unsigned min_index = 1 << 30;
@@ -509,11 +633,11 @@ void WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType
 	for (unsigned m = 0; m < IndNum; m++)
 	{
 		auto idx = drawElements->at(m);
-		put_val(osgState->buffer->data, idx);
+		PutVal(osgState->buffer->data, idx);
 		if (idx > max_index) max_index = idx;
 		if (idx < min_index) min_index = idx;
 	}
-	alignment_buffer(osgState->buffer->data);
+	AlignmentBuffer(osgState->buffer->data);
 
 	tinygltf::Accessor acc;
 	acc.bufferView = osgState->model->bufferViews.size();
@@ -532,7 +656,7 @@ void WriteOsgIndecis(T* drawElements, OsgBuildState* osgState, int componentType
 	osgState->model->bufferViews.emplace_back(bfv);
 }
 
-void WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& point_max, osg::Vec3f& point_min)
+void OSGB23dTiles::WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& point_max, osg::Vec3f& point_min)
 {
 	int vec_start = 0;
 	int vec_end = v3f->size();
@@ -545,12 +669,12 @@ void WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& po
 	for (int vidx = vec_start; vidx < vec_end; vidx++)
 	{
 		osg::Vec3f point = v3f->at(vidx);
-		put_val(osgState->buffer->data, point.x());
-		put_val(osgState->buffer->data, point.y());
-		put_val(osgState->buffer->data, point.z());
-		expand_bbox3d(point_max, point_min, point);
+		PutVal(osgState->buffer->data, point.x());
+		PutVal(osgState->buffer->data, point.y());
+		PutVal(osgState->buffer->data, point.z());
+		ExpandBbox3d(point_max, point_min, point);
 	}
-	alignment_buffer(osgState->buffer->data);
+	AlignmentBuffer(osgState->buffer->data);
 
 	tinygltf::Accessor acc;
 	acc.bufferView = osgState->model->bufferViews.size();
@@ -569,7 +693,7 @@ void WriteVec3Array(osg::Vec3Array* v3f, OsgBuildState* osgState, osg::Vec3f& po
 	osgState->model->bufferViews.emplace_back(bfv);
 }
 
-void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
+void OSGB23dTiles::WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
 {
 	int vec_start = 0;
 	int vec_end = v2f->size();
@@ -584,11 +708,11 @@ void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
 	for (int vidx = vec_start; vidx < vec_end; vidx++)
 	{
 		osg::Vec2f point = v2f->at(vidx);
-		put_val(osgState->buffer->data, point.x());
-		put_val(osgState->buffer->data, point.y());
-		expand_bbox2d(point_max, point_min, point);
+		PutVal(osgState->buffer->data, point.x());
+		PutVal(osgState->buffer->data, point.y());
+		ExpandBbox2d(point_max, point_min, point);
 	}
-	alignment_buffer(osgState->buffer->data);
+	AlignmentBuffer(osgState->buffer->data);
 
 	tinygltf::Accessor acc;
 	acc.bufferView = osgState->model->bufferViews.size();
@@ -607,30 +731,72 @@ void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
 	osgState->model->bufferViews.emplace_back(bfv);
 }
 
-void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuildState* osgState, PrimitiveState* pmtState)
+void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuildState* osgState, PrimitiveState* pmtState, DracoState* dracoState)
 {
 	tinygltf::Primitive primits;
 	primits.indices = osgState->model->accessors.size();
-	osgState->draw_array_first = -1;
+	osgState->draw_array_first = -1; // 重置 draw_array 状态
 	osg::PrimitiveSet::Type t = ps->getType();
 	switch (t)
 	{
-	case(osg::PrimitiveSet::DrawElementsUBytePrimitiveType):
+	case (osg::PrimitiveSet::DrawElementsUBytePrimitiveType):
 	{
 		const osg::DrawElementsUByte* drawElements = static_cast<const osg::DrawElementsUByte*>(ps);
-		WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE);
+		if (dracoState && dracoState->compressed)
+		{
+			tinygltf::Accessor acc;
+			acc.bufferView = -1;
+			acc.type = TINYGLTF_TYPE_SCALAR;
+			acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+			acc.count = drawElements->getNumIndices();
+			int accIdx = (int)osgState->model->accessors.size();
+			osgState->model->accessors.push_back(acc);
+			primits.indices = accIdx;
+		}
+		else
+		{
+			WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE);
+		}
 		break;
 	}
-	case(osg::PrimitiveSet::DrawElementsUShortPrimitiveType):
+	case (osg::PrimitiveSet::DrawElementsUShortPrimitiveType):
 	{
 		const osg::DrawElementsUShort* drawElements = static_cast<const osg::DrawElementsUShort*>(ps);
-		WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+		if (dracoState && dracoState->compressed)
+		{
+			tinygltf::Accessor acc;
+			acc.bufferView = -1;
+			acc.type = TINYGLTF_TYPE_SCALAR;
+			acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
+			acc.count = drawElements->getNumIndices();
+			int accIdx = (int)osgState->model->accessors.size();
+			osgState->model->accessors.push_back(acc);
+			primits.indices = accIdx;
+		}
+		else
+		{
+			WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+		}
 		break;
 	}
-	case(osg::PrimitiveSet::DrawElementsUIntPrimitiveType):
+	case (osg::PrimitiveSet::DrawElementsUIntPrimitiveType):
 	{
 		const osg::DrawElementsUInt* drawElements = static_cast<const osg::DrawElementsUInt*>(ps);
-		WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT);
+		if (dracoState && dracoState->compressed)
+		{
+			tinygltf::Accessor acc;
+			acc.bufferView = -1;
+			acc.type = TINYGLTF_TYPE_SCALAR;
+			acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+			acc.count = drawElements->getNumIndices();
+			int accIdx = (int)osgState->model->accessors.size();
+			osgState->model->accessors.push_back(acc);
+			primits.indices = accIdx;
+		}
+		else
+		{
+			WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT);
+		}
 		break;
 	}
 	case osg::PrimitiveSet::DrawArraysPrimitiveType:
@@ -648,27 +814,74 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 		break;
 	}
 	}
+
+	// vertex: full vertex and part indecis
 	if (pmtState->vertexAccessor > -1 && osgState->draw_array_first == -1)
 	{
 		primits.attributes["POSITION"] = pmtState->vertexAccessor;
 	}
 	else
 	{
-		osg::Vec3f point_max(-1e38, -1e38, -1e38);
-		osg::Vec3f point_min(1e38, 1e38, 1e38);
 		osg::Vec3Array* vertexArr = (osg::Vec3Array*)g->getVertexArray();
-		primits.attributes["POSITION"] = osgState->model->accessors.size();
-		if (pmtState->vertexAccessor == -1 && osgState->draw_array_first == -1)
+		if (dracoState && dracoState->compressed)
 		{
-			pmtState->vertexAccessor = osgState->model->accessors.size();
+			// 创建一个占位符访问器（无bufferView），并设置正确的计数/类型
+			tinygltf::Accessor acc;
+			acc.bufferView = -1;
+			acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+			acc.count = (osgState->draw_array_first >= 0) ? osgState->draw_array_count : (int)vertexArr->size();
+			acc.type = TINYGLTF_TYPE_VEC3;
+
+			// 计算最大、最小值包围盒
+			osg::Vec3f point_max(-1e38, -1e38, -1e38);
+			osg::Vec3f point_min(1e38, 1e38, 1e38);
+			int vec_start = (osgState->draw_array_first >= 0) ? osgState->draw_array_first : 0;
+			int vec_end = (osgState->draw_array_first >= 0) ? (osgState->draw_array_count + vec_start) : (int)vertexArr->size();
+			for (int vidx = vec_start; vidx < vec_end; vidx++)
+			{
+				osg::Vec3f point = vertexArr->at(vidx);
+				ExpandBbox3d(point_max, point_min, point);
+			}
+
+			acc.minValues = { point_min.x(), point_min.y(), point_min.z() };
+			acc.maxValues = { point_max.x(), point_max.y(), point_max.z() };
+			int accIdx = (int)osgState->model->accessors.size();
+			osgState->model->accessors.push_back(acc);
+			primits.attributes["POSITION"] = accIdx;
+			if (pmtState->vertexAccessor == -1 && osgState->draw_array_first == -1)
+			{
+				pmtState->vertexAccessor = accIdx;
+			}
+
+			if (point_min.x() <= point_max.x() && point_min.y() <= point_max.y() &&
+				point_min.z() <= point_max.z())
+			{
+				ExpandBbox3d(osgState->point_max, osgState->point_min, point_max);
+				ExpandBbox3d(osgState->point_max, osgState->point_min, point_min);
+			}
 		}
-		WriteVec3Array(vertexArr, osgState, point_max, point_min);
-		if (point_min.x() <= point_max.x() && point_min.y() <= point_max.y() && point_min.z() <= point_max.z())
+		else
 		{
-			expand_bbox3d(osgState->point_max, osgState->point_min, point_max);
-			expand_bbox3d(osgState->point_max, osgState->point_min, point_min);
+			osg::Vec3f point_max(-1e38, -1e38, -1e38);
+			osg::Vec3f point_min(1e38, 1e38, 1e38);
+			primits.attributes["POSITION"] = osgState->model->accessors.size();
+			if (pmtState->vertexAccessor == -1 && osgState->draw_array_first == -1)
+			{
+				pmtState->vertexAccessor = osgState->model->accessors.size();
+			}
+
+			WriteVec3Array(vertexArr, osgState, point_max, point_min);
+
+			if (point_min.x() <= point_max.x() && point_min.y() <= point_max.y() &&
+				point_min.z() <= point_max.z())
+			{
+				ExpandBbox3d(osgState->point_max, osgState->point_min, point_max);
+				ExpandBbox3d(osgState->point_max, osgState->point_min, point_min);
+			}
 		}
 	}
+
+	// normal
 	osg::Vec3Array* normalArr = (osg::Vec3Array*)g->getNormalArray();
 	if (normalArr)
 	{
@@ -678,18 +891,37 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 		}
 		else
 		{
-			osg::Vec3f point_max(-1e38, -1e38, -1e38);
-			osg::Vec3f point_min(1e38, 1e38, 1e38);
-			primits.attributes["NORMAL"] = osgState->model->accessors.size();
-			if (pmtState->normalAccessor == -1 && osgState->draw_array_first == -1)
+			if (dracoState && dracoState->compressed)
 			{
-				pmtState->normalAccessor = osgState->model->accessors.size();
+				tinygltf::Accessor acc;
+				acc.bufferView = -1;
+				acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+				acc.count = (osgState->draw_array_first >= 0) ? osgState->draw_array_count : (int)normalArr->size();
+				acc.type = TINYGLTF_TYPE_VEC3;
+				int accIdx = (int)osgState->model->accessors.size();
+				osgState->model->accessors.push_back(acc);
+				primits.attributes["NORMAL"] = accIdx;
+				if (pmtState->normalAccessor == -1 && osgState->draw_array_first == -1)
+				{
+					pmtState->normalAccessor = accIdx;
+				}
 			}
+			else
+			{
+				osg::Vec3f point_max(-1e38, -1e38, -1e38);
+				osg::Vec3f point_min(1e38, 1e38, 1e38);
+				primits.attributes["NORMAL"] = osgState->model->accessors.size();
+				if (pmtState->normalAccessor == -1 && osgState->draw_array_first == -1)
+				{
+					pmtState->normalAccessor = osgState->model->accessors.size();
+				}
 
-			WriteVec3Array(normalArr, osgState, point_max, point_min);
+				WriteVec3Array(normalArr, osgState, point_max, point_min);
+			}
 		}
 	}
 
+	// textcoord
 	osg::Vec2Array* texArr = (osg::Vec2Array*)g->getTexCoordArray(0);
 	if (texArr)
 	{
@@ -699,16 +931,35 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 		}
 		else
 		{
-			primits.attributes["TEXCOORD_0"] = osgState->model->accessors.size();
-			if (pmtState->textcdAccessor == -1 && osgState->draw_array_first == -1)
+			if (dracoState && dracoState->compressed)
 			{
-				pmtState->textcdAccessor = osgState->model->accessors.size();
+				tinygltf::Accessor acc;
+				acc.bufferView = -1;
+				acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+				acc.count = (osgState->draw_array_first >= 0) ? osgState->draw_array_count : (int)texArr->size();
+				acc.type = TINYGLTF_TYPE_VEC2;
+				int accIdx = (int)osgState->model->accessors.size();
+				osgState->model->accessors.push_back(acc);
+				primits.attributes["TEXCOORD_0"] = accIdx;
+				if (pmtState->textcdAccessor == -1 && osgState->draw_array_first == -1)
+				{
+					pmtState->textcdAccessor = accIdx;
+				}
 			}
+			else
+			{
+				primits.attributes["TEXCOORD_0"] = osgState->model->accessors.size();
+				if (pmtState->textcdAccessor == -1 && osgState->draw_array_first == -1)
+				{
+					pmtState->textcdAccessor = osgState->model->accessors.size();
+				}
 
-			WriteVec2Array(texArr, osgState);
+				WriteVec2Array(texArr, osgState);
+			}
 		}
 	}
 
+	// material
 	primits.material = -1;
 
 	switch (ps->getMode())
@@ -728,68 +979,105 @@ void WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuil
 		break;
 	}
 
-	osgState->model->meshes.back().primitives.emplace_back(primits);
+	osgState->model->meshes.back().primitives.push_back(primits);
+
+	if (dracoState && dracoState->compressed)
+	{
+		tinygltf::Primitive& backPrim = osgState->model->meshes.back().primitives.back();
+		tinygltf::Value::Object dracoExt;
+		dracoExt["bufferView"] = tinygltf::Value(dracoState->bufferView);
+		tinygltf::Value::Object dracoAttribs;
+		if (dracoState->posId != -1)
+		{
+			dracoAttribs["POSITION"] = tinygltf::Value(dracoState->posId);
+		}
+
+		if (dracoState->normId != -1)
+		{
+			dracoAttribs["NORMAL"] = tinygltf::Value(dracoState->normId);
+		}
+
+		if (dracoState->texId != -1)
+		{
+			dracoAttribs["TEXCOORD_0"] = tinygltf::Value(dracoState->texId);
+		}
+
+		if (dracoState->batchId != -1)
+		{
+			dracoAttribs["_BATCHID"] = tinygltf::Value(dracoState->batchId);
+		}
+
+		dracoExt["attributes"] = tinygltf::Value(dracoAttribs);
+		backPrim.extensions["KHR_draco_mesh_compression"] = tinygltf::Value(dracoExt);
+	}
 }
 
-void WriteOsgGeometry(osg::Geometry* g, OsgBuildState* osgState, bool enable_simplify, bool enable_draco)
+void OSGB23dTiles::WriteOsgGeometry(osg::Geometry* pGeometry, OsgBuildState* osgState, bool bEnableSimplification, bool bEnableDraco)
 {
-	if (enable_simplify)
+	if (bEnableSimplification)
 	{
 		SimplificationParams simplication_params;
 		simplication_params.bEnableSimplification = true;
-		MeshProcessor::SimplifyMeshGeometry(g, simplication_params);
+		MeshProcessor::SimplifyMeshGeometry(pGeometry, simplication_params);
 	}
-	if (enable_draco)
+
+	DracoState dracoState = { false, -1, -1, -1, -1, -1 };
+
+	if (bEnableDraco)
 	{
 		std::vector<unsigned char> compressed_data;
 		size_t compressed_size = 0;
 		DracoCompressionParams draco_params;
 		draco_params.bEnableCompression = true;
-
-		MeshProcessor::CompressMeshGeometry(g, draco_params, compressed_data, compressed_size);
+		int dracoPosId = -1, dracoNormId = -1, dracoTexId = -1, dracoBatchId = -1;
+		bool ok = MeshProcessor::CompressMeshGeometry(
+			pGeometry, draco_params, compressed_data, compressed_size, &dracoPosId, &dracoNormId, &dracoTexId, &dracoBatchId, nullptr);
+		if (ok && compressed_size > 0)
+		{
+			unsigned bufOffset = osgState->buffer->data.size();
+			AlignmentBuffer(osgState->buffer->data);
+			bufOffset = osgState->buffer->data.size();
+			osgState->buffer->data.resize(bufOffset + compressed_size);
+			std::memcpy(osgState->buffer->data.data() + bufOffset, compressed_data.data(), compressed_size);
+			tinygltf::BufferView bv;
+			bv.buffer = 0;
+			bv.byteOffset = bufOffset;
+			bv.byteLength = compressed_size;
+			int bvIdx = (int)osgState->model->bufferViews.size();
+			osgState->model->bufferViews.push_back(bv);
+			dracoState.compressed = true;
+			dracoState.bufferView = bvIdx;
+			dracoState.posId = dracoPosId;
+			dracoState.normId = dracoNormId;
+			dracoState.texId = dracoTexId;
+			dracoState.batchId = dracoBatchId;
+		}
 	}
 
-	osg::PrimitiveSet::Type t = g->getPrimitiveSet(0)->getType();
+	osg::PrimitiveSet::Type t = pGeometry->getPrimitiveSet(0)->getType();
 	PrimitiveState pmtState = { -1, -1, -1 };
-	for (unsigned int k = 0; k < g->getNumPrimitiveSets(); k++)
+	for (unsigned int k = 0; k < pGeometry->getNumPrimitiveSets(); k++)
 	{
-		osg::PrimitiveSet* ps = g->getPrimitiveSet(k);
+		osg::PrimitiveSet* ps = pGeometry->getPrimitiveSet(k);
 		if (t != ps->getType())
 		{
 			LOG_E("osgb 中 PrimitiveSets 类型不相同");
 			exit(1);
 		}
 
-		WriteElementArrayPrimitive(g, ps, osgState, &pmtState);
+		WriteElementArrayPrimitive(pGeometry, ps, osgState, &pmtState, &dracoState);
 	}
 }
 
-tinygltf::Material make_color_material_osgb(double r, double g, double b)
-{
-	tinygltf::Material material;
-	material.name = "default";
-
-	// PBR 材质配置
-	material.pbrMetallicRoughness.baseColorFactor = { r, g, b, 1.0 };
-	material.pbrMetallicRoughness.metallicFactor = 0.0;   // 非金属
-	material.pbrMetallicRoughness.roughnessFactor = 1.0;  // 完全粗糙（漫反射）
-
-	// 启用 unlit 扩展：禁用光照计算，等效于 shader 的 texture2D 直接输出
-	tinygltf::Value::Object unlit_ext;
-	material.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
-
-	return material;
-}
-
 bool OSGB23dTiles::ToGLBBuf(
-	std::string path, 
-	std::string& glb_buff, 
-	MeshInfo& mesh_info, 
+	std::string path,
+	std::string& glb_buff,
+	MeshInfo& mesh_info,
 	int node_type,
 	bool bBinary,
-	bool enable_texture_compress, 
-	bool enable_meshopt, 
-	bool enable_draco, 
+	bool enable_texture_compress,
+	bool enable_meshopt,
+	bool enable_draco,
 	bool need_mesh_info/* = true*/)
 {
 	vector<string> fileNames = { path };
@@ -901,7 +1189,7 @@ bool OSGB23dTiles::ToGLBBuf(
 				tinygltf::BufferView bfv;
 				bfv.buffer = 0;
 				bfv.byteOffset = buffer_start;
-				alignment_buffer(buffer.data);
+				AlignmentBuffer(buffer.data);
 				bfv.byteLength = buffer.data.size() - buffer_start;
 				model.bufferViews.emplace_back(bfv);
 			}
@@ -950,10 +1238,33 @@ bool OSGB23dTiles::ToGLBBuf(
 		model.extensionsUsed.emplace_back("KHR_draco_mesh_compression");
 	}
 
-	for (int i = 0; i < infoVisitor.texture_array.size(); i++)
+	for (auto geom : infoVisitor.geometry_array)
 	{
-		tinygltf::Material mat = make_color_material_osgb(1.0, 1.0, 1.0);
-		mat.pbrMetallicRoughness.baseColorTexture.index = i;
+		tinygltf::Material mat;
+
+		// 如果有材质属性，进行转换                                                                                                                                                  
+		if (infoVisitor.material_map.find(geom) != infoVisitor.material_map.end())
+		{
+			osg::Material* osgMat = infoVisitor.material_map[geom];
+			mat = ConvertOSGBMaterialToPBR(osgMat);
+			
+			// model.extensionsUsed.push_back("KHR_materials_specular");  
+			// 如果使用ConvertOSGBMaterialWithSpecularExt, 需要添加的扩展声明
+			// 或者 mat = ConvertOSGBMaterialWithSpecularExt(osgMat);   
+		}
+		else
+		{
+			mat = MakeDefaultColorMaterial(1.0, 1.0, 1.0);
+		}
+
+		// 关联纹理                                                                                                                                                                  
+		if (infoVisitor.texture_map.find(geom) != infoVisitor.texture_map.end())
+		{
+			//infoVisitor.texture_array.find();
+			//int texIndex = /* 查找纹理索引 */;
+			//mat.pbrMetallicRoughness.baseColorTexture.index = texIndex;
+		}
+
 		model.materials.emplace_back(mat);
 	}
 
@@ -997,12 +1308,12 @@ bool OSGB23dTiles::ToGLBBuf(
 }
 
 bool OSGB23dTiles::ToB3DMBuf(
-	std::string path, 
-	std::string& b3dm_buf, 
-	TileBox& tile_box, 
+	std::string path,
+	std::string& b3dm_buf,
+	TileBox& tile_box,
 	int node_type,
-	bool enable_texture_compress, 
-	bool enable_meshopt, 
+	bool enable_texture_compress,
+	bool enable_meshopt,
 	bool enable_draco)
 {
 	using nlohmann::json;
@@ -1058,12 +1369,12 @@ bool OSGB23dTiles::ToB3DMBuf(
 
 	b3dm_buf += "b3dm";
 	int version = 1;
-	put_val(b3dm_buf, version);
-	put_val(b3dm_buf, total_len);
-	put_val(b3dm_buf, feature_json_len);
-	put_val(b3dm_buf, feature_bin_len);
-	put_val(b3dm_buf, batch_json_len);
-	put_val(b3dm_buf, batch_bin_len);
+	PutVal(b3dm_buf, version);
+	PutVal(b3dm_buf, total_len);
+	PutVal(b3dm_buf, feature_json_len);
+	PutVal(b3dm_buf, feature_bin_len);
+	PutVal(b3dm_buf, batch_json_len);
+	PutVal(b3dm_buf, batch_bin_len);
 	b3dm_buf.append(feature_json_string.begin(), feature_json_string.end());
 	b3dm_buf.append(batch_json_string.begin(), batch_json_string.end());
 	b3dm_buf.append(glb_buf);
@@ -1072,11 +1383,11 @@ bool OSGB23dTiles::ToB3DMBuf(
 }
 
 void OSGB23dTiles::DoTileJob(
-	OSGTree& tree, 
-	std::string out_path, 
-	int max_lvl, 
-	bool enable_texture_compress, 
-	bool enable_meshopt, 
+	OSGTree& tree,
+	std::string out_path,
+	int max_lvl,
+	bool enable_texture_compress,
+	bool enable_meshopt,
 	bool enable_draco)
 {
 	if (tree.file_name.empty())
@@ -1219,26 +1530,17 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 //===============OSGB23dTiles 批量处理==================
 
 bool OSGB23dTiles::ToB3DMBatch(
-	const std::string& pDataDir, 
+	const std::string& pDataDir,
 	const std::string& strOutputDir,
-	double dCenterX, 
-	double dCenterY, 
+	double dCenterX,
+	double dCenterY,
 	int nMaxLevel,
-	bool bEnableTextureCompress, 
-	bool bEnableMeshOpt, 
+	bool bEnableTextureCompress,
+	bool bEnableMeshOpt,
 	bool bEnableDraco)
 {
 	// 1. 构建 Data 目录路径
 	std::string data_path = OSGBTools::OSGString(pDataDir);
-
-	// 标准化路径分隔符
-	for (char& c : data_path)
-	{
-		if (c == '\\')
-		{
-			c = '/';
-		}
-	}
 
 	// 移除尾部斜杠
 	if (!data_path.empty() && data_path.back() == '/')
@@ -1554,7 +1856,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 			}
 			else
 			{
-				expend_box(global_bbox, tile.bbox);
+				ExpandBox(global_bbox, tile.bbox);
 			}
 
 			// 将瓦片 JSON 包装在完整的 tileset 结构中
@@ -1631,7 +1933,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 	}
 
 	// 生成JSON,includeAsset=true
-	std::string root_json = rootNode.ToJson(true); 
+	std::string root_json = rootNode.ToJson(true);
 
 	// 8. 保存根 tileset.json
 	std::string root_tileset_path = strOutputDir + "/tileset.json";

@@ -423,10 +423,38 @@ std::string OSGBTools::Replace(std::string str, std::string s0, std::string s1)
 	return str.replace(p0, s0.length(), s1);
 }
 
+std::string OSGBTools::NormalizePath(const std::string& strPath)
+{
+    if (strPath.empty()) 
+	{
+        return std::string();
+    }
+
+#ifdef _WIN32
+    std::string p = strPath;
+
+    const std::string uncPrefix = R"(\\?\UNC\)";
+    if (p.rfind(uncPrefix, 0) == 0)
+    {
+        return R"(\\)" + p.substr(uncPrefix.length());
+    }
+
+    const std::string longPrefix = R"(\\?\)";
+    if (p.rfind(longPrefix, 0) == 0)
+    {
+        return p.substr(longPrefix.length());
+    }
+
+    return p;
+#else
+    return strPath;
+#endif
+}
+
 std::string OSGBTools::OSGString(const std::string& strPath)
 {
 #ifdef WIN32
-	std::string root_path = osgDB::convertStringFromUTF8toCurrentCodePage(strPath);
+	std::string root_path = osgDB::convertStringFromUTF8toCurrentCodePage(NormalizePath(strPath));
 #else
 	std::string root_path = strPath;
 #endif // WIN32
@@ -436,7 +464,7 @@ std::string OSGBTools::OSGString(const std::string& strPath)
 std::string OSGBTools::Utf8String(const std::string& strPath)
 {
 #ifdef WIN32
-	std::string utf8 = osgDB::convertStringFromCurrentCodePageToUTF8(strPath);
+	std::string utf8 = osgDB::convertStringFromCurrentCodePageToUTF8(NormalizePath(strPath));
 #else
 	std::string utf8 = strPath;
 #endif // WIN32

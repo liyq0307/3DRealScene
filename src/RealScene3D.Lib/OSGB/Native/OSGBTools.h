@@ -233,6 +233,9 @@ public:
 	// 字符串替换辅助函数
 	static std::string Replace(std::string str, std::string s0, std::string s1);
 
+	// 标准化路径（统一使用 '/' 作为分隔符）
+	static std::string NormalizePath(const std::string& strPath);
+
 	// 转换为 OSG 字符串格式
 	static std::string OSGString(const std::string& strPath);
 

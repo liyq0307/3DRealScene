@@ -703,9 +703,16 @@ bool MeshProcessor::SimplifyMeshGeometry(osg::Geometry* pGeometry, const Simplif
 }
 
 // 使用Draco压缩网格几何体的函数
-bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCompressionParams& params,
-	std::vector<unsigned char>& compressedData, size_t& nCompressedSize,
-	int* out_position_att_id, int* out_normal_att_id)
+bool MeshProcessor::CompressMeshGeometry(
+	osg::Geometry* pGeometry,
+	const DracoCompressionParams& params,
+	std::vector<unsigned char>& compressedData,
+	size_t& nCompressedSize,
+	int* pOutPositionAttId,
+	int* pOutNormalAttId ,
+	int* pOutTexCoordAttId,
+	int* pOutBatchIdAttId,
+	const std::vector<float>* batchIds)
 {
 	if (!params.bEnableCompression || !pGeometry)
 	{
@@ -730,6 +737,10 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCo
 	draco::GeometryAttribute posAttr;
 	posAttr.Init(draco::GeometryAttribute::POSITION, nullptr, 3, draco::DT_FLOAT32, false, sizeof(float) * 3, 0);
 	int posAttId = dracoMesh->AddAttribute(posAttr, true, vertexCount);
+	if (pOutPositionAttId)
+	{
+		*pOutPositionAttId = posAttId;
+	}
 
 	// 复制顶点位置
 	for (size_t i = 0; i < vertexCount; ++i)
@@ -741,12 +752,15 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCo
 
 	// 如果存在则处理法线
 	osg::Vec3Array* normalArray = dynamic_cast<osg::Vec3Array*>(pGeometry->getNormalArray());
-	int normalAttId = -1;
 	if (normalArray && normalArray->size() == vertexCount)
 	{
 		draco::GeometryAttribute normalAttr;
 		normalAttr.Init(draco::GeometryAttribute::NORMAL, nullptr, 3, draco::DT_FLOAT32, false, sizeof(float) * 3, 0);
-		normalAttId = dracoMesh->AddAttribute(normalAttr, true, vertexCount);
+		int normalAttId = dracoMesh->AddAttribute(normalAttr, true, vertexCount);
+		if (pOutNormalAttId)
+		{
+			*pOutNormalAttId = normalAttId;
+		}
 
 		// 复制法线
 		for (size_t i = 0; i < vertexCount; ++i)
@@ -756,8 +770,46 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCo
 			dracoMesh->attribute(normalAttId)->SetAttributeValue(draco::AttributeValueIndex(i), &norm[0]);
 		}
 	}
+	
+	// 处理纹理坐标
+	osg::Vec2Array* texCoordArray = dynamic_cast<osg::Vec2Array*>(pGeometry->getTexCoordArray(0));
+	if (texCoordArray && texCoordArray->size() == vertexCount) 
+	{
+		draco::GeometryAttribute uvAttr;
+		uvAttr.Init(draco::GeometryAttribute::TEX_COORD, nullptr, 2, draco::DT_FLOAT32, false, sizeof(float) * 2, 0);
+		int uvAttId = dracoMesh->AddAttribute(uvAttr, true, vertexCount);
+		if (pOutTexCoordAttId)
+		{
+			*pOutTexCoordAttId = uvAttId;
+		}
 
-	// 处理原始集（索引）
+		for (size_t i = 0; i < vertexCount; ++i) 
+		{
+			const osg::Vec2& uv = texCoordArray->at(i);
+			const float tex[2] = { static_cast<float>(uv.x()), static_cast<float>(uv.y()) };
+			dracoMesh->attribute(uvAttId)->SetAttributeValue(draco::AttributeValueIndex(i), &tex[0]);
+		}
+	}
+
+	// 处理 Batch IDs 
+	if (batchIds && batchIds->size() == vertexCount) 
+	{
+		draco::GeometryAttribute batchIdAttr;
+		batchIdAttr.Init(draco::GeometryAttribute::GENERIC, nullptr, 1, draco::DT_FLOAT32, false, sizeof(float), 0);
+		int batchIdAttId = dracoMesh->AddAttribute(batchIdAttr, true, vertexCount);
+		if (pOutBatchIdAttId)
+		{
+			*pOutBatchIdAttId = batchIdAttId;
+		}
+
+		for (size_t i = 0; i < vertexCount; ++i) 
+		{
+			float val = (*batchIds)[i];
+			dracoMesh->attribute(batchIdAttId)->SetAttributeValue(draco::AttributeValueIndex(i), &val);
+		}
+	}
+
+	// 处理primitive sets(indices)
 	if (pGeometry->getNumPrimitiveSets() > 0)
 	{
 		osg::PrimitiveSet* primitiveSet = pGeometry->getPrimitiveSet(0);
@@ -799,6 +851,11 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCo
 		encoder.SetAttributeQuantization(draco::GeometryAttribute::NORMAL, params.nNormalQuantizationBits);
 	}
 
+	if (texCoordArray) 
+	{
+		encoder.SetAttributeQuantization(draco::GeometryAttribute::TEX_COORD, params.nTexCoordQuantizationBits);
+	}
+
 	// 编码网格
 	draco::EncoderBuffer buffer;
 	draco::Status status = encoder.EncodeMeshToBuffer(*dracoMesh, &buffer);
@@ -812,15 +869,6 @@ bool MeshProcessor::CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCo
 	nCompressedSize = buffer.size();
 	compressedData.resize(nCompressedSize);
 	std::memcpy(compressedData.data(), buffer.data(), nCompressedSize);
-
-	if (out_position_att_id)
-	{
-		*out_position_att_id = posAttId;
-	}
-	if (out_normal_att_id)
-	{
-		*out_normal_att_id = normalAttId;
-	}
 
 	return true;
 }

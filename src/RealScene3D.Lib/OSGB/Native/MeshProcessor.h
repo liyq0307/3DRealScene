@@ -109,15 +109,25 @@ public:
 	 * @param nCompressedSize 输出的压缩数据大小
 	 * @param pOutPositionAttId 可选输出参数，返回位置属性的 Draco ID
 	 * @param pOutNormalAttId 可选输出参数，返回法线属性的 Draco ID
+	 * @param pOutTexCoordAttId 可选输出参数，返回纹理坐标属性的 Draco ID
+	 * @param pOutBatchIdAttId 可选输出参数，返回批次ID
+	 * @param batchIds 可选输入参数，批次ID数据
 	 * @return true=成功, false=失败
 	 * @note 调用者负责管理输出压缩数据的内存。
 	 *       该函数假设输入几何体具有有效的顶点和索引数据。
 	 *       如果几何体缺少位置属性，压缩将失败。
 	 *  	 输出的 Draco 属性 ID 可用于在 glTF 文件中正确映射压缩数据。
 	 */
-	static bool CompressMeshGeometry(osg::Geometry* pGeometry, const DracoCompressionParams& params,
-		std::vector<unsigned char>& compressedData, size_t& nCompressedSize,
-		int* pOutPositionAttId = nullptr, int* pOutNormalAttId = nullptr);
+	static bool CompressMeshGeometry(
+		osg::Geometry* pGeometry,
+		const DracoCompressionParams& params,
+		std::vector<unsigned char>& compressedData,
+		size_t& nCompressedSize,
+		int* pOutPositionAttId = nullptr,
+		int* pOutNormalAttId = nullptr,
+		int* pOutTexCoordAttId = nullptr,
+		int* pOutBatchIdAttId = nullptr,
+		const std::vector<float>* batchIds = nullptr);
 
 	/**
 	 * @brief 处理纹理，支持 KTX2 压缩
@@ -169,7 +179,6 @@ private:
 		std::vector<unsigned int>& simplifiedIndices,
 		size_t& nSimplifiedIndexCount,
 		const SimplificationParams& params);
-
 };
 
 

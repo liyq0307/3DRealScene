@@ -67,8 +67,10 @@ namespace std {
 %ignore BoundingVolumeFromTileBox;
 
 // 从 OSGB23dTiles.h 中忽略内部实现类
+%ignore PrimitiveState;
 %ignore InfoVisitor;
 %ignore OsgBuildState;
+%ignore DracoState;
 
 // 忽略 OSGB23dTiles 类的私有方法
 %ignore OSGB23dTiles::ToGLBBuf(std::string, std::string&, MeshInfo&, int, bool, bool, bool, bool);
@@ -76,6 +78,11 @@ namespace std {
 %ignore OSGB23dTiles::DoTileJob;
 %ignore OSGB23dTiles::EncodeTileJSON;
 %ignore OSGB23dTiles::GetAllTree;
+%ignore OSGB23dTiles::WriteOsgIndecis;
+%ignore OSGB23dTiles::WriteVec3Array;
+%ignore OSGB23dTiles::WriteVec2Array;
+%ignore OSGB23dTiles::WriteElementArrayPrimitive;
+%ignore OSGB23dTiles::WriteOsgGeometry;
 
 /* ============================================================================
  * 包含C++头文件
