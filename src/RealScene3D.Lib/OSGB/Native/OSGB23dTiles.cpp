@@ -15,6 +15,11 @@
 #include <basisu/transcoder/basisu_transcoder.h>
 #endif
 
+// OpenMP for parallel processing
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "OSGB23dTiles.h"
 #include "OSGBTools.h"
 #include "MeshProcessor.h"
@@ -1238,35 +1243,42 @@ bool OSGB23dTiles::ToGLBBuf(
 		model.extensionsUsed.emplace_back("KHR_draco_mesh_compression");
 	}
 
-	for (auto geom : infoVisitor.geometry_array)
+	for (int i = 0; i < infoVisitor.texture_array.size(); i++)
 	{
-		tinygltf::Material mat;
-
-		// 如果有材质属性，进行转换                                                                                                                                                  
-		if (infoVisitor.material_map.find(geom) != infoVisitor.material_map.end())
-		{
-			osg::Material* osgMat = infoVisitor.material_map[geom];
-			mat = ConvertOSGBMaterialToPBR(osgMat);
-			
-			// model.extensionsUsed.push_back("KHR_materials_specular");  
-			// 如果使用ConvertOSGBMaterialWithSpecularExt, 需要添加的扩展声明
-			// 或者 mat = ConvertOSGBMaterialWithSpecularExt(osgMat);   
-		}
-		else
-		{
-			mat = MakeDefaultColorMaterial(1.0, 1.0, 1.0);
-		}
-
-		// 关联纹理                                                                                                                                                                  
-		if (infoVisitor.texture_map.find(geom) != infoVisitor.texture_map.end())
-		{
-			//infoVisitor.texture_array.find();
-			//int texIndex = /* 查找纹理索引 */;
-			//mat.pbrMetallicRoughness.baseColorTexture.index = texIndex;
-		}
-
+		tinygltf::Material mat = MakeDefaultColorMaterial(1.0, 1.0, 1.0);
+		mat.pbrMetallicRoughness.baseColorTexture.index = i;
 		model.materials.emplace_back(mat);
 	}
+
+	//for (auto geom : infoVisitor.geometry_array)
+	//{
+	//	tinygltf::Material mat;
+
+	//	// 如果有材质属性，进行转换                                                                                                                                                  
+	//	if (infoVisitor.material_map.find(geom) != infoVisitor.material_map.end())
+	//	{
+	//		osg::Material* osgMat = infoVisitor.material_map[geom];
+	//		mat = ConvertOSGBMaterialToPBR(osgMat);
+	//		
+	//		// model.extensionsUsed.push_back("KHR_materials_specular");  
+	//		// 如果使用ConvertOSGBMaterialWithSpecularExt, 需要添加的扩展声明
+	//		// 或者 mat = ConvertOSGBMaterialWithSpecularExt(osgMat);   
+	//	}
+	//	else
+	//	{
+	//		mat = MakeDefaultColorMaterial(1.0, 1.0, 1.0);
+	//	}
+
+	//	// 关联纹理                                                                                                                                                                  
+	//	if (infoVisitor.texture_map.find(geom) != infoVisitor.texture_map.end())
+	//	{
+	//		//infoVisitor.texture_array.find();
+	//		//int texIndex = /* 查找纹理索引 */;
+	//		//mat.pbrMetallicRoughness.baseColorTexture.index = texIndex;
+	//	}
+
+	//	model.materials.emplace_back(mat);
+	//}
 
 	// finish buffer
 	model.buffers.emplace_back(std::move(buffer));
@@ -1821,14 +1833,29 @@ bool OSGB23dTiles::ToB3DMBatch(
 
 	std::cout << "[INFO] Found " << tiles.size() << " tile directories to process" << std::endl;
 
-	// 5. 处理每个瓦片
+	// 5. 处理每个瓦片（使用 OpenMP 并行加速）
 	std::vector<std::string> tile_jsons;
 
-	for (size_t i = 0; i < tiles.size(); i++)
+#ifdef _OPENMP
+	// 获取可用线程数
+	int num_threads = omp_get_max_threads();
+	std::cout << "[INFO] Using OpenMP with " << num_threads << " threads for parallel processing" << std::endl;
+
+	// 使用 dynamic 调度以平衡不同瓦片的处理时间差异
+	#pragma omp parallel for schedule(dynamic)
+#endif
+	for (int i = 0; i < static_cast<int>(tiles.size()); i++)
 	{
 		TileInfo& tile = tiles[i];
-		std::cout << "[INFO] Processing tile " << (i + 1) << "/" << tiles.size()
-			<< ": " << tile.tile_name << std::endl;
+
+		// 线程安全的控制台输出
+#ifdef _OPENMP
+		#pragma omp critical(console_output)
+#endif
+		{
+			std::cout << "[INFO] Processing tile " << (i + 1) << "/" << tiles.size()
+				<< ": " << tile.tile_name << std::endl;
+		}
 
 		B3DMResult result = ToB3DM(
 			tile.osgb_path,
@@ -1843,20 +1870,26 @@ bool OSGB23dTiles::ToB3DMBatch(
 
 		if (result.success && !result.tilesetJson.empty())
 		{
-			tile_jsons.emplace_back(result.tilesetJson);
-
-			// 更新边界框
-			tile.bbox.max = { result.boundingBox[0], result.boundingBox[1], result.boundingBox[2] };
-			tile.bbox.min = { result.boundingBox[3], result.boundingBox[4], result.boundingBox[5] };
-
-			// 合并到全局边界框
-			if (global_bbox.max.empty())
+			// 临界区：保护共享数据（tile_jsons 和 global_bbox）
+#ifdef _OPENMP
+			#pragma omp critical(data_update)
+#endif
 			{
-				global_bbox = tile.bbox;
-			}
-			else
-			{
-				ExpandBox(global_bbox, tile.bbox);
+				tile_jsons.emplace_back(result.tilesetJson);
+
+				// 更新边界框
+				tile.bbox.max = { result.boundingBox[0], result.boundingBox[1], result.boundingBox[2] };
+				tile.bbox.min = { result.boundingBox[3], result.boundingBox[4], result.boundingBox[5] };
+
+				// 合并到全局边界框
+				if (global_bbox.max.empty())
+				{
+					global_bbox = tile.bbox;
+				}
+				else
+				{
+					ExpandBox(global_bbox, tile.bbox);
+				}
 			}
 
 			// 将瓦片 JSON 包装在完整的 tileset 结构中
@@ -1867,13 +1900,19 @@ bool OSGB23dTiles::ToB3DMBatch(
 			wrapped_json += result.tilesetJson;  // 这是此瓦片的根节点
 			wrapped_json += "}";
 
-			// 保存单个瓦片的 tileset.json
+			// 保存单个瓦片的 tileset.json（文件写入通常是线程安全的）
 			std::string tileset_path = tile.output_path + "/tileset.json";
 			OSGBTools::WriteFile(tileset_path.c_str(), wrapped_json.data(), wrapped_json.size());
 		}
 		else
 		{
-			LOG_E("处理瓦片失败：%s", tile.tile_name.c_str());
+			// 线程安全的错误日志输出
+#ifdef _OPENMP
+			#pragma omp critical(console_output)
+#endif
+			{
+				LOG_E("处理瓦片失败：%s", tile.tile_name.c_str());
+			}
 		}
 	}
 

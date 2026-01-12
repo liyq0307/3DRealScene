@@ -194,8 +194,20 @@ if(WIN32)
     # 暂时禁用预编译头以避免条件编译宏冲突
     target_precompile_headers(${PROJECT_NAME} PRIVATE Native/OSGBFix.h)
 
-    # 添加/bigobj选项以支持大型对象文件
-    target_compile_options(${PROJECT_NAME} PRIVATE /bigobj /utf-8)
+    # 添加/bigobj选项以支持大型对象文件，启用OpenMP并行支持
+    target_compile_options(${PROJECT_NAME} PRIVATE /bigobj /utf-8 /openmp)
+endif()
+
+# Linux/macOS 特定配置
+if(UNIX)
+    # 启用 OpenMP 并行支持
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
+        message(STATUS "OpenMP enabled for parallel processing")
+    else()
+        message(WARNING "OpenMP not found - parallel processing will be disabled")
+    endif()
 endif()
 
 # ============================================================================
