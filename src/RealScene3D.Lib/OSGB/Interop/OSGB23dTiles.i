@@ -34,8 +34,8 @@ namespace std {
 
 // 将 std::vector<uint8_t> 转换为 C# byte[]
 %typemap(cstype) std::vector<uint8_t> "byte[]"
-%typemap(csout) std::vector<uint8_t> {
-    global::System.IntPtr cPtr = $imcall;
+%typemap(csout, excode=SWIGEXCODE) std::vector<uint8_t> {
+    global::System.IntPtr cPtr = $imcall;$excode
     VectorUInt8 tempVector = new VectorUInt8(cPtr, true);
 
     byte[] result = new byte[tempVector.Count];

@@ -377,8 +377,9 @@ tinygltf::Material MakeDefaultColorMaterial(double r, double g, double b)
 	return material;
 }
 
-/** 
+/**
  * @brief 将 OSG 材质转换为 PBR 材质
+ * @note 针对已烘焙光照的OSGB纹理进行优化，大幅提升环境光贡献，确保显示亮度接近原始效果
  * @note 该方法适用于大多数常见材质类型，但可能无法完美保留所有复杂材质的外观
  */
 tinygltf::Material ConvertOSGBMaterialToPBR(osg::Material* osgMaterial)
@@ -386,98 +387,130 @@ tinygltf::Material ConvertOSGBMaterialToPBR(osg::Material* osgMaterial)
 	tinygltf::Material gltfMaterial;
 	gltfMaterial.name = "converted_pbr";
 
-	// 1. 提取OSGB材质属性                                                                                                                                                       
+	// 1. 提取OSGB材质属性
 	osg::Vec4 ambient = osgMaterial->getAmbient(osg::Material::FRONT_AND_BACK);
 	osg::Vec4 diffuse = osgMaterial->getDiffuse(osg::Material::FRONT_AND_BACK);
 	osg::Vec4 specular = osgMaterial->getSpecular(osg::Material::FRONT_AND_BACK);
 	osg::Vec4 emission = osgMaterial->getEmission(osg::Material::FRONT_AND_BACK);
 	float shininess = osgMaterial->getShininess(osg::Material::FRONT_AND_BACK);
 
-	// 2. BaseColor转换：使用Diffuse作为基础颜色                                                                                                                                 
-	gltfMaterial.pbrMetallicRoughness.baseColorFactor = 
+	// 2. BaseColor转换：针对烘焙纹理，使用白色baseColor
+	// OSGB模型的纹理已包含完整光照信息，材质颜色应为白色(1,1,1)以避免调制纹理
+	// 使用unlit扩展时，baseColorFactor会直接影响纹理显示亮度
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor =
 	{
-		diffuse[0], diffuse[1], diffuse[2], diffuse[3]
+		1.0, 1.0, 1.0,  // 固定白色，100%显示纹理原色
+		diffuse[3]      // 保留alpha通道
 	};
 
-	// 3. Roughness转换：从Shininess推导粗糙度                                                                                                                                   
-	// Shininess范围通常是0-128，值越大越光滑                                                                                                                                    
-	// Roughness范围是0-1，值越大越粗糙                                                                                                                                          
+	// 注：原始diffuse和ambient信息已在纹理烘焙中体现，无需再次应用
+	// 3. Roughness转换：从Shininess推导粗糙度
+	// 对于已烘焙纹理，使用更高的roughness以减少额外的高光反射
+	// Shininess范围通常是0-128，值越大越光滑
+	// Roughness范围是0-1，值越大越粗糙
 	float roughness = 1.0f - std::sqrt(shininess / 128.0f);
 	roughness = std::clamp(roughness, 0.0f, 1.0f);
+
+	// 针对烘焙纹理：提升roughness基准值，降低高光反射
+	roughness = std::max(roughness, 0.6f);  // 最小粗糙度0.6（更接近漫反射）
 	gltfMaterial.pbrMetallicRoughness.roughnessFactor = roughness;
 
-	// 4. Metallic转换：根据Specular强度推导金属度                                                                                                                               
-	// 计算Specular的亮度值                                                                                                                                                      
+	// 4. Metallic转换：根据Specular强度推导金属度（保守策略）
+	// 对于OSGB实景数据，大部分是非金属材质
 	float specularLuminance = (specular[0] + specular[1] + specular[2]) / 3.0f;
 
-	// 如果Specular很强且接近白色，可能是金属材质                                                                                                                                
+	// 更保守的金属度判断：提高阈值，降低最大金属度
 	float metallic = 0.0f;
-	if (specularLuminance > 0.5f) 
+	if (specularLuminance > 0.7f)  // 阈值从0.5提升到0.7
 	{
-		// 检查Specular是否接近白色（金属特征）                                                                                                                                  
-		float colorVariance = std::abs(specular[0] - specular[1]) + std::abs(specular[1] - specular[2]);
-		if (colorVariance < 0.1f) 
+		// 检查Specular是否接近白色（金属特征）
+		float colorVariance = std::abs(specular[0] - specular[1]) +
+			std::abs(specular[1] - specular[2]) +
+			std::abs(specular[0] - specular[2]);
+		if (colorVariance < 0.15f)  // 从0.1放宽到0.15
 		{
-			metallic = specularLuminance;
+			// 限制最大金属度为0.3（实景数据很少有纯金属）
+			metallic = std::min(specularLuminance * 0.5f, 0.3f);
 		}
 	}
 	gltfMaterial.pbrMetallicRoughness.metallicFactor = metallic;
 
-	// 5. Emissive转换：直接映射                                                                                                                                                 
-	gltfMaterial.emissiveFactor = 
+	// 5. Emissive转换：直接映射
+	gltfMaterial.emissiveFactor =
 	{
 		emission[0], emission[1], emission[2]
 	};
 
-	// 6. 处理Ambient（PBR中没有直接对应）                                                                                                                                       
-	// 选项A: 添加到BaseColor中（提亮效果）                                                                                                                                      
-	// 选项B: 添加到EmissiveFactor中                                                                                                                                             
-	// 选项C: 忽略（环境光由场景控制）                                                                                                                                           
-	// 这里选择选项A                                                                                                                                                             
-	gltfMaterial.pbrMetallicRoughness.baseColorFactor[0] += ambient[0] * 0.2;
-	gltfMaterial.pbrMetallicRoughness.baseColorFactor[1] += ambient[1] * 0.2;
-	gltfMaterial.pbrMetallicRoughness.baseColorFactor[2] += ambient[2] * 0.2;
-
-	// 确保颜色值在[0,1]范围内                                                                                                                                                   
-	for (int i = 0; i < 3; i++) 
-	{
-		gltfMaterial.pbrMetallicRoughness.baseColorFactor[i] =
-			std::clamp(gltfMaterial.pbrMetallicRoughness.baseColorFactor[i], 0.0, 1.0);
-	}
+	// 6. 添加unlit扩展：禁用实时光照计算
+	// OSGB模型的纹理已包含烘焙光照，使用unlit可以忠实还原原始效果
+	tinygltf::Value::Object unlit_ext;
+	gltfMaterial.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
 
 	return gltfMaterial;
 }
 
 /**
  * @brief 将 OSG 材质转换为 PBR 材质，使用 KHR_materials_specular 扩展保留 Specular 信息
+ * @note 针对已烘焙光照的OSGB纹理优化，添加环境光处理，改进金属度计算
  * @note 该方法允许更精确地保留原始材质的外观，适用于需要高保真转换的场景
  */
 tinygltf::Material ConvertOSGBMaterialWithSpecularExt(osg::Material* osgMaterial)
 {
 	tinygltf::Material gltfMaterial;
+	gltfMaterial.name = "converted_pbr_specular";
 
-	// 基础PBR属性                                                                                                                                                               
+	// 1. 提取OSGB材质属性
+	osg::Vec4 ambient = osgMaterial->getAmbient(osg::Material::FRONT_AND_BACK);
 	osg::Vec4 diffuse = osgMaterial->getDiffuse(osg::Material::FRONT_AND_BACK);
-	gltfMaterial.pbrMetallicRoughness.baseColorFactor = 
+	osg::Vec4 specular = osgMaterial->getSpecular(osg::Material::FRONT_AND_BACK);
+	osg::Vec4 emission = osgMaterial->getEmission(osg::Material::FRONT_AND_BACK);
+	float shininess = osgMaterial->getShininess(osg::Material::FRONT_AND_BACK);
+
+	// 2. BaseColor转换：针对烘焙纹理，使用白色baseColor
+	// OSGB模型的纹理已包含完整光照信息，材质颜色应为白色(1,1,1)以避免调制纹理
+	// 使用unlit扩展时，baseColorFactor会直接影响纹理显示亮度
+	gltfMaterial.pbrMetallicRoughness.baseColorFactor =
 	{
-		diffuse[0], diffuse[1], diffuse[2], diffuse[3]
+		1.0, 1.0, 1.0,  // 固定白色，100%显示纹理原色
+		diffuse[3]      // 保留alpha通道
 	};
 
-	// 从Shininess转换粗糙度                                                                                                                                                     
-	float shininess = osgMaterial->getShininess(osg::Material::FRONT_AND_BACK);
-	gltfMaterial.pbrMetallicRoughness.roughnessFactor = 1.0f - std::sqrt(shininess / 128.0f);
-	gltfMaterial.pbrMetallicRoughness.metallicFactor = 0.0f; // 非金属                                                                                                           
+	// 注：原始diffuse和ambient信息已在纹理烘焙中体现，无需再次应用
+	// 3. Roughness转换：从Shininess推导粗糙度
+	// 对于已烘焙纹理，提升roughness基准值
+	float roughness = 1.0f - std::sqrt(shininess / 128.0f);
+	roughness = std::clamp(roughness, 0.0f, 1.0f);
+	roughness = std::max(roughness, 0.6f);  // 最小粗糙度0.6
+	gltfMaterial.pbrMetallicRoughness.roughnessFactor = roughness;
 
-	// 使用KHR_materials_specular扩展保留Specular                                                                                                                                
-	osg::Vec4 specular = osgMaterial->getSpecular(osg::Material::FRONT_AND_BACK);
+	// 4. Metallic转换：根据Specular强度动态计算（改进）
+	// 原实现固定为0.0，现在根据specular强度动态判断
+	float specularLuminance = (specular[0] + specular[1] + specular[2]) / 3.0f;
+	float metallic = 0.0f;
+
+	// 保守的金属度判断
+	if (specularLuminance > 0.7f)
+	{
+		float colorVariance = std::abs(specular[0] - specular[1]) +
+			std::abs(specular[1] - specular[2]) +
+			std::abs(specular[0] - specular[2]);
+		if (colorVariance < 0.15f)
+		{
+			// 因为使用了specular扩展，metallic可以更低
+			metallic = std::min(specularLuminance * 0.3f, 0.2f);
+		}
+	}
+	gltfMaterial.pbrMetallicRoughness.metallicFactor = metallic;
+
+	// 5. 使用KHR_materials_specular扩展保留Specular
 	tinygltf::Value::Object specularExt;
 
-	// specularFactor: Specular强度                                                                                                                                              
-	float specularStrength = (specular[0] + specular[1] + specular[2]) / 3.0f;
+	// specularFactor: Specular强度
+	float specularStrength = specularLuminance;
 	specularExt["specularFactor"] = tinygltf::Value(specularStrength);
 
-	// specularColorFactor: Specular颜色                                                                                                                                         
-	tinygltf::Value::Array specularColor = 
+	// specularColorFactor: Specular颜色
+	tinygltf::Value::Array specularColor =
 	{
 		tinygltf::Value(specular[0]),
 		tinygltf::Value(specular[1]),
@@ -487,13 +520,16 @@ tinygltf::Material ConvertOSGBMaterialWithSpecularExt(osg::Material* osgMaterial
 
 	gltfMaterial.extensions["KHR_materials_specular"] = tinygltf::Value(specularExt);
 
-	// Emission                                                                                                                                                                  
-	osg::Vec4 emission = osgMaterial->getEmission(osg::Material::FRONT_AND_BACK);
+	// 6. Emissive转换：直接映射
 	gltfMaterial.emissiveFactor = { emission[0], emission[1], emission[2] };
+
+	// 7. 添加unlit扩展：禁用实时光照计算
+	// OSGB模型的纹理已包含烘焙光照，使用unlit可以忠实还原原始效果
+	tinygltf::Value::Object unlit_ext;
+	gltfMaterial.extensions["KHR_materials_unlit"] = tinygltf::Value(unlit_ext);
 
 	return gltfMaterial;
 }
-
 //===============工具结束==================
 
 //===============OSGB23dTiles==================
@@ -1250,6 +1286,7 @@ bool OSGB23dTiles::ToGLBBuf(
 		model.materials.emplace_back(mat);
 	}
 
+	// RPB作为备选方案吧
 	//for (auto geom : infoVisitor.geometry_array)
 	//{
 	//	tinygltf::Material mat;
@@ -1258,23 +1295,34 @@ bool OSGB23dTiles::ToGLBBuf(
 	//	if (infoVisitor.material_map.find(geom) != infoVisitor.material_map.end())
 	//	{
 	//		osg::Material* osgMat = infoVisitor.material_map[geom];
-	//		mat = ConvertOSGBMaterialToPBR(osgMat);
+	//		//mat = ConvertOSGBMaterialToPBR(osgMat);
 	//		
-	//		// model.extensionsUsed.push_back("KHR_materials_specular");  
+	//		 model.extensionsUsed.push_back("KHR_materials_specular");  
 	//		// 如果使用ConvertOSGBMaterialWithSpecularExt, 需要添加的扩展声明
-	//		// 或者 mat = ConvertOSGBMaterialWithSpecularExt(osgMat);   
+	//		 mat = ConvertOSGBMaterialWithSpecularExt(osgMat);   
 	//	}
 	//	else
 	//	{
 	//		mat = MakeDefaultColorMaterial(1.0, 1.0, 1.0);
 	//	}
 
-	//	// 关联纹理                                                                                                                                                                  
+	//	// 关联纹理
 	//	if (infoVisitor.texture_map.find(geom) != infoVisitor.texture_map.end())
 	//	{
-	//		//infoVisitor.texture_array.find();
-	//		//int texIndex = /* 查找纹理索引 */;
-	//		//mat.pbrMetallicRoughness.baseColorTexture.index = texIndex;
+	//		auto tex = infoVisitor.texture_map[geom];
+	//		if (tex)
+	//		{
+	//			int texIndex = 0;
+	//			for (auto texture : infoVisitor.texture_array)
+	//			{
+	//				if (tex == texture)
+	//				{
+	//					mat.pbrMetallicRoughness.baseColorTexture.index = texIndex;
+	//					break;
+	//				}
+	//				texIndex++;
+	//			}
+	//		}
 	//	}
 
 	//	model.materials.emplace_back(mat);
