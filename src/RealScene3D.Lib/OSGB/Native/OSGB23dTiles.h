@@ -330,6 +330,15 @@ private:
 	void WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState);
 
 	/**
+	 * @brief 写入索引向量到GLTF构建状态
+	 * @param indices 输入索引向量
+	 * @param osgState OSG构建状态指针
+	 * @param dracoState Draco压缩状态指针
+	 * @return 返回索引访问器索引
+	 */
+	int WriteIndexVector(const std::vector<uint32_t>& indices, OsgBuildState* osgState, DracoState* dracoState);
+
+	/**
 	 * @brief 写入OSG图元数据到GLTF构建状态
 	 * @param pGeometry 输入OSG几何体指针
 	 * @param ps 输入OSG图元集指针

@@ -3,6 +3,9 @@
 // 将 OSGB (OpenSceneGraph Binary) 文件转换为 GLB 和 3D Tiles 格式
 // ============================================================================
 
+#include <cstdint>
+#include <limits>
+
 #include <Eigen/Eigen>
 
 #ifdef ENABLE_PROJ
@@ -15,7 +18,7 @@
 #include <basisu/transcoder/basisu_transcoder.h>
 #endif
 
-// OpenMP for parallel processing
+// OpenMP 用于并行处理
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -67,49 +70,49 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 		}
 
 		auto Correction = [&](glm::dvec3 Point)
+		{
+			if (GeoTransform::IsENU)
 			{
-				if (GeoTransform::IsENU)
+				glm::dvec3 absoluteENU = Point + glm::dvec3(GeoTransform::OriginX, GeoTransform::OriginY, GeoTransform::OriginZ);
+				glm::dvec3 ecef = GeoTransform::CartographicToEcef(GeoTransform::GeoOriginLon, GeoTransform::GeoOriginLat, GeoTransform::GeoOriginHeight);
+
+				const double pi = std::acos(-1.0);
+				double lat = GeoTransform::GeoOriginLat * pi / 180.0;
+				double lon = GeoTransform::GeoOriginLon * pi / 180.0;
+				double sinLat = std::sin(lat), cosLat = std::cos(lat);
+				double sinLon = std::sin(lon), cosLon = std::cos(lon);
+
+				double ecef_x = -sinLon * absoluteENU.x - sinLat * cosLon * absoluteENU.y + cosLat * cosLon * absoluteENU.z;
+				double ecef_y = cosLon * absoluteENU.x - sinLat * sinLon * absoluteENU.y + cosLat * sinLon * absoluteENU.z;
+				double ecef_z = cosLat * absoluteENU.y + sinLat * absoluteENU.z;
+				ecef = glm::dvec3(ecef.x + ecef_x, ecef.y + ecef_y, ecef.z + ecef_z);
+				glm::dvec3 enu = GeoTransform::EcefToEnuMatrix * glm::dvec4(ecef, 1);
+
+				return enu;
+			}
+			else
+			{
+				glm::dvec3 cartographic = Point + glm::dvec3(GeoTransform::OriginX, GeoTransform::OriginY, GeoTransform::OriginZ);
+
+				PJ_COORD coord;
+				coord.xyzt.x = cartographic.x;
+				coord.xyzt.y = cartographic.y;
+				coord.xyzt.z = cartographic.z;
+				coord.xyzt.t = HUGE_VAL;
+
+				PJ_COORD result = proj_trans((PJ*)transform, PJ_FWD, coord);
+				if (result.xyzt.x != HUGE_VAL)
 				{
-					glm::dvec3 absoluteENU = Point + glm::dvec3(GeoTransform::OriginX, GeoTransform::OriginY, GeoTransform::OriginZ);
-					glm::dvec3 ecef = GeoTransform::CartographicToEcef(GeoTransform::GeoOriginLon, GeoTransform::GeoOriginLat, GeoTransform::GeoOriginHeight);
-
-					const double pi = std::acos(-1.0);
-					double lat = GeoTransform::GeoOriginLat * pi / 180.0;
-					double lon = GeoTransform::GeoOriginLon * pi / 180.0;
-					double sinLat = std::sin(lat), cosLat = std::cos(lat);
-					double sinLon = std::sin(lon), cosLon = std::cos(lon);
-
-					double ecef_x = -sinLon * absoluteENU.x - sinLat * cosLon * absoluteENU.y + cosLat * cosLon * absoluteENU.z;
-					double ecef_y = cosLon * absoluteENU.x - sinLat * sinLon * absoluteENU.y + cosLat * sinLon * absoluteENU.z;
-					double ecef_z = cosLat * absoluteENU.y + sinLat * absoluteENU.z;
-					ecef = glm::dvec3(ecef.x + ecef_x, ecef.y + ecef_y, ecef.z + ecef_z);
-					glm::dvec3 enu = GeoTransform::EcefToEnuMatrix * glm::dvec4(ecef, 1);
-
-					return enu;
+					cartographic.x = result.xyzt.x;
+					cartographic.y = result.xyzt.y;
+					cartographic.z = result.xyzt.z;
 				}
-				else
-				{
-					glm::dvec3 cartographic = Point + glm::dvec3(GeoTransform::OriginX, GeoTransform::OriginY, GeoTransform::OriginZ);
 
-					PJ_COORD coord;
-					coord.xyzt.x = cartographic.x;
-					coord.xyzt.y = cartographic.y;
-					coord.xyzt.z = cartographic.z;
-					coord.xyzt.t = HUGE_VAL;
+				glm::dvec3 ecef = GeoTransform::CartographicToEcef(cartographic.x, cartographic.y, cartographic.z);
+				glm::dvec3 enu = GeoTransform::EcefToEnuMatrix * glm::dvec4(ecef, 1);
 
-					PJ_COORD result = proj_trans((PJ*)transform, PJ_FWD, coord);
-					if (result.xyzt.x != HUGE_VAL)
-					{
-						cartographic.x = result.xyzt.x;
-						cartographic.y = result.xyzt.y;
-						cartographic.z = result.xyzt.z;
-					}
-
-					glm::dvec3 ecef = GeoTransform::CartographicToEcef(cartographic.x, cartographic.y, cartographic.z);
-					glm::dvec3 enu = GeoTransform::EcefToEnuMatrix * glm::dvec4(ecef, 1);
-
-					return enu;
-				}};
+				return enu;
+			}};
 
 		vector<glm::dvec4> OriginalPoints(8);
 		vector<glm::dvec4> CorrectedPoints(8);
@@ -331,19 +334,19 @@ void CalcGeometricError(OSGTree& tree)
 		}
 
 		auto GetGeometricError = [](TileBox& bbox)
+		{
+			if (bbox.max.empty() || bbox.min.empty())
 			{
-				if (bbox.max.empty() || bbox.min.empty())
-				{
-					LOG_E("bbox 为空！");
+				LOG_E("bbox 为空！");
 
-					return 0.0;
-				}
+				return 0.0;
+			}
 
-				double max_err = std::max((bbox.max[0] - bbox.min[0]), (bbox.max[1] - bbox.min[1]));
-				max_err = std::max(max_err, (bbox.max[2] - bbox.min[2]));
+			double max_err = std::max((bbox.max[0] - bbox.min[0]), (bbox.max[1] - bbox.min[1]));
+			max_err = std::max(max_err, (bbox.max[2] - bbox.min[2]));
 
-				return max_err / 20.0;
-			};
+			return max_err / 20.0;
+		};
 
 		if (has == false)
 		{
@@ -551,14 +554,14 @@ B3DMResult OSGB23dTiles::ToB3DM(
 	// 自动检测目录并查找根 OSGB 文件
 	if (OSGBTools::IsDirectory(path))
 	{
-		std::cout << "[INFO] Input is directory, searching for root OSGB file..." << std::endl;
+		std::cout << "[INFO] 输入是目录，正在搜索根 OSGB 文件..." << std::endl;
 		std::string root_osgb = OSGBTools::FindRootOSGB(path);
 		if (root_osgb.empty())
 		{
-			LOG_E("No root OSGB file found in directory [%s]!", strInPath.c_str());
+			LOG_E("在目录 [%s] 中未找到根 OSGB 文件！", strInPath.c_str());
 			return result;
 		}
-		std::cout << "[INFO] Found root OSGB: " << root_osgb << std::endl;
+		std::cout << "[INFO] 找到根 OSGB：" << root_osgb << std::endl;
 		path = root_osgb;
 	}
 
@@ -772,91 +775,286 @@ void OSGB23dTiles::WriteVec2Array(osg::Vec2Array* v2f, OsgBuildState* osgState)
 	osgState->model->bufferViews.emplace_back(bfv);
 }
 
+int OSGB23dTiles::WriteIndexVector(const std::vector<uint32_t>& indices, OsgBuildState* osgState, DracoState* dracoState)
+{
+	if (indices.empty())
+	{
+		return -1;
+	}
+
+	uint32_t max_index = 0;
+	uint32_t min_index = std::numeric_limits<uint32_t>::max();
+	for (auto idx : indices)
+	{
+		max_index = std::max(max_index, idx);
+		min_index = std::min(min_index, idx);
+	}
+
+	// 选择可以容纳给定最大索引的最小 glTF 组件类型。
+	// 根据 max_index 返回 UNSIGNED_BYTE、UNSIGNED_SHORT 或 UNSIGNED_INT。
+	auto PickIndexComponentType = [](uint32_t max_index)
+	{
+		if (max_index <= std::numeric_limits<uint8_t>::max())
+		{
+			return TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+		}
+
+		if (max_index <= std::numeric_limits<uint16_t>::max())
+		{
+			return TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
+		}
+
+		return TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+	};
+
+	const int componentType = PickIndexComponentType(max_index);
+	if (dracoState && dracoState->compressed)
+	{
+		tinygltf::Accessor acc;
+		acc.bufferView = -1;
+		acc.type = TINYGLTF_TYPE_SCALAR;
+		acc.componentType = componentType;
+		acc.count = indices.size();
+		acc.maxValues = { (double)max_index };
+		acc.minValues = { (double)min_index };
+		int accIdx = (int)osgState->model->accessors.size();
+		osgState->model->accessors.emplace_back(acc);
+
+		return accIdx;
+	}
+
+	unsigned buffer_start = osgState->buffer->data.size();
+	switch (componentType)
+	{
+		case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+			for (auto idx : indices)
+			{
+				PutVal(osgState->buffer->data, static_cast<uint8_t>(idx));
+			}
+			break;
+		case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+			for (auto idx : indices)
+			{
+				PutVal(osgState->buffer->data, static_cast<uint16_t>(idx));
+			}
+			break;
+		default:
+			for (auto idx : indices)
+			{
+				PutVal(osgState->buffer->data, static_cast<uint32_t>(idx));
+			}
+			break;
+	}
+
+	AlignmentBuffer(osgState->buffer->data);
+
+	tinygltf::Accessor acc;
+	acc.bufferView = osgState->model->bufferViews.size();
+	acc.type = TINYGLTF_TYPE_SCALAR;
+	acc.componentType = componentType;
+	acc.count = indices.size();
+	acc.maxValues = { (double)max_index };
+	acc.minValues = { (double)min_index };
+	int accIdx = (int)osgState->model->accessors.size();
+	osgState->model->accessors.emplace_back(acc);
+
+	tinygltf::BufferView bfv;
+	bfv.buffer = 0;
+	bfv.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+	bfv.byteOffset = buffer_start;
+	bfv.byteLength = osgState->buffer->data.size() - buffer_start;
+	osgState->model->bufferViews.emplace_back(bfv);
+
+	return accIdx;
+}
+
+// 将 GL_QUADS 或 GL_QUAD_STRIP 索引序列转换为三角形索引。
+// GL_QUADS: 每4个索引形成一个四边形，分割成2个三角形。
+// GL_QUAD_STRIP: 索引对形成条带顺序的四边形，每个四边形分割成2个三角形。
+// 如果三角化成功并填充 'out'，返回 true，否则返回 false。
+bool TriangulateQuadLike(const std::vector<uint32_t>& indices, GLenum mode, std::vector<uint32_t>& out)
+{
+	out.clear();
+
+	if (mode == GL_QUADS)
+	{
+		if (indices.size() < 4)
+		{
+			return false;
+		}
+
+		if (indices.size() % 4 != 0)
+		{
+			LOG_E("GL_QUADS index count (%zu) is not divisible by 4, trailing vertices will be ignored", indices.size());
+		}
+
+		size_t quad_count = indices.size() / 4;
+		out.reserve(quad_count * 6);
+		for (size_t q = 0; q < quad_count; ++q)
+		{
+			size_t base = q * 4;
+			out.emplace_back(indices[base]);
+			out.emplace_back(indices[base + 1]);
+			out.emplace_back(indices[base + 2]);
+			out.emplace_back(indices[base]);
+			out.emplace_back(indices[base + 2]);
+			out.emplace_back(indices[base + 3]);
+		}
+
+		return !out.empty();
+	}
+
+	if (mode == GL_QUAD_STRIP)
+	{
+		if (indices.size() < 4)
+		{
+			return false;
+		}
+
+		if (indices.size() % 2 != 0)
+		{
+			LOG_E("GL_QUAD_STRIP index count (%zu) is not even, trailing vertex will be ignored",
+				indices.size());
+		}
+
+		size_t pair_count = indices.size() / 2;
+		if (pair_count < 2)
+		{
+			return false;
+		}
+		out.reserve((pair_count - 1) * 6);
+		for (size_t i = 0; i + 1 < pair_count; ++i)
+		{
+			size_t base = i * 2;
+			if (base + 3 >= indices.size())
+			{
+				break;
+			}
+			uint32_t a = indices[base];
+			uint32_t b = indices[base + 1];
+			uint32_t c = indices[base + 2];
+			uint32_t d = indices[base + 3];
+			out.emplace_back(a);
+			out.emplace_back(b);
+			out.emplace_back(c);
+			out.emplace_back(b);
+			out.emplace_back(d);
+			out.emplace_back(c);
+		}
+
+		return !out.empty();
+	}
+
+	return false;
+}
+
 void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSet* ps, OsgBuildState* osgState, PrimitiveState* pmtState, DracoState* dracoState)
 {
 	tinygltf::Primitive primits;
 	primits.indices = osgState->model->accessors.size();
-	osgState->draw_array_first = -1; // 重置 draw_array 状态
+	// reset draw_array state
+	osgState->draw_array_first = -1;
+	const GLenum gl_mode = ps->getMode();
+	const bool needs_quad_triangulation = (gl_mode == GL_QUADS || gl_mode == GL_QUAD_STRIP);
+	std::vector<uint32_t> triangulated_indices;
+
+	auto collect_and_triangulate = [&](auto* drawElements)
+	{
+		std::vector<uint32_t> source;
+		source.reserve(drawElements->getNumIndices());
+		for (unsigned m = 0; m < drawElements->getNumIndices(); ++m)
+		{
+			source.emplace_back(drawElements->at(m));
+		}
+
+		return TriangulateQuadLike(source, gl_mode, triangulated_indices);
+	};
+
+	auto write_triangulated = [&](auto* drawElements, int componentType)
+	{
+		if (!needs_quad_triangulation)
+		{
+			if (dracoState && dracoState->compressed)
+			{
+				tinygltf::Accessor acc;
+				acc.bufferView = -1;
+				acc.type = TINYGLTF_TYPE_SCALAR;
+				acc.componentType = componentType;
+				acc.count = drawElements->getNumIndices();
+				int accIdx = (int)osgState->model->accessors.size();
+				osgState->model->accessors.emplace_back(acc);
+				primits.indices = accIdx;
+			}
+			else
+			{
+				WriteOsgIndecis(drawElements, osgState, componentType);
+			}
+
+			return;
+		}
+
+		if (collect_and_triangulate(drawElements))
+		{
+			primits.indices = WriteIndexVector(triangulated_indices, osgState, dracoState);
+		}
+		else
+		{
+			primits.indices = -1;
+		}
+	};
+
 	osg::PrimitiveSet::Type t = ps->getType();
 	switch (t)
 	{
-	case (osg::PrimitiveSet::DrawElementsUBytePrimitiveType):
-	{
-		const osg::DrawElementsUByte* drawElements = static_cast<const osg::DrawElementsUByte*>(ps);
-		if (dracoState && dracoState->compressed)
+		case (osg::PrimitiveSet::DrawElementsUBytePrimitiveType):
 		{
-			tinygltf::Accessor acc;
-			acc.bufferView = -1;
-			acc.type = TINYGLTF_TYPE_SCALAR;
-			acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-			acc.count = drawElements->getNumIndices();
-			int accIdx = (int)osgState->model->accessors.size();
-			osgState->model->accessors.push_back(acc);
-			primits.indices = accIdx;
+			const osg::DrawElementsUByte* drawElements = static_cast<const osg::DrawElementsUByte*>(ps);
+			write_triangulated(drawElements, TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE);
+			break;
 		}
-		else
+		case (osg::PrimitiveSet::DrawElementsUShortPrimitiveType):
 		{
-			WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE);
+			const osg::DrawElementsUShort* drawElements = static_cast<const osg::DrawElementsUShort*>(ps);
+			write_triangulated(drawElements, TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+			break;
 		}
-		break;
-	}
-	case (osg::PrimitiveSet::DrawElementsUShortPrimitiveType):
-	{
-		const osg::DrawElementsUShort* drawElements = static_cast<const osg::DrawElementsUShort*>(ps);
-		if (dracoState && dracoState->compressed)
+		case (osg::PrimitiveSet::DrawElementsUIntPrimitiveType):
 		{
-			tinygltf::Accessor acc;
-			acc.bufferView = -1;
-			acc.type = TINYGLTF_TYPE_SCALAR;
-			acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
-			acc.count = drawElements->getNumIndices();
-			int accIdx = (int)osgState->model->accessors.size();
-			osgState->model->accessors.push_back(acc);
-			primits.indices = accIdx;
+			const osg::DrawElementsUInt* drawElements = static_cast<const osg::DrawElementsUInt*>(ps);
+			write_triangulated(drawElements, TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT);
+			break;
 		}
-		else
+		case osg::PrimitiveSet::DrawArraysPrimitiveType:
 		{
-			WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+			primits.indices = -1;
+			osg::DrawArrays* da = dynamic_cast<osg::DrawArrays*>(ps);
+			osgState->draw_array_first = da->getFirst();
+			osgState->draw_array_count = da->getCount();
+			if (needs_quad_triangulation && da->getCount() > 0)
+			{
+				std::vector<uint32_t> source;
+				source.reserve(da->getCount());
+				for (int i = 0; i < da->getCount(); ++i)
+				{
+					source.emplace_back(i);
+				}
+
+				if (TriangulateQuadLike(source, gl_mode, triangulated_indices))
+				{
+					primits.indices = WriteIndexVector(triangulated_indices, osgState, dracoState);
+				}
+			}
+			break;
 		}
-		break;
-	}
-	case (osg::PrimitiveSet::DrawElementsUIntPrimitiveType):
-	{
-		const osg::DrawElementsUInt* drawElements = static_cast<const osg::DrawElementsUInt*>(ps);
-		if (dracoState && dracoState->compressed)
+		default:
 		{
-			tinygltf::Accessor acc;
-			acc.bufferView = -1;
-			acc.type = TINYGLTF_TYPE_SCALAR;
-			acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
-			acc.count = drawElements->getNumIndices();
-			int accIdx = (int)osgState->model->accessors.size();
-			osgState->model->accessors.push_back(acc);
-			primits.indices = accIdx;
+			LOG_E("unsupport osg::PrimitiveSet::Type [%d]", t);
+			exit(1);
+			break;
 		}
-		else
-		{
-			WriteOsgIndecis(drawElements, osgState, TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT);
-		}
-		break;
-	}
-	case osg::PrimitiveSet::DrawArraysPrimitiveType:
-	{
-		primits.indices = -1;
-		osg::DrawArrays* da = dynamic_cast<osg::DrawArrays*>(ps);
-		osgState->draw_array_first = da->getFirst();
-		osgState->draw_array_count = da->getCount();
-		break;
-	}
-	default:
-	{
-		LOG_E("不支持的 osg::PrimitiveSet::Type [%d]", t);
-		exit(1);
-		break;
-	}
 	}
 
-	// vertex: full vertex and part indecis
+	// 顶点：完整顶点和部分索引
 	if (pmtState->vertexAccessor > -1 && osgState->draw_array_first == -1)
 	{
 		primits.attributes["POSITION"] = pmtState->vertexAccessor;
@@ -883,19 +1081,17 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 				osg::Vec3f point = vertexArr->at(vidx);
 				ExpandBbox3d(point_max, point_min, point);
 			}
-
 			acc.minValues = { point_min.x(), point_min.y(), point_min.z() };
 			acc.maxValues = { point_max.x(), point_max.y(), point_max.z() };
 			int accIdx = (int)osgState->model->accessors.size();
-			osgState->model->accessors.push_back(acc);
+			osgState->model->accessors.emplace_back(acc);
 			primits.attributes["POSITION"] = accIdx;
 			if (pmtState->vertexAccessor == -1 && osgState->draw_array_first == -1)
 			{
 				pmtState->vertexAccessor = accIdx;
 			}
 
-			if (point_min.x() <= point_max.x() && point_min.y() <= point_max.y() &&
-				point_min.z() <= point_max.z())
+			if (point_min.x() <= point_max.x() && point_min.y() <= point_max.y() && point_min.z() <= point_max.z())
 			{
 				ExpandBbox3d(osgState->point_max, osgState->point_min, point_max);
 				ExpandBbox3d(osgState->point_max, osgState->point_min, point_min);
@@ -910,9 +1106,7 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 			{
 				pmtState->vertexAccessor = osgState->model->accessors.size();
 			}
-
 			WriteVec3Array(vertexArr, osgState, point_max, point_min);
-
 			if (point_min.x() <= point_max.x() && point_min.y() <= point_max.y() &&
 				point_min.z() <= point_max.z())
 			{
@@ -922,7 +1116,7 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 		}
 	}
 
-	// normal
+	// 法线
 	osg::Vec3Array* normalArr = (osg::Vec3Array*)g->getNormalArray();
 	if (normalArr)
 	{
@@ -940,7 +1134,7 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 				acc.count = (osgState->draw_array_first >= 0) ? osgState->draw_array_count : (int)normalArr->size();
 				acc.type = TINYGLTF_TYPE_VEC3;
 				int accIdx = (int)osgState->model->accessors.size();
-				osgState->model->accessors.push_back(acc);
+				osgState->model->accessors.emplace_back(acc);
 				primits.attributes["NORMAL"] = accIdx;
 				if (pmtState->normalAccessor == -1 && osgState->draw_array_first == -1)
 				{
@@ -956,13 +1150,12 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 				{
 					pmtState->normalAccessor = osgState->model->accessors.size();
 				}
-
 				WriteVec3Array(normalArr, osgState, point_max, point_min);
 			}
 		}
 	}
 
-	// textcoord
+	// 纹理坐标
 	osg::Vec2Array* texArr = (osg::Vec2Array*)g->getTexCoordArray(0);
 	if (texArr)
 	{
@@ -980,7 +1173,7 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 				acc.count = (osgState->draw_array_first >= 0) ? osgState->draw_array_count : (int)texArr->size();
 				acc.type = TINYGLTF_TYPE_VEC2;
 				int accIdx = (int)osgState->model->accessors.size();
-				osgState->model->accessors.push_back(acc);
+				osgState->model->accessors.emplace_back(acc);
 				primits.attributes["TEXCOORD_0"] = accIdx;
 				if (pmtState->textcdAccessor == -1 && osgState->draw_array_first == -1)
 				{
@@ -994,34 +1187,50 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 				{
 					pmtState->textcdAccessor = osgState->model->accessors.size();
 				}
-
 				WriteVec2Array(texArr, osgState);
 			}
 		}
 	}
 
-	// material
+	// 材质
 	primits.material = -1;
 
 	switch (ps->getMode())
 	{
-	case GL_TRIANGLES:
-		primits.mode = TINYGLTF_MODE_TRIANGLES;
-		break;
-	case GL_TRIANGLE_STRIP:
-		primits.mode = TINYGLTF_MODE_TRIANGLE_STRIP;
-		break;
-	case GL_TRIANGLE_FAN:
-		primits.mode = TINYGLTF_MODE_TRIANGLE_FAN;
-		break;
-	default:
-		LOG_E("不支持的原始模式：%d", (int)ps->getMode());
-		exit(1);
-		break;
+		case GL_POINTS:
+			primits.mode = TINYGLTF_MODE_POINTS;
+			break;
+		case GL_LINES:
+			primits.mode = TINYGLTF_MODE_LINE;
+			break;
+		case GL_LINE_LOOP:
+			primits.mode = TINYGLTF_MODE_LINE_LOOP;
+			break;
+		case GL_LINE_STRIP:
+			primits.mode = TINYGLTF_MODE_LINE_STRIP;
+			break;
+		case GL_TRIANGLES:
+			primits.mode = TINYGLTF_MODE_TRIANGLES;
+			break;
+		case GL_TRIANGLE_STRIP:
+			primits.mode = TINYGLTF_MODE_TRIANGLE_STRIP;
+			break;
+		case GL_TRIANGLE_FAN:
+			primits.mode = TINYGLTF_MODE_TRIANGLE_FAN;
+			break;
+		case GL_QUADS:
+			primits.mode = TINYGLTF_MODE_TRIANGLES;
+			break;
+		case GL_QUAD_STRIP:
+			primits.mode = TINYGLTF_MODE_TRIANGLES;
+			break;
+		default:
+			LOG_E("Unsupport Primitive Mode: %d", (int)ps->getMode());
+			exit(1);
+			break;
 	}
 
-	osgState->model->meshes.back().primitives.push_back(primits);
-
+	osgState->model->meshes.back().primitives.emplace_back(primits);
 	if (dracoState && dracoState->compressed)
 	{
 		tinygltf::Primitive& backPrim = osgState->model->meshes.back().primitives.back();
@@ -1085,7 +1294,7 @@ void OSGB23dTiles::WriteOsgGeometry(osg::Geometry* pGeometry, OsgBuildState* osg
 			bv.byteOffset = bufOffset;
 			bv.byteLength = compressed_size;
 			int bvIdx = (int)osgState->model->bufferViews.size();
-			osgState->model->bufferViews.push_back(bv);
+			osgState->model->bufferViews.emplace_back(bv);
 			dracoState.compressed = true;
 			dracoState.bufferView = bvIdx;
 			dracoState.posId = dracoPosId;
@@ -1100,11 +1309,11 @@ void OSGB23dTiles::WriteOsgGeometry(osg::Geometry* pGeometry, OsgBuildState* osg
 	for (unsigned int k = 0; k < pGeometry->getNumPrimitiveSets(); k++)
 	{
 		osg::PrimitiveSet* ps = pGeometry->getPrimitiveSet(k);
-		if (t != ps->getType())
-		{
-			LOG_E("osgb 中 PrimitiveSets 类型不相同");
-			exit(1);
-		}
+		//if (t != ps->getType())
+		//{
+		//	LOG_E("osgb 中 PrimitiveSets 类型不相同");
+		//	exit(1);
+		//}
 
 		WriteElementArrayPrimitive(pGeometry, ps, osgState, &pmtState, &dracoState);
 	}
@@ -1262,15 +1471,14 @@ bool OSGB23dTiles::ToGLBBuf(
 		model.samplers = { sample };
 	}
 
+	// 
+	model.extensionsRequired = { "KHR_materials_unlit" };
+	model.extensionsUsed = { "KHR_materials_unlit" };
+
 	if (enable_texture_compress)
 	{
 		model.extensionsRequired = { "KHR_materials_unlit", "KHR_texture_basisu" };
 		model.extensionsUsed = { "KHR_materials_unlit", "KHR_texture_basisu" };
-	}
-	else
-	{
-		model.extensionsRequired = { "KHR_materials_unlit" };
-		model.extensionsUsed = { "KHR_materials_unlit" };
 	}
 
 	if (enable_draco)
@@ -1297,7 +1505,7 @@ bool OSGB23dTiles::ToGLBBuf(
 	//		osg::Material* osgMat = infoVisitor.material_map[geom];
 	//		//mat = ConvertOSGBMaterialToPBR(osgMat);
 	//		
-	//		 model.extensionsUsed.push_back("KHR_materials_specular");  
+	//		 model.extensionsUsed.emplace_back("KHR_materials_specular");  
 	//		// 如果使用ConvertOSGBMaterialWithSpecularExt, 需要添加的扩展声明
 	//		 mat = ConvertOSGBMaterialWithSpecularExt(osgMat);   
 	//	}
@@ -1629,16 +1837,16 @@ bool OSGB23dTiles::ToB3DMBatch(
 		if (metadata.bIsENU)
 		{
 			// ENU 坐标系统
-			LOG_I("Using ENU coordinate system");
-			LOG_I("  Geographic origin: lat=%.6f, lon=%.6f", metadata.dCenterLat, metadata.dCenterLon);
-			LOG_I("  SRSOrigin offset: x=%.3f, y=%.3f, z=%.3f", metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
+			LOG_I("使用 ENU 坐标系统");
+			LOG_I("  地理原点：纬度=%.6f，经度=%.6f", metadata.dCenterLat, metadata.dCenterLon);
+			LOG_I("  SRSOrigin 偏移：x=%.3f, y=%.3f, z=%.3f", metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
 
 			// 调用 enu_init 初始化 GeoTransform
 			// 注意：enu_init 需要经度在前，纬度在后
 			double origin_enu[3] = { metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ };
 			if (GeoTransform::InitFromENU(metadata.dCenterLon, metadata.dCenterLat, origin_enu))
 			{
-				LOG_I("GeoTransform initialized successfully for ENU system");
+				LOG_I("ENU 系统 GeoTransform 初始化成功");
 
 				// 使用 metadata 中的坐标作为中心点
 				dCenterX = metadata.dCenterLon;
@@ -1646,13 +1854,13 @@ bool OSGB23dTiles::ToB3DMBatch(
 			}
 			else
 			{
-				LOG_E("Failed to initialize GeoTransform for ENU system");
+				LOG_E("ENU 系统 GeoTransform 初始化失败");
 			}
 		}
 		else if (metadata.bIsEPSG)
 		{
 			// EPSG 坐标系统
-			LOG_I("Using EPSG:%d coordinate system", metadata.nEpsgCode);
+			LOG_I("使用 EPSG:%d 坐标系统", metadata.nEpsgCode);
 			LOG_I("  SRSOrigin: %s", metadata.strSrsOrigin.c_str());
 
 			// 解析 SRSOrigin 为投影坐标
@@ -1660,8 +1868,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 			// 调用 epsg_convert 转换为经纬度
 			if (GeoTransform::InitFromEPSG(metadata.nEpsgCode, origin))
 			{
-				LOG_I("GeoTransform initialized successfully for EPSG:%d system", metadata.nEpsgCode);
-				LOG_I("  Converted to geographic: lon=%.6f, lat=%.6f, h=%.3f", origin[0], origin[1], origin[2]);
+				LOG_I("EPSG:%d 系统 GeoTransform 初始化成功", metadata.nEpsgCode);
+				LOG_I("  转换为地理坐标：经度=%.6f，纬度=%.6f，海拔=%.3f", origin[0], origin[1], origin[2]);
 
 				// 使用转换后的经纬度作为中心点
 				dCenterX = origin[0];
@@ -1669,13 +1877,13 @@ bool OSGB23dTiles::ToB3DMBatch(
 			}
 			else
 			{
-				LOG_E("Failed to convert EPSG:%d coordinates", metadata.nEpsgCode);
+				LOG_E("EPSG:%d 坐标转换失败", metadata.nEpsgCode);
 			}
 		}
 		else if (metadata.bIsWKT)
 		{
 			// WKT 格式坐标系统
-			LOG_I("Using WKT projection");
+			LOG_I("使用 WKT 投影");
 			LOG_I("  SRSOrigin: %s", metadata.strSrsOrigin.c_str());
 			// 解析 SRSOrigin 为投影坐标
 			double origin[3] = { metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ };
@@ -1683,8 +1891,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 			// 调用 InitFromWKT 转换为经纬度
 			if (GeoTransform::InitFromWKT(metadata.strSrs.c_str(), origin))
 			{
-				LOG_I("GeoTransform initialized successfully for WKT projection");
-				LOG_I("  Converted to geographic: lon=%.6f, lat=%.6f, h=%.3f", origin[0], origin[1], origin[2]);
+				LOG_I("WKT 投影 GeoTransform 初始化成功");
+				LOG_I("  转换为地理坐标：经度=%.6f，纬度=%.6f，海拔=%.3f", origin[0], origin[1], origin[2]);
 
 				// 使用转换后的经纬度作为中心点
 				dCenterX = origin[0];
@@ -1692,13 +1900,13 @@ bool OSGB23dTiles::ToB3DMBatch(
 			}
 			else
 			{
-				LOG_E("Failed to convert WKT coordinates");
+				LOG_E("WKT 坐标转换失败");
 			}
 		}
 	}
 	else
 	{
-		LOG_W("metadata.xml not found or parsing failed, using provided center_x=%.6f, center_y=%.6f", dCenterX, dCenterY);
+		LOG_W("metadata.xml 未找到或解析失败，使用提供的 center_x=%.6f, center_y=%.6f", dCenterX, dCenterY);
 	}
 
 	// 3. 检测数据源类型
@@ -1879,7 +2087,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		return false;
 	}
 
-	std::cout << "[INFO] Found " << tiles.size() << " tile directories to process" << std::endl;
+	std::cout << "[INFO] 找到 " << tiles.size() << " 个瓦片目录待处理" << std::endl;
 
 	// 5. 处理每个瓦片（使用 OpenMP 并行加速）
 	std::vector<std::string> tile_jsons;
@@ -1887,10 +2095,10 @@ bool OSGB23dTiles::ToB3DMBatch(
 #ifdef _OPENMP
 	// 获取可用线程数
 	int num_threads = omp_get_max_threads();
-	std::cout << "[INFO] Using OpenMP with " << num_threads << " threads for parallel processing" << std::endl;
+	std::cout << "[INFO] 使用 OpenMP 并行处理，线程数：" << num_threads << std::endl;
 
 	// 使用 dynamic 调度以平衡不同瓦片的处理时间差异
-	#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
 #endif
 	for (int i = 0; i < static_cast<int>(tiles.size()); i++)
 	{
@@ -1898,11 +2106,11 @@ bool OSGB23dTiles::ToB3DMBatch(
 
 		// 线程安全的控制台输出
 #ifdef _OPENMP
-		#pragma omp critical(console_output)
+#pragma omp critical(console_output)
 #endif
 		{
-			std::cout << "[INFO] Processing tile " << (i + 1) << "/" << tiles.size()
-				<< ": " << tile.tile_name << std::endl;
+			std::cout << "[INFO] 处理瓦片 " << (i + 1) << "/" << tiles.size()
+				<< "：" << tile.tile_name << std::endl;
 		}
 
 		B3DMResult result = ToB3DM(
@@ -1920,7 +2128,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		{
 			// 临界区：保护共享数据（tile_jsons 和 global_bbox）
 #ifdef _OPENMP
-			#pragma omp critical(data_update)
+#pragma omp critical(data_update)
 #endif
 			{
 				tile_jsons.emplace_back(result.tilesetJson);
@@ -1956,7 +2164,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		{
 			// 线程安全的错误日志输出
 #ifdef _OPENMP
-			#pragma omp critical(console_output)
+#pragma omp critical(console_output)
 #endif
 			{
 				LOG_E("处理瓦片失败：%s", tile.tile_name.c_str());
