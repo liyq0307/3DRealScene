@@ -18,6 +18,8 @@
 #include "OSGBTools.h"
 #include "GeoTransform.h"
 
+using namespace OSGBLog;
+
 static const double dPI = std::acos(-1);
 
 bool OSGBTools::MkDirs(const std::string& strPath)
@@ -560,46 +562,59 @@ std::vector<double> transfrom_xyz(double dLonDeg, double dLatDeg, double dHeight
 void OSGBTools::TransformC(double dCenterX, double dCenterY, double dHeightMin, double* pPtr)
 {
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
-	std::cerr << "[TransformC] lon=" << std::fixed << std::setprecision(10) << dCenterX
-		<< " lat=" << dCenterY << " h=" << std::setprecision(3) << dHeightMin
-		<< " -> ECEF translation: x=" << std::setprecision(10) << v[12]
-		<< " y=" << v[13] << " z=" << v[14] << std::endl;
+	OSGBLog::LOG_I("[TransformC] lon={:.10f} lat={:.10f} h={:.3f} -> ECEF translation: x={:.10f} y={:.10f} z={:.10f}", dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
 
 	std::copy(v.begin(), v.end(), pPtr);
 }
 
 void OSGBTools::TransformCWithEnuOffset(double dCenterX, double dCenterY, double dHeightMin, double dEnuOffsetX, double dEnuOffsetY, double dEnuOffsetZ, double* pPtr)
+
 {
+
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
-	std::cerr << "[TransformCWithEnuOffset] Base ECEF at lon=" << std::fixed << std::setprecision(10) << dCenterX
-		<< " lat=" << dCenterY << " h=" << std::setprecision(3) << dHeightMin
-		<< ": x=" << std::setprecision(10) << v[12]
-		<< " y=" << v[13] << " z=" << v[14] << std::endl;
+
+	OSGBLog::LOG_I("[TransformCWithEnuOffset] Base ECEF at lon={:.10f} lat={:.10f} h={:.3f}: x={:.10f} y={:.10f} z={:.10f}", dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
+
+
 
 	double dLatRad = dCenterY * dPI / 180.0;
+
 	double dLonRad = dCenterX * dPI / 180.0;
 
+
+
 	double dSinLat = std::sin(dLatRad);
+
 	double dCosLat = std::cos(dLatRad);
+
 	double dSinLon = std::sin(dLonRad);
+
 	double dCosLon = std::cos(dLonRad);
 
+
+
 	double dEcefOffsetX = -dSinLon * dEnuOffsetX - dSinLat * dCosLon * dEnuOffsetY + dCosLat * dCosLon * dEnuOffsetZ;
+
 	double dEcefOffsetY = dCosLon * dEnuOffsetX - dSinLat * dSinLon * dEnuOffsetY + dCosLat * dSinLon * dEnuOffsetZ;
+
 	double dEcefOffsetZ = dCosLat * dEnuOffsetY + dSinLat * dEnuOffsetZ;
-	std::cerr << "[TransformCWithEnuOffset] ENU offset (" << std::setprecision(3) << dEnuOffsetX
-		<< ", " << dEnuOffsetY << ", " << dEnuOffsetZ
-		<< ") -> ECEF offset (" << std::setprecision(10) << dEcefOffsetX
-		<< ", " << dEcefOffsetY << ", " << dEcefOffsetZ << ")" << std::endl;
+
+	OSGBLog::LOG_I("[TransformCWithEnuOffset] ENU offset ({:.3f}, {:.3f}, {:.3f}) -> ECEF offset ({:.10f}, {:.10f}, {:.10f})", dEnuOffsetX, dEnuOffsetY, dEnuOffsetZ, dEcefOffsetX, dEcefOffsetY, dEcefOffsetZ);
+
+
 
 	v[12] += dEcefOffsetX;
+
 	v[13] += dEcefOffsetY;
+
 	v[14] += dEcefOffsetZ;
 
-	std::cerr << "[TransformCWithEnuOffset] Final ECEF translation: x=" << v[12]
-		<< " y=" << v[13] << " z=" << v[14] << std::endl;
+	OSGBLog::LOG_I("[TransformCWithEnuOffset] Final ECEF translation: x={:.10f} y={:.10f} z={:.10f}", v[12], v[13], v[14]);
+
+
 
 	std::copy(v.begin(), v.end(), pPtr);
+
 }
 
 // 简单的 XML 标签提取函数
@@ -657,7 +672,7 @@ bool OSGBTools::ParseMetadataXml(const std::string& strXmlPath, OSGBMetadata& ou
 	std::ifstream file(strXmlPath);
 	if (!file.is_open())
 	{
-		LOG_E("Failed to open metadata.xml: %s", strXmlPath.c_str());
+		LOG_E("Failed to open metadata.xml: {}", strXmlPath.c_str());
 		return false;
 	}
 
@@ -736,7 +751,7 @@ bool OSGBTools::ParseMetadataXml(const std::string& strXmlPath, OSGBMetadata& ou
 		else
 		{
 			// 不是 ENU 或 EPSG，可能是其他格式，当作 WKT 处理
-			LOG_W("Unknown SRS type: %s, treating as WKT format", srsType.c_str());
+			LOG_W("Unknown SRS type: {}, treating as WKT format", srsType.c_str());
 			outMetadata.bIsWKT = true;
 		}
 	}
@@ -773,15 +788,15 @@ bool OSGBTools::ParseMetadataXml(const std::string& strXmlPath, OSGBMetadata& ou
 	}
 
 	LOG_I("Parsed metadata.xml successfully:");
-	LOG_I("  SRS: %s", outMetadata.strSrs.c_str());
-	LOG_I("  SRSOrigin: %s", outMetadata.strSrsOrigin.c_str());
+	LOG_I("  SRS: {}", outMetadata.strSrs.c_str());
+	LOG_I("  SRSOrigin: {}", outMetadata.strSrsOrigin.c_str());
 	if (outMetadata.bIsENU)
 	{
 		LOG_I("  ENU Center: lat=%.6f, lon=%.6f", outMetadata.dCenterLat, outMetadata.dCenterLon);
 	}
 	else if (outMetadata.bIsEPSG)
 	{
-		LOG_I("  EPSG Code: %d", outMetadata.nEpsgCode);
+		LOG_I("  EPSG Code: {}", outMetadata.nEpsgCode);
 	}
 	else if (outMetadata.bIsWKT)
 	{

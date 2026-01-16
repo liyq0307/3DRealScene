@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
     std::cout << "========================================" << std::endl;
 
     // 设置输入输出路径
-    std::string strInputPath = "E:/Data/3D/Tile_+005_+006";
+    std::string strInputPath = "E:/Data/3D/Production_3";
     std::string strOutputDir = "E:/Data/3D/output_osgb_batch";
 
     std::cout << "输入目录: " << strInputPath.c_str() << std::endl;
@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
         strOutputDir,
         0.0,        // center_x (将从 metadata.xml 自动读取)
         0.0,        // center_y (将从 metadata.xml 自动读取)
-        100,        // max_lvl (足够大以包含所有LOD层级)
+        -1,         // max_lvl (足够大以包含所有LOD层级)
         false,      // enable_texture_compress
         false,      // enable_meshopt
         false       // enable_draco

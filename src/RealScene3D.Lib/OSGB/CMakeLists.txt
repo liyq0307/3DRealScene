@@ -152,6 +152,8 @@ add_definitions(
     -DOSGB_EXPORTS
     -DNOMINMAX
     -DWIN32_LEAN_AND_MEAN
+    -DSPDLOG_FMT_EXTERNAL
+    -DSPDLOG_COMPILED_LIB
 )
 
 # 源文件
@@ -175,6 +177,9 @@ set(NATIVE_HEADERS
 
 # 创建动态链接库
 add_library(${PROJECT_NAME} SHARED ${NATIVE_SOURCES} ${NATIVE_HEADERS})
+
+# 链接 fmt 和 spdlog 库
+target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt spdlog::spdlog)
 
 # Windows 动态库需要导出符号以生成.lib导入库
 # 这样SWIG包装库才能正确链接主库

@@ -35,6 +35,8 @@
 USE_OSGPLUGIN(osg)
 #endif
 
+using namespace OSGBLog;
+
 //=================== InfoVisitor ==================
 void InfoVisitor::apply(osg::Geometry& geometry)
 {
@@ -554,21 +556,21 @@ B3DMResult OSGB23dTiles::ToB3DM(
 	// 自动检测目录并查找根 OSGB 文件
 	if (OSGBTools::IsDirectory(path))
 	{
-		std::cout << "[INFO] 输入是目录，正在搜索根 OSGB 文件..." << std::endl;
+		OSGBLog::LOG_I("[INFO] 输入是目录，正在搜索根 OSGB 文件...");
 		std::string root_osgb = OSGBTools::FindRootOSGB(path);
 		if (root_osgb.empty())
 		{
-			LOG_E("在目录 [%s] 中未找到根 OSGB 文件！", strInPath.c_str());
+			LOG_E("在目录 [{}] 中未找到根 OSGB 文件！", strInPath.c_str());
 			return result;
 		}
-		std::cout << "[INFO] 找到根 OSGB：" << root_osgb << std::endl;
+		OSGBLog::LOG_I("[INFO] 找到根 OSGB：{}", root_osgb);
 		path = root_osgb;
 	}
 
 	OSGTree root = GetAllTree(path);
 	if (root.file_name.empty())
 	{
-		LOG_E("打开文件 [%s] 失败！", strInPath.c_str());
+		LOG_E("打开文件 [{}] 失败！", strInPath.c_str());
 		return result;
 	}
 
@@ -579,7 +581,7 @@ B3DMResult OSGB23dTiles::ToB3DM(
 
 	if (root.bbox.max.empty() || root.bbox.min.empty())
 	{
-		LOG_E("[%s] bbox 为空！", strInPath.c_str());
+		LOG_E("[{}] bbox 为空！", strInPath.c_str());
 		return result;
 	}
 
@@ -613,14 +615,14 @@ bool OSGB23dTiles::ToGLB(
 	// 自动检测目录并查找根 OSGB 文件
 	if (OSGBTools::IsDirectory(path))
 	{
-		std::cout << "[INFO] 输入是目录，正在搜索根 OSGB 文件..." << std::endl;
+		OSGBLog::LOG_I("[INFO] 输入是目录，正在搜索根 OSGB 文件...");
 		std::string root_osgb = OSGBTools::FindRootOSGB(path);
 		if (root_osgb.empty())
 		{
-			LOG_E("在目录 [%s] 中未找到根 OSGB 文件！", strInPath.c_str());
+			LOG_E("在目录 [{}] 中未找到根 OSGB 文件！", strInPath.c_str());
 			return false;
 		}
-		std::cout << "[INFO] 找到根 OSGB：" << root_osgb << std::endl;
+		OSGBLog::LOG_I("[INFO] 找到根 OSGB：{}", root_osgb);
 		path = root_osgb;
 	}
 
@@ -1048,7 +1050,7 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 		}
 		default:
 		{
-			LOG_E("unsupport osg::PrimitiveSet::Type [%d]", t);
+			LOG_E("unsupport osg::PrimitiveSet::Type [{}]", static_cast<int>(t));
 			exit(1);
 			break;
 		}
@@ -1225,7 +1227,7 @@ void OSGB23dTiles::WriteElementArrayPrimitive(osg::Geometry* g, osg::PrimitiveSe
 			primits.mode = TINYGLTF_MODE_TRIANGLES;
 			break;
 		default:
-			LOG_E("Unsupport Primitive Mode: %d", (int)ps->getMode());
+			LOG_E("Unsupport Primitive Mode: {}", static_cast<int>(ps->getMode()));
 			exit(1);
 			break;
 	}
@@ -1752,7 +1754,7 @@ OSGTree OSGB23dTiles::GetAllTree(std::string& file_name)
 		if (!root)
 		{
 			std::string name = OSGBTools::Utf8String(file_name.c_str());
-			LOG_E("read node files [%s] fail!", name.c_str());
+			LOG_E("read node files [{}] fail!", name.c_str());
 			return root_tile;
 		}
 		root_tile.file_name = file_name;
@@ -1860,16 +1862,16 @@ bool OSGB23dTiles::ToB3DMBatch(
 		else if (metadata.bIsEPSG)
 		{
 			// EPSG 坐标系统
-			LOG_I("使用 EPSG:%d 坐标系统", metadata.nEpsgCode);
-			LOG_I("  SRSOrigin: %s", metadata.strSrsOrigin.c_str());
+			LOG_I("使用 EPSG:{} 坐标系统", metadata.nEpsgCode);
+			LOG_I("  SRSOrigin: {}", metadata.strSrsOrigin.c_str());
 
 			// 解析 SRSOrigin 为投影坐标
 			double origin[3] = { metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ };
 			// 调用 epsg_convert 转换为经纬度
 			if (GeoTransform::InitFromEPSG(metadata.nEpsgCode, origin))
 			{
-				LOG_I("EPSG:%d 系统 GeoTransform 初始化成功", metadata.nEpsgCode);
-				LOG_I("  转换为地理坐标：经度=%.6f，纬度=%.6f，海拔=%.3f", origin[0], origin[1], origin[2]);
+				LOG_I("EPSG:{} 系统 GeoTransform 初始化成功", metadata.nEpsgCode);
+				LOG_I("  转换为地理坐标：经度={:.6f}，纬度={:.6f}，海拔={:.3f}", origin[0], origin[1], origin[2]);
 
 				// 使用转换后的经纬度作为中心点
 				dCenterX = origin[0];
@@ -1877,14 +1879,14 @@ bool OSGB23dTiles::ToB3DMBatch(
 			}
 			else
 			{
-				LOG_E("EPSG:%d 坐标转换失败", metadata.nEpsgCode);
+				LOG_E("EPSG:{} 坐标转换失败", metadata.nEpsgCode);
 			}
 		}
 		else if (metadata.bIsWKT)
 		{
 			// WKT 格式坐标系统
 			LOG_I("使用 WKT 投影");
-			LOG_I("  SRSOrigin: %s", metadata.strSrsOrigin.c_str());
+			LOG_I("  SRSOrigin: {}", metadata.strSrsOrigin.c_str());
 			// 解析 SRSOrigin 为投影坐标
 			double origin[3] = { metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ };
 
@@ -1926,14 +1928,14 @@ bool OSGB23dTiles::ToB3DMBatch(
 	{
 		is_oblique_data = true;
 		LOG_I("检测到倾斜摄影数据集模式 (Data目录 + metadata.xml)");
-		std::cout << "[INFO] 在以下位置搜索瓦片：" << check_data_dir << std::endl;
+		OSGBLog::LOG_I("[INFO] 在以下位置搜索瓦片：{}", check_data_dir);
 	}
 	else
 	{
 		// 尝试纯OSGB文件夹模式
 		check_data_dir = data_path;
 		LOG_I("检测到纯OSGB文件夹模式");
-		std::cout << "[INFO] 扫描OSGB文件夹：" << check_data_dir << std::endl;
+		OSGBLog::LOG_I("[INFO] 扫描OSGB文件夹：{}", check_data_dir);
 	}
 
 	// 4. 创建输出目录
@@ -1969,7 +1971,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		std::vector<std::string> tile_names = OSGBTools::ScanTileDirectories(check_data_dir);
 		if (tile_names.empty())
 		{
-			LOG_E("未找到任何 Tile_* 目录：%s", check_data_dir.c_str());
+			LOG_E("未找到任何 Tile_* 目录：{}", check_data_dir.c_str());
 			return false;
 		}
 
@@ -2009,11 +2011,11 @@ bool OSGB23dTiles::ToB3DMBatch(
 			{
 				// 如果没有找到根OSGB，使用第一个文件
 				root_osgb = osgb_files_in_root[0];
-				LOG_I("未找到根OSGB，使用第一个文件: %s", root_osgb.c_str());
+				LOG_I("未找到根OSGB，使用第一个文件: {}", root_osgb.c_str());
 			}
 			else
 			{
-				LOG_I("找到根OSGB: %s", root_osgb.c_str());
+				LOG_I("找到根OSGB: {}", root_osgb.c_str());
 			}
 
 			// 获取目录名作为tile名称
@@ -2054,17 +2056,17 @@ bool OSGB23dTiles::ToB3DMBatch(
 					if (!osgb_files.empty())
 					{
 						root_osgb = osgb_files[0];
-						LOG_I("子目录 %s 未找到根OSGB，使用第一个文件: %s", folder_name.c_str(), root_osgb.c_str());
+						LOG_I("子目录 {} 未找到根OSGB，使用第一个文件: {}", folder_name.c_str(), root_osgb.c_str());
 					}
 					else
 					{
-						LOG_W("子目录 %s 中未找到OSGB文件，跳过", folder_name.c_str());
+						LOG_W("子目录 {} 中未找到OSGB文件，跳过", folder_name.c_str());
 						continue;
 					}
 				}
 				else
 				{
-					LOG_I("子目录 %s 找到根OSGB: %s", folder_name.c_str(), root_osgb.c_str());
+					LOG_I("子目录 {} 找到根OSGB: {}", folder_name.c_str(), root_osgb.c_str());
 				}
 
 				TileInfo info;
@@ -2087,7 +2089,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		return false;
 	}
 
-	std::cout << "[INFO] 找到 " << tiles.size() << " 个瓦片目录待处理" << std::endl;
+	OSGBLog::LOG_I("[INFO] 找到 {} 个瓦片目录待处理", tiles.size());
 
 	// 5. 处理每个瓦片（使用 OpenMP 并行加速）
 	std::vector<std::string> tile_jsons;
@@ -2095,7 +2097,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 #ifdef _OPENMP
 	// 获取可用线程数
 	int num_threads = omp_get_max_threads();
-	std::cout << "[INFO] 使用 OpenMP 并行处理，线程数：" << num_threads << std::endl;
+	OSGBLog::LOG_I("[INFO] 使用 OpenMP 并行处理，线程数：{}", num_threads);
 
 	// 使用 dynamic 调度以平衡不同瓦片的处理时间差异
 #pragma omp parallel for schedule(dynamic)
@@ -2109,8 +2111,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 #pragma omp critical(console_output)
 #endif
 		{
-			std::cout << "[INFO] 处理瓦片 " << (i + 1) << "/" << tiles.size()
-				<< "：" << tile.tile_name << std::endl;
+			OSGBLog::LOG_I("[INFO] 处理瓦片 {}/{}：{}", i + 1, tiles.size(), tile.tile_name);
 		}
 
 		B3DMResult result = ToB3DM(
@@ -2167,7 +2168,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 #pragma omp critical(console_output)
 #endif
 			{
-				LOG_E("处理瓦片失败：%s", tile.tile_name.c_str());
+				LOG_E("处理瓦片失败：{}", tile.tile_name.c_str());
 			}
 		}
 	}
@@ -2234,8 +2235,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 	std::string root_tileset_path = strOutputDir + "/tileset.json";
 	OSGBTools::WriteFile(root_tileset_path.c_str(), root_json.data(), root_json.size());
 
-	std::cout << "[INFO] 批量处理完成！生成了包含 " << tiles.size()
-		<< " 个瓦片的根 tileset.json" << std::endl;
+	OSGBLog::LOG_I("[INFO] 批量处理完成！生成了包含 {} 个瓦片的根 tileset.json", tiles.size());
 
 	// 9. 清理 GeoTransform 资源（谁调用谁释放）
 	GeoTransform::Cleanup();

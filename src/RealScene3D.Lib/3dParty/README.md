@@ -13,6 +13,8 @@
 | **nlohmann-json** | latest | JSON解析和序列化 | `include/nlohmann/json.hpp` |
 | **tinygltf** | latest | GLTF/GLB文件读写 | `include/tiny_gltf.h` |
 | **stb** | latest | 图像读写（stb_image, stb_image_write） | `include/stb_*.h` |
+| **fmt** | 11.0.2 | 现代C++格式化库 | `include/fmt/` |
+| **spdlog** | 1.15.0 | 快速日志库（基于fmt） | `include/spdlog/` |
 
 ## 🔄 更新说明
 
@@ -36,6 +38,16 @@ curl -o include/tiny_gltf.h https://raw.githubusercontent.com/syoyo/tinygltf/mas
 # stb
 curl -o include/stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
 curl -o include/stb_image_write.h https://raw.githubusercontent.com/nothings/stb/master/stb_image_write.h
+
+# fmt
+git clone --depth 1 --branch 11.0.2 https://github.com/fmtlib/fmt.git fmt-temp
+cp -r fmt-temp/include/fmt include/
+rm -rf fmt-temp
+
+# spdlog
+git clone --depth 1 --branch v1.15.0 https://github.com/gabime/spdlog.git spdlog-temp
+cp -r spdlog-temp/include/spdlog include/
+rm -rf spdlog-temp
 ```
 
 ## 📝 使用说明
@@ -56,6 +68,8 @@ target_include_directories(${PROJECT_NAME}
 #include <tiny_gltf.h>
 #include <stb_image.h>
 #include <stb_image_write.h>
+#include <fmt/core.h>
+#include <spdlog/spdlog.h>
 ```
 
 ## ⚠️ 注意事项

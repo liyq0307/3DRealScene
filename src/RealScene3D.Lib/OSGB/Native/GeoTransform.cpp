@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "GeoTransform.h"
+#include "OSGBTools.h"
 
 // =================静态成员初始化=================
 PJ* GeoTransform::projTransform = nullptr;					// PROJ转换对象
@@ -38,34 +39,34 @@ static void ConfigureProjContext(PJ_CONTEXT* ctx)
 
 	// 辅助函数：获取可执行文件所在目录
 	auto GetExecutableDirectory = []() -> std::string
-		{
+	{
 #ifdef _WIN32
-			char path[MAX_PATH];
-			HMODULE hModule = GetModuleHandleA(nullptr);
-			if (hModule != nullptr)
-			{
-				GetModuleFileNameA(hModule, path, MAX_PATH);
-				std::filesystem::path exePath(path);
-				return exePath.parent_path().string();
-			}
+		char path[MAX_PATH];
+		HMODULE hModule = GetModuleHandleA(nullptr);
+		if (hModule != nullptr)
+		{
+			GetModuleFileNameA(hModule, path, MAX_PATH);
+			std::filesystem::path exePath(path);
+			return exePath.parent_path().string();
+		}
 #else
-			char path[PATH_MAX];
-			ssize_t count = readlink("/proc/self/exe", path, PATH_MAX);
-			if (count != -1)
-			{
-				path[count] = '\0';
-				std::filesystem::path exePath(path);
-				return exePath.parent_path().string();
-			}
+		char path[PATH_MAX];
+		ssize_t count = readlink("/proc/self/exe", path, PATH_MAX);
+		if (count != -1)
+		{
+			path[count] = '\0';
+			std::filesystem::path exePath(path);
+			return exePath.parent_path().string();
+		}
 #endif
-			return "";
-		};
+		return "";
+	};
 
 	// 1. 获取可执行文件目录
 	std::string exeDir = GetExecutableDirectory();
 	if (exeDir.empty())
 	{
-		std::cerr << "[PROJ] Warning: Cannot determine executable directory" << std::endl;
+		OSGBLog::LOG_W("[PROJ] Cannot determine executable directory");
 		return;
 	}
 
@@ -75,8 +76,8 @@ static void ConfigureProjContext(PJ_CONTEXT* ctx)
 	// 3. 检查proj.db是否存在
 	if (!std::filesystem::exists(projDbPath))
 	{
-		std::cerr << "[PROJ] Warning: proj.db not found at: " << projDbPath.string() << std::endl;
-		std::cerr << "[PROJ] PROJ will use system default search paths (may cause version conflicts)" << std::endl;
+		OSGBLog::LOG_W("[PROJ] proj.db not found at: {}", projDbPath.string());
+		OSGBLog::LOG_W("[PROJ] PROJ will use system default search paths (may cause version conflicts)");
 		return;
 	}
 
@@ -84,8 +85,8 @@ static void ConfigureProjContext(PJ_CONTEXT* ctx)
 	const char* search_paths[] = { exeDir.c_str() };
 	proj_context_set_search_paths(ctx, 1, search_paths);
 
-	std::cerr << "[PROJ] Data directory set to: " << exeDir << std::endl;
-	std::cerr << "[PROJ] Using proj.db: " << projDbPath.string() << std::endl;
+	OSGBLog::LOG_I("[PROJ] Data directory set to: {}", exeDir);
+	OSGBLog::LOG_I("[PROJ] Using proj.db: {}", projDbPath.string());
 }
 
 glm::dmat4 GeoTransform::CalcEnuToEcefMatrix(double lnt, double lat, double height_min)
@@ -166,8 +167,7 @@ void GeoTransform::Init(PJ* transform, double* origin)
 	glm::dvec3 originLocal = { OriginX, OriginY, OriginZ };
 	glm::dvec3 originCartographic = originLocal;
 
-	std::cerr << "[GeoTransform] Origin: x=" << std::fixed << std::setprecision(8) << originLocal.x
-		<< " y=" << originLocal.y << " z=" << std::setprecision(3) << originLocal.z << std::endl;
+	OSGBLog::LOG_I("[GeoTransform] Origin: x={:.8f} y={:.8f} z={:.3f}", originLocal.x, originLocal.y, originLocal.z);
 
 	if (projTransform)
 	{
@@ -188,12 +188,11 @@ void GeoTransform::Init(PJ* transform, double* origin)
 			originCartographic.y = result.xyzt.y;
 			originCartographic.z = result.xyzt.z;
 
-			std::cerr << "[GeoTransform] Cartographic: lon=" << std::setprecision(10) << originCartographic.x
-				<< " lat=" << originCartographic.y << " h=" << std::setprecision(3) << originCartographic.z << std::endl;
+			OSGBLog::LOG_I("[GeoTransform] Cartographic: lon={:.10f} lat={:.10f} h={:.3f}", originCartographic.x, originCartographic.y, originCartographic.z);
 		}
 		else
 		{
-			std::cerr << "[GeoTransform] WARNING: Coordinate transformation failed!" << std::endl;
+			OSGBLog::LOG_W("[GeoTransform] Coordinate transformation failed!");
 		}
 	}
 
@@ -220,8 +219,7 @@ void GeoTransform::SetGeographicOrigin(double lon, double lat, double height)
 	glm::dmat4 EnuToEcefMatrix = CalcEnuToEcefMatrix(lon, lat, height);
 	EcefToEnuMatrix = glm::inverse(EnuToEcefMatrix);
 
-	std::cerr << "[GeoTransform] Geographic origin set: lon=" << std::fixed << std::setprecision(10) << lon
-		<< " lat=" << lat << " h=" << std::setprecision(3) << height << std::endl;
+	OSGBLog::LOG_I("[GeoTransform] Geographic origin set: lon={:.10f} lat={:.10f} h={:.3f}", lon, lat, height);
 }
 
 void GeoTransform::Cleanup()
@@ -243,11 +241,9 @@ void GeoTransform::Cleanup()
 // ============================================================================
 // 外部公开接口实现
 // ============================================================================
-
-#ifdef ENABLE_PROJ
-
 bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 {
+#ifdef ENABLE_PROJ
 	// 清理旧资源，防止重复初始化导致内存泄漏
 	if (projContext || projTransform)
 	{
@@ -275,9 +271,8 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 	std::string crs_from = "EPSG:" + std::to_string(epsg_code);
 	std::string crs_to = "EPSG:4326";
 
-	std::cerr << "[GeoTransform::InitFromEPSG] " << crs_from << " -> " << crs_to << std::endl;
-	std::cerr << "[GeoTransform::InitFromEPSG] Origin: x=" << std::fixed << std::setprecision(6) << origin[0]
-		<< " y=" << origin[1] << " z=" << std::setprecision(3) << origin[2] << std::endl;
+	OSGBLog::LOG_I("[GeoTransform::InitFromEPSG] {} -> {}", crs_from, crs_to);
+	OSGBLog::LOG_I("[GeoTransform::InitFromEPSG] Origin: x={:.6f} y={:.6f} z={:.3f}", origin[0], origin[1], origin[2]);
 
 	// 创建坐标系转换对象
 	PJ* transform = proj_create_crs_to_crs(ctx, crs_from.c_str(), crs_to.c_str(), nullptr);
@@ -303,12 +298,17 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 	projContext = ctx;
 	Init(transform, origin);
 
-	std::cerr << "[GeoTransform::InitFromEPSG] Initialization successful" << std::endl;
+	OSGBLog::LOG_I("[GeoTransform::InitFromEPSG] Initialization successful");
 	return true;
+#else
+	lastError = "PROJ library not enabled";
+	return false;
+#endif
 }
 
 bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 {
+#ifdef ENABLE_PROJ
 	// 清理旧资源，防止重复初始化导致内存泄漏
 	if (projContext || projTransform)
 	{
@@ -321,9 +321,7 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 		return false;
 	}
 
-	std::cerr << "[GeoTransform::InitFromENU] ENU: lon=" << std::fixed << std::setprecision(7) << lon
-		<< " lat=" << lat << " (offset: " << std::setprecision(3) << origin_enu[0]
-		<< ", " << origin_enu[1] << ", " << origin_enu[2] << ")" << std::endl;
+	OSGBLog::LOG_I("[GeoTransform::InitFromENU] ENU: lon={:.7f} lat={:.7f} (offset: {:.3f}, {:.3f}, {:.3f})", lon, lat, origin_enu[0], origin_enu[1], origin_enu[2]);
 
 	// 创建PROJ上下文
 	PJ_CONTEXT* ctx = proj_context_create();
@@ -354,12 +352,17 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 	// 设置ENU地理原点
 	SetGeographicOrigin(lon, lat, 0.0);
 
-	std::cerr << "[GeoTransform::InitFromENU] Initialization successful" << std::endl;
+	OSGBLog::LOG_I("[GeoTransform::InitFromENU] Initialization successful");
 	return true;
+#else
+	lastError = "PROJ library not enabled";
+	return false;
+#endif
 }
 
 bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 {
+#ifdef ENABLE_PROJ
 	// 清理旧资源，防止重复初始化导致内存泄漏
 	if (projContext || projTransform)
 	{
@@ -383,9 +386,8 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 	// 配置PROJ数据搜索路径，避免使用系统PATH中的旧版proj.db
 	ConfigureProjContext(ctx);
 
-	std::cerr << "[GeoTransform::InitFromWKT] WKT -> EPSG:4326" << std::endl;
-	std::cerr << "[GeoTransform::InitFromWKT] Origin: x=" << std::fixed << std::setprecision(6) << origin[0]
-		<< " y=" << origin[1] << " z=" << std::setprecision(3) << origin[2] << std::endl;
+	OSGBLog::LOG_I("[GeoTransform::InitFromWKT] WKT -> EPSG:4326");
+	OSGBLog::LOG_I("[GeoTransform::InitFromWKT] Origin: x={:.6f} y={:.6f} z={:.3f}", origin[0], origin[1], origin[2]);
 
 	// 从WKT创建源坐标系
 	PJ* crs_src = proj_create(ctx, wkt);
@@ -434,32 +436,13 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 	projContext = ctx;
 	Init(transform, origin);
 
-	std::cerr << "[GeoTransform::InitFromWKT] Initialization successful" << std::endl;
+	OSGBLog::LOG_I("[GeoTransform::InitFromWKT] Initialization successful");
 	return true;
-}
-
-#else // !ENABLE_PROJ
-
-// 当PROJ未启用时提供stub实现
-bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
-{
+#else
 	lastError = "PROJ library not enabled";
 	return false;
-}
-
-bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
-{
-	lastError = "PROJ library not enabled";
-	return false;
-}
-
-bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
-{
-	lastError = "PROJ library not enabled";
-	return false;
-}
-
 #endif // ENABLE_PROJ
+}
 
 const char* GeoTransform::GetLastError()
 {

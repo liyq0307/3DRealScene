@@ -10,54 +10,74 @@
 #include <functional>
 #include <filesystem>
 #include <fstream>
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include "MeshProcessor.h"
 #include "Tileset.h"  
 
 namespace OSGBLog
 {
-	// 辅助函数：格式化输出到 stdout
+	/**
+	 * @brief Debug级别日志输出
+	 * @tparam Args 可变参数类型
+	 * @param format fmt风格格式字符串
+	 * @param args 格式化参数
+	 */
 	template<typename... Args>
-	inline void PrintInfo(const char* level, const char* format, Args&&... args)
+	inline void LOG_D(fmt::format_string<Args...> format, Args&&... args)
 	{
-		std::printf("[%s] ", level);
-		std::printf(format, std::forward<Args>(args)...);
-		std::printf("\n");
+		spdlog::log(spdlog::level::debug, format, std::forward<Args>(args)...);
 	}
 
-	// 辅助函数：格式化输出到 stderr
+	/**
+	 * @brief Info级别日志输出
+	 * @tparam Args 可变参数类型
+	 * @param format fmt风格格式字符串
+	 * @param args 格式化参数
+	 */
 	template<typename... Args>
-	inline void PrintError(const char* level, const char* format, Args&&... args)
+	inline void LOG_I(fmt::format_string<Args...> format, Args&&... args)
 	{
-		std::fprintf(stderr, "[%s] ", level);
-		std::fprintf(stderr, format, std::forward<Args>(args)...);
-		std::fprintf(stderr, "\n");
+		spdlog::log(spdlog::level::info, format, std::forward<Args>(args)...);
 	}
 
-	// 辅助函数：格式化字符串
-	template < typename... Args>
-	std::string FormatString(const char* format, Args&&... args)
+	/**
+	 * @brief Warning级别日志输出
+	 * @tparam Args 可变参数类型
+	 * @param format fmt风格格式字符串
+	 * @param args 格式化参数
+	 */
+	template<typename... Args>
+	inline void LOG_W(fmt::format_string<Args...> format, Args&&... args)
 	{
-		// 计算所需缓冲区大小
+		spdlog::log(spdlog::level::warn, format, std::forward<Args>(args)...);
+	}
 
-		int size = std::snprintf(nullptr, 0, format, std::forward<Args>(args)...);
-		if (size <= 0)
-		{
-			return "";
-		}
+	/**
+	 * @brief Error级别日志输出
+	 * @tparam Args 可变参数类型
+	 * @param format fmt风格格式字符串
+	 * @param args 格式化参数
+	 */
+	template<typename... Args>
+	inline void LOG_E(fmt::format_string<Args...> format, Args&&... args)
+	{
+		spdlog::log(spdlog::level::err, format, std::forward<Args>(args)...);
+	}
 
-		// 分配缓冲区并格式化
-		std::snprintf(&result[0], size + 1, format, std::forward<Args>(args)...);
-		result.resize(size);  // 移除末尾的 '\0'
-
-		return result;
+	/**
+	 * @brief Trace级别日志输出（用于详细调试信息，如坐标转换跟踪）
+	 * @tparam Args 可变参数类型
+	 * @param format fmt风格格式字符串
+	 * @param args 格式化参数
+	 */
+	template<typename... Args>
+	inline void LOG_T(fmt::format_string<Args...> format, Args&&... args)
+	{
+		spdlog::log(spdlog::level::trace, format, std::forward<Args>(args)...);
 	}
 }
-
-#define LOG_D(format, ...) OSGBLog::PrintInfo("DEBUG", format, ##__VA_ARGS__)
-#define LOG_I(format, ...) OSGBLog::PrintInfo("INFO", format, ##__VA_ARGS__)
-#define LOG_W(format, ...) OSGBLog::PrintInfo("WARN", format, ##__VA_ARGS__)
-#define LOG_E(format, ...) OSGBLog::PrintError("ERROR", format, ##__VA_ARGS__)
 
 /**
  * @brief metadata.xml 元数据结构
