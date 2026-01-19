@@ -115,44 +115,44 @@ std::string OSGBTools::FindRootOSGB(const std::string& strDirPath)
 
 	// 在目录中搜索根 OSGB 的辅助函数
 	auto search_dir = [](const std::string& strSearchPath) -> std::string
+	{
+		std::string result;
+
+		ForEachEntry(strSearchPath, [&](const DirectoryEntry& entry) -> bool
 		{
-			std::string result;
+			if (!entry.is_directory)
+			{
+				return true; // 继续遍历
+			}
 
-			ForEachEntry(strSearchPath, [&](const DirectoryEntry& entry) -> bool
+			// 在子目录中搜索 OSGB 文件
+			std::string subdir_path = strSearchPath + "/" + entry.name;
+
+			ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
+			{
+				if (!subEntry.is_regular_file)
 				{
-					if (!entry.is_directory)
-					{
-						return true; // 继续遍历
-					}
+					return true;
+				}
 
-					// 在子目录中搜索 OSGB 文件
-					std::string subdir_path = strSearchPath + "/" + entry.name;
+				// 检查是否为 OSGB 文件且不包含 "_L" 级别指示符
+				if (subEntry.name.length() > 5 &&
+					subEntry.name.substr(subEntry.name.length() - 5) == ".osgb" &&
+					subEntry.name.find("_L") == std::string::npos)
+				{
+					result = subdir_path + "/" + subEntry.name;
+					return false;  // 找到了，提前终止
+				}
 
-					ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
-						{
-							if (!subEntry.is_regular_file)
-							{
-								return true;
-							}
+				return true;
+			});
 
-							// 检查是否为 OSGB 文件且不包含 "_L" 级别指示符
-							if (subEntry.name.length() > 5 &&
-								subEntry.name.substr(subEntry.name.length() - 5) == ".osgb" &&
-								subEntry.name.find("_L") == std::string::npos)
-							{
-								result = subdir_path + "/" + subEntry.name;
-								return false;  // 找到了，提前终止
-							}
+			// 如果找到了，提前终止外层遍历
+			return result.empty();
+		});
 
-							return true;
-						});
-
-					// 如果找到了，提前终止外层遍历
-					return result.empty();
-				});
-
-			return result;
-		};
+		return result;
+	};
 
 	// 检查输入路径本身是否看起来像 Data 目录（包含带有 OSGB 文件的子目录）
 	std::string result = search_dir(strNormalizedPath);
@@ -193,36 +193,36 @@ std::vector<std::string> OSGBTools::ScanOSGBFolders(const std::string& strDirPat
 	}
 
 	ForEachEntry(strNormalizedPath, [&](const DirectoryEntry& entry) -> bool
+	{
+		if (!entry.is_directory)
 		{
-			if (!entry.is_directory)
+			return true;
+		}
+
+		// 检查子目录是否包含OSGB文件
+		std::string subdir_path = strNormalizedPath + "/" + entry.name;
+		bool has_osgb = false;
+
+		ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
+		{
+			if (subEntry.is_regular_file &&
+				subEntry.name.length() > 5 &&
+				subEntry.name.substr(subEntry.name.length() - 5) == ".osgb")
 			{
-				return true;
+				has_osgb = true;
+				return false;  // 找到了，提前终止
 			}
 
-			// 检查子目录是否包含OSGB文件
-			std::string subdir_path = strNormalizedPath + "/" + entry.name;
-			bool has_osgb = false;
-
-			ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
-				{
-					if (subEntry.is_regular_file &&
-						subEntry.name.length() > 5 &&
-						subEntry.name.substr(subEntry.name.length() - 5) == ".osgb")
-					{
-						has_osgb = true;
-						return false;  // 找到了，提前终止
-					}
-
-					return true;
-				});
-
-			if (has_osgb)
-			{
-				folders.emplace_back(entry.name);
-			}
-
-			return true;  // 继续遍历
+			return true;
 		});
+
+		if (has_osgb)
+		{
+			folders.emplace_back(entry.name);
+		}
+
+		return true;  // 继续遍历
+	});
 
 	return folders;
 }
@@ -245,29 +245,29 @@ std::vector<std::string> OSGBTools::ScanTileDirectories(const std::string& strDi
 	}
 
 	ForEachEntry(strNormalizedPath, [&](const DirectoryEntry& entry) -> bool
+	{
+		if (!entry.is_directory)
 		{
-			if (!entry.is_directory)
-			{
-				return true;
-			}
+			return true;
+		}
 
-			// 检查是否为 Tile_ 开头的目录
-			if (entry.name.find("Tile_") != 0)
-			{
-				return true;
-			}
+		// 检查是否为 Tile_ 开头的目录
+		if (entry.name.find("Tile_") != 0)
+		{
+			return true;
+		}
 
-			// 检查是否存在对应的 OSGB 文件
-			std::string tile_dir = strNormalizedPath + "/" + entry.name;
-			std::string osgb_file = tile_dir + "/" + entry.name + ".osgb";
+		// 检查是否存在对应的 OSGB 文件
+		std::string tile_dir = strNormalizedPath + "/" + entry.name;
+		std::string osgb_file = tile_dir + "/" + entry.name + ".osgb";
 
-			if (IsRegularFile(osgb_file))
-			{
-				tiles.emplace_back(entry.name);
-			}
+		if (IsRegularFile(osgb_file))
+		{
+			tiles.emplace_back(entry.name);
+		}
 
-			return true;  // 继续遍历
-		});
+		return true;  // 继续遍历
+	});
 
 	return tiles;
 }
@@ -357,29 +357,29 @@ std::string OSGBTools::Replace(std::string str, std::string s0, std::string s1)
 
 std::string OSGBTools::NormalizePath(const std::string& strPath)
 {
-    if (strPath.empty()) 
+	if (strPath.empty())
 	{
-        return std::string();
-    }
+		return std::string();
+	}
 
 #ifdef _WIN32
-    std::string p = strPath;
+	std::string p = strPath;
 
-    const std::string uncPrefix = R"(\\?\UNC\)";
-    if (p.rfind(uncPrefix, 0) == 0)
-    {
-        return R"(\\)" + p.substr(uncPrefix.length());
-    }
+	const std::string uncPrefix = R"(\\?\UNC\)";
+	if (p.rfind(uncPrefix, 0) == 0)
+	{
+		return R"(\\)" + p.substr(uncPrefix.length());
+	}
 
-    const std::string longPrefix = R"(\\?\)";
-    if (p.rfind(longPrefix, 0) == 0)
-    {
-        return p.substr(longPrefix.length());
-    }
+	const std::string longPrefix = R"(\\?\)";
+	if (p.rfind(longPrefix, 0) == 0)
+	{
+		return p.substr(longPrefix.length());
+	}
 
-    return p;
+	return p;
 #else
-    return strPath;
+	return strPath;
 #endif
 }
 
@@ -497,54 +497,37 @@ void OSGBTools::TransformC(double dCenterX, double dCenterY, double dHeightMin, 
 	std::copy(v.begin(), v.end(), pPtr);
 }
 
-void OSGBTools::TransformCWithEnuOffset(double dCenterX, double dCenterY, double dHeightMin, double dEnuOffsetX, double dEnuOffsetY, double dEnuOffsetZ, double* pPtr)
-
+void OSGBTools::TransformCWithEnuOffset(
+	double dCenterX, double dCenterY, double dHeightMin,
+	double dEnuOffsetX, double dEnuOffsetY, double dEnuOffsetZ, double* pPtr)
 {
-
 	std::vector<double> v = transfrom_xyz(dCenterX, dCenterY, dHeightMin);
 
-	OSGBLog::LOG_I("[TransformCWithEnuOffset] Base ECEF at lon={:.10f} lat={:.10f} h={:.3f}: x={:.10f} y={:.10f} z={:.10f}", dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
-
-
+	OSGBLog::LOG_I("[TransformCWithEnuOffset] Base ECEF at lon={:.10f} lat={:.10f} h={:.3f}: x={:.10f} y={:.10f} z={:.10f}",
+		dCenterX, dCenterY, dHeightMin, v[12], v[13], v[14]);
 
 	double dLatRad = dCenterY * dPI / 180.0;
-
 	double dLonRad = dCenterX * dPI / 180.0;
 
-
-
 	double dSinLat = std::sin(dLatRad);
-
 	double dCosLat = std::cos(dLatRad);
-
 	double dSinLon = std::sin(dLonRad);
-
 	double dCosLon = std::cos(dLonRad);
 
-
-
 	double dEcefOffsetX = -dSinLon * dEnuOffsetX - dSinLat * dCosLon * dEnuOffsetY + dCosLat * dCosLon * dEnuOffsetZ;
-
 	double dEcefOffsetY = dCosLon * dEnuOffsetX - dSinLat * dSinLon * dEnuOffsetY + dCosLat * dSinLon * dEnuOffsetZ;
-
 	double dEcefOffsetZ = dCosLat * dEnuOffsetY + dSinLat * dEnuOffsetZ;
 
-	OSGBLog::LOG_I("[TransformCWithEnuOffset] ENU offset ({:.3f}, {:.3f}, {:.3f}) -> ECEF offset ({:.10f}, {:.10f}, {:.10f})", dEnuOffsetX, dEnuOffsetY, dEnuOffsetZ, dEcefOffsetX, dEcefOffsetY, dEcefOffsetZ);
-
-
+	OSGBLog::LOG_I("[TransformCWithEnuOffset] ENU offset ({:.3f}, {:.3f}, {:.3f}) -> ECEF offset ({:.10f}, {:.10f}, {:.10f})",
+		dEnuOffsetX, dEnuOffsetY, dEnuOffsetZ, dEcefOffsetX, dEcefOffsetY, dEcefOffsetZ);
 
 	v[12] += dEcefOffsetX;
-
 	v[13] += dEcefOffsetY;
-
 	v[14] += dEcefOffsetZ;
 
 	OSGBLog::LOG_I("[TransformCWithEnuOffset] Final ECEF translation: x={:.10f} y={:.10f} z={:.10f}", v[12], v[13], v[14]);
 
-
-
 	std::copy(v.begin(), v.end(), pPtr);
-
 }
 
 // 简单的 XML 标签提取函数
