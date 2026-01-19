@@ -6,13 +6,6 @@
 #include <iostream>
 #include <iomanip>
 
-#ifdef _WIN32
-#include <Windows.h>
-#else
-#include <dirent.h>
-#include <sys/stat.h>
-#endif
-
 #include <osgDB/ConvertUTF>
 
 #include "OSGBTools.h"
@@ -58,122 +51,52 @@ bool OSGBTools::WriteFile(const std::string& strFileName, const char* pszBuf, un
 
 bool OSGBTools::IsDirectory(const std::string& strPath)
 {
-#ifdef _WIN32
-	DWORD attrs = GetFileAttributesA(strPath.c_str());
-	return (attrs != INVALID_FILE_ATTRIBUTES) && (attrs & FILE_ATTRIBUTE_DIRECTORY);
-#else
-	struct stat st;
-	return (stat(strPath.c_str(), &st) == 0) && S_ISDIR(st.st_mode);
-#endif
+	try
+	{
+		return std::filesystem::is_directory(strPath);
+	}
+	catch (...)
+	{
+		return false;
+	}
 }
 
 bool OSGBTools::IsRegularFile(const std::string& strPath)
 {
-#ifdef _WIN32
-	DWORD attrs = GetFileAttributesA(strPath.c_str());
-	return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-#else
-	struct stat st;
-	return (stat(strPath.c_str(), &st) == 0) && S_ISREG(st.st_mode);
-#endif
+	try
+	{
+		return std::filesystem::is_regular_file(strPath);
+	}
+	catch (...)
+	{
+		return false;
+	}
 }
 
 bool OSGBTools::ForEachEntry(const std::string& strDirPath,
 	std::function<bool(const DirectoryEntry&)> callback)
 {
-	// 标准化路径分隔符
-	std::string strNormalizedPath = strDirPath;
-	for (char& c : strNormalizedPath)
+	try
 	{
-		if (c == '\\') c = '/';
-	}
-
-	// 移除尾部斜杠
-	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
-	{
-		strNormalizedPath.pop_back();
-	}
-
-#ifdef _WIN32
-	WIN32_FIND_DATAA findData;
-	std::string search_pattern = strNormalizedPath + "/*";
-	HANDLE hFind = FindFirstFileA(search_pattern.c_str(), &findData);
-
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		return false;
-	}
-
-	do
-	{
-		DirectoryEntry entry;
-		entry.name = findData.cFileName;
-		entry.is_directory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-		entry.is_regular_file = !entry.is_directory;
-
-		// 跳过 . 和 ..
-		if (entry.name == "." || entry.name == "..")
+		for (const auto& entry : std::filesystem::directory_iterator(strDirPath))
 		{
-			continue;
-		}
+			DirectoryEntry dirEntry;
+			dirEntry.name = entry.path().filename().string();
+			dirEntry.is_directory = entry.is_directory();
+			dirEntry.is_regular_file = entry.is_regular_file();
 
-		// 调用回调，如果返回 false 则提前终止
-		if (!callback(entry))
-		{
-			FindClose(hFind);
-			return true;
-		}
-	} while (FindNextFileA(hFind, &findData));
-
-	FindClose(hFind);
-	return true;
-#else
-	// Linux/macOS 实现
-	DIR* dir = opendir(strNormalizedPath.c_str());
-	if (dir == nullptr)
-	{
-		return false;
-	}
-
-	struct dirent* dirent_entry;
-	while ((dirent_entry = readdir(dir)) != nullptr)
-	{
-		DirectoryEntry entry;
-		entry.name = dirent_entry->d_name;
-
-		// 跳过 . 和 ..
-		if (entry.name == "." || entry.name == "..")
-		{
-			continue;
-		}
-
-		// 获取文件类型
-		entry.is_directory = (dirent_entry->d_type == DT_DIR);
-		entry.is_regular_file = (dirent_entry->d_type == DT_REG);
-
-		// 如果 d_type 不可用（某些文件系统），使用 stat
-		if (dirent_entry->d_type == DT_UNKNOWN)
-		{
-			std::string full_path = strNormalizedPath + "/" + entry.name;
-			struct stat st;
-			if (stat(full_path.c_str(), &st) == 0)
+			// 调用回调，如果返回 false 则提前终止
+			if (!callback(dirEntry))
 			{
-				entry.is_directory = S_ISDIR(st.st_mode);
-				entry.is_regular_file = S_ISREG(st.st_mode);
+				return true;
 			}
 		}
-
-		// 调用回调，如果返回 false 则提前终止
-		if (!callback(entry))
-		{
-			closedir(dir);
-			return true;
-		}
+		return true;
 	}
-
-	closedir(dir);
-	return true;
-#endif
+	catch (...)
+	{
+		return false;
+	}
 }
 
 std::string OSGBTools::FindRootOSGB(const std::string& strDirPath)
@@ -353,40 +276,47 @@ std::vector<std::string> OSGBTools::ScanOSGBFiles(const std::string& strDirPath,
 {
 	std::vector<std::string> files;
 
-	// 标准化路径分隔符
-	std::string strNormalizedPath = strDirPath;
-	for (char& c : strNormalizedPath)
+	try
 	{
-		if (c == '\\') c = '/';
-	}
-
-	// 移除尾部斜杠
-	if (!strNormalizedPath.empty() && strNormalizedPath.back() == '/')
-	{
-		strNormalizedPath.pop_back();
-	}
-
-	ForEachEntry(strNormalizedPath, [&](const DirectoryEntry& entry) -> bool
+		if (bRecursive)
 		{
-			if (entry.is_regular_file)
+			// 使用递归目录迭代器
+			for (const auto& entry : std::filesystem::recursive_directory_iterator(strDirPath))
 			{
-				// 检查是否为 OSGB 文件
-				if (entry.name.length() > 5 &&
-					entry.name.substr(entry.name.length() - 5) == ".osgb")
+				if (entry.is_regular_file())
 				{
-					files.emplace_back(strNormalizedPath + "/" + entry.name);
+					std::string filename = entry.path().filename().string();
+					// 检查是否为 OSGB 文件
+					if (filename.length() > 5 &&
+						filename.substr(filename.length() - 5) == ".osgb")
+					{
+						files.emplace_back(entry.path().string());
+					}
 				}
 			}
-			else if (bRecursive && entry.is_directory)
+		}
+		else
+		{
+			// 非递归，使用普通目录迭代器
+			for (const auto& entry : std::filesystem::directory_iterator(strDirPath))
 			{
-				// 递归扫描子目录
-				std::string subdir_path = strNormalizedPath + "/" + entry.name;
-				auto subFiles = ScanOSGBFiles(subdir_path, true);
-				files.insert(files.end(), subFiles.begin(), subFiles.end());
+				if (entry.is_regular_file())
+				{
+					std::string filename = entry.path().filename().string();
+					// 检查是否为 OSGB 文件
+					if (filename.length() > 5 &&
+						filename.substr(filename.length() - 5) == ".osgb")
+					{
+						files.emplace_back(entry.path().string());
+					}
+				}
 			}
-
-			return true;  // 继续遍历
-		});
+		}
+	}
+	catch (...)
+	{
+		// 如果发生异常，返回空列表
+	}
 
 	return files;
 }
