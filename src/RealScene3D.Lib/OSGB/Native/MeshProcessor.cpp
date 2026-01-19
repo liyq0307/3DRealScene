@@ -1,4 +1,3 @@
-#include "MeshProcessor.h"
 #include <osg/Texture>
 #include <osg/Image>
 #include <osg/Array>
@@ -24,6 +23,9 @@
 #endif
 
 #include <stb_image_write.h>
+
+#include "MeshProcessor.h"
+#include "OSGBTools.h"
 
 // KTX2压缩标志
 static bool m_bUseKtx2Compression = true;
@@ -100,215 +102,217 @@ void MeshProcessor::SetKtx2CompressionFlag(bool bEnable)
 }
 
 // 辅助函数写入缓冲区数据（静态以避免重复符号）
-static void write_buf(void* pContext, void* pData, int nlen)
+static void WriteBuf(void* pContext, void* pData, int nlen)
 {
 	std::vector<char>* buf = (std::vector<char>*)pContext;
 	buf->insert(buf->end(), (char*)pData, (char*)pData + nlen);
 }
 
 // 处理纹理的函数（KTX2压缩）
-bool MeshProcessor::ProcessTexture(osg::Texture* tex, std::vector<unsigned char>& image_data, std::string& mime_type, bool enable_texture_compress)
+bool MeshProcessor::ProcessTexture(osg::Texture* pTexture, std::vector<unsigned char>& imageData, std::string& strMimeType, bool bEnableTextureCompress)
 {
+	if (nullptr == pTexture || pTexture->getNumImages() == 0)
+	{
+		OSGBLog::LOG_W("osg::Texture is null or NumImages == 0");
+
+		return false;
+	}
+
+	osg::Image* pTextureImg = pTexture->getImage(0);
+	if (nullptr == pTextureImg)
+	{
+		OSGBLog::LOG_W("osg::Imagee is null");
+
+		return false;
+	}
+
+	int nWidth = pTextureImg->s();
+	int nHeight = pTextureImg->t();
+	const GLenum format = pTextureImg->getPixelFormat();
+	unsigned int nRowStep = pTextureImg->getRowStepInBytes();
+	unsigned int nRowSize = pTextureImg->getRowSizeInBytes();
+
 	// 检查是否启用KTX2压缩
-	if (enable_texture_compress)
+	if (bEnableTextureCompress)
 	{
 		// 使用Basis Universal处理KTX2压缩
-		std::vector<unsigned char> ktx2_buf;
-		int width, height;
+		std::vector<unsigned char> ktx2Buf;
 
-		if (tex)
+		// 提取原始RGBA数据用于压缩
+		std::vector<unsigned char> rgbaData;
+		const unsigned char* pszSourceData = pTextureImg->data();
+		size_t nDataSize = pTextureImg->getTotalSizeInBytes();
+
+		// 检查是否需要处理行填充
+		bool bHasRowPadding = (nRowStep != nRowSize);
+
+		switch (format)
 		{
-			if (tex->getNumImages() > 0)
+			case GL_RGBA:
 			{
-				osg::Image* img = tex->getImage(0);
-				if (img)
+				if (bHasRowPadding)
 				{
-					width = img->s();
-					height = img->t();
-
-					// 提取原始RGBA数据用于压缩
-					std::vector<unsigned char> rgba_data;
-					const GLenum format = img->getPixelFormat();
-					const unsigned char* source_data = img->data();
-					size_t data_size = img->getTotalSizeInBytes();
-
-					// 检查是否需要处理行填充
-					unsigned int rowStep = img->getRowStepInBytes();
-					unsigned int rowSize = img->getRowSizeInBytes();
-					bool hasRowPadding = (rowStep != rowSize);
-
-					// 如需要转换为RGBA
-					if (format == GL_RGBA)
+					// 处理行填充
+					rgbaData.resize(nWidth * nHeight * 4);
+					for (int row = 0; row < nHeight; row++)
 					{
-						if (hasRowPadding)
-						{
-							// 处理行填充
-							rgba_data.resize(width * height * 4);
-							for (int row = 0; row < height; row++)
-							{
-								memcpy(&rgba_data[row * width * 4],
-									&source_data[row * rowStep],
-									width * 4);
-							}
-						}
-						else
-						{
-							rgba_data.assign(source_data, source_data + data_size);
-						}
+						memcpy(&rgbaData[row * nWidth * 4], &pszSourceData[row * nRowStep], nWidth * 4);
 					}
-					else if (format == GL_RGB)
-					{
-						// 将RGB转换为RGBA
-						rgba_data.resize(width * height * 4);
-						if (hasRowPadding)
-						{
-							// 处理RGB的行填充
-							for (int row = 0; row < height; row++)
-							{
-								for (int col = 0; col < width; col++) {
-									int src_idx = row * rowStep + col * 3;
-									int dst_idx = (row * width + col) * 4;
-									rgba_data[dst_idx + 0] = source_data[src_idx + 0];
-									rgba_data[dst_idx + 1] = source_data[src_idx + 1];
-									rgba_data[dst_idx + 2] = source_data[src_idx + 2];
-									rgba_data[dst_idx + 3] = 255;
-								}
-							}
-						}
-						else
-						{
-							for (int i = 0; i < width * height; i++)
-							{
-								rgba_data[i * 4 + 0] = source_data[i * 3 + 0];
-								rgba_data[i * 4 + 1] = source_data[i * 3 + 1];
-								rgba_data[i * 4 + 2] = source_data[i * 3 + 2];
-								rgba_data[i * 4 + 3] = 255;
-							}
-						}
-					}
-					else if (format == GL_BGRA)
-					{
-						// 将BGRA转换为RGBA
-						rgba_data.resize(width * height * 4);
-						if (hasRowPadding)
-						{
-							for (int row = 0; row < height; row++)
-							{
-								for (int col = 0; col < width; col++)
-								{
-									int src_idx = row * rowStep + col * 4;
-									int dst_idx = (row * width + col) * 4;
-									rgba_data[dst_idx + 0] = source_data[src_idx + 2]; // R
-									rgba_data[dst_idx + 1] = source_data[src_idx + 1]; // G
-									rgba_data[dst_idx + 2] = source_data[src_idx + 0]; // B
-									rgba_data[dst_idx + 3] = source_data[src_idx + 3]; // A
-								}
-							}
-						}
-						else
-						{
-							for (int i = 0; i < width * height; i++)
-							{
-								rgba_data[i * 4 + 0] = source_data[i * 4 + 2]; // R
-								rgba_data[i * 4 + 1] = source_data[i * 4 + 1]; // G
-								rgba_data[i * 4 + 2] = source_data[i * 4 + 0]; // B
-								rgba_data[i * 4 + 3] = source_data[i * 4 + 3]; // A
-							}
-						}
-					}
+				}
+				else
+				{
+					rgbaData.assign(pszSourceData, pszSourceData + nDataSize);
+				}
 
-					// 使用Basis Universal压缩为KTX2
-					if (!rgba_data.empty())
+				break;
+			}
+			case GL_RGB:
+			{
+				// 将RGB转换为RGBA
+				rgbaData.resize(nWidth * nHeight * 4);
+				if (bHasRowPadding)
+				{
+					// 处理RGB的行填充
+					for (int row = 0; row < nHeight; row++)
 					{
-						if (CompressToKtx2(rgba_data, width, height, ktx2_buf))
+						for (int col = 0; col < nWidth; col++)
 						{
-							// 成功压缩为KTX2
-							image_data = ktx2_buf;
-							mime_type = "image/ktx2";
-							return true;
+							int nSrcIdx = row * nRowStep + col * 3;
+							int nDstIdx = (row * nWidth + col) * 4;
+							rgbaData[nDstIdx + 0] = pszSourceData[nSrcIdx + 0];
+							rgbaData[nDstIdx + 1] = pszSourceData[nSrcIdx + 1];
+							rgbaData[nDstIdx + 2] = pszSourceData[nSrcIdx + 2];
+							rgbaData[nDstIdx + 3] = 255;
 						}
 					}
 				}
+				else
+				{
+					for (int i = 0; i < nWidth * nHeight; i++)
+					{
+						rgbaData[i * 4 + 0] = pszSourceData[i * 3 + 0];
+						rgbaData[i * 4 + 1] = pszSourceData[i * 3 + 1];
+						rgbaData[i * 4 + 2] = pszSourceData[i * 3 + 2];
+						rgbaData[i * 4 + 3] = 255;
+					}
+				}
+
+				break;
+			}
+			case GL_BGRA:
+			{
+				// 将BGRA转换为RGBA
+				rgbaData.resize(nWidth * nHeight * 4);
+				if (bHasRowPadding)
+				{
+					for (int row = 0; row < nHeight; row++)
+					{
+						for (int col = 0; col < nWidth; col++)
+						{
+							int nSrcIdx = row * nRowStep + col * 4;
+							int nDstIdx = (row * nWidth + col) * 4;
+							rgbaData[nDstIdx + 0] = pszSourceData[nSrcIdx + 2]; // R
+							rgbaData[nDstIdx + 1] = pszSourceData[nSrcIdx + 1]; // G
+							rgbaData[nDstIdx + 2] = pszSourceData[nSrcIdx + 0]; // B
+							rgbaData[nDstIdx + 3] = pszSourceData[nSrcIdx + 3]; // A
+						}
+					}
+				}
+				else
+				{
+					for (int i = 0; i < nWidth * nHeight; i++)
+					{
+						rgbaData[i * 4 + 0] = pszSourceData[i * 4 + 2]; // R
+						rgbaData[i * 4 + 1] = pszSourceData[i * 4 + 1]; // G
+						rgbaData[i * 4 + 2] = pszSourceData[i * 4 + 0]; // B
+						rgbaData[i * 4 + 3] = pszSourceData[i * 4 + 3]; // A
+					}
+				}
+				break;
+			}
+
+			default:
+				break;
+		}
+
+		// 使用Basis Universal压缩为KTX2
+		if (!rgbaData.empty())
+		{
+			if (CompressToKtx2(rgbaData, nWidth, nHeight, ktx2Buf))
+			{
+				// 成功压缩为KTX2
+				imageData = ktx2Buf;
+				strMimeType = "image/ktx2";
+
+				return true;
 			}
 		}
 
 		// 如果KTX2压缩失败，退回到JPEG
+		OSGBLog::LOG_W("KTX2 compression failed, falling back to JPEG");
 	}
 
 	// 退回到JPEG压缩
-	std::vector<unsigned char> jpeg_buf;
-	int width, height;
-	if (tex)
-	{
-		if (tex->getNumImages() > 0)
-		{
-			osg::Image* img = tex->getImage(0);
-			if (img)
-			{
-				width = img->s();
-				height = img->t();
+	std::vector<unsigned char> jpegBuf;
+	const char* pszRgb = (const char*)(pTextureImg->data());
 
-				const GLenum format = img->getPixelFormat();
-				const char* rgb = (const char*)(img->data());
-				uint32_t rowStep = img->getRowStepInBytes();
-				uint32_t rowSize = img->getRowSizeInBytes();
-				switch (format)
+	switch (format)
+	{
+		case GL_RGBA:
+			jpegBuf.resize(nWidth * nHeight * 3);
+			for (int i = 0; i < nHeight; i++)
+			{
+				for (int j = 0; j < nWidth; j++)
 				{
-				case GL_RGBA:
-					jpeg_buf.resize(width * height * 3);
-					for (int i = 0; i < height; i++)
-					{
-						for (int j = 0; j < width; j++)
-						{
-							jpeg_buf[i * width * 3 + j * 3] = rgb[i * width * 4 + j * 4];
-							jpeg_buf[i * width * 3 + j * 3 + 1] = rgb[i * width * 4 + j * 4 + 1];
-							jpeg_buf[i * width * 3 + j * 3 + 2] = rgb[i * width * 4 + j * 4 + 2];
-						}
-					}
-					break;
-				case GL_BGRA:
-					jpeg_buf.resize(width * height * 3);
-					for (int i = 0; i < height; i++)
-					{
-						for (int j = 0; j < width; j++)
-						{
-							jpeg_buf[i * width * 3 + j * 3] = rgb[i * width * 4 + j * 4 + 2];
-							jpeg_buf[i * width * 3 + j * 3 + 1] = rgb[i * width * 4 + j * 4 + 1];
-							jpeg_buf[i * width * 3 + j * 3 + 2] = rgb[i * width * 4 + j * 4];
-						}
-					}
-					break;
-				case GL_RGB:
-					for (int i = 0; i < height; i++)
-					{
-						for (int j = 0; j < rowSize; j++)
-						{
-							jpeg_buf.emplace_back(rgb[rowStep * i + j]);
-						}
-					}
-					break;
-				default:
-					break;
+					jpegBuf[i * nWidth * 3 + j * 3] = pszRgb[i * nWidth * 4 + j * 4];
+					jpegBuf[i * nWidth * 3 + j * 3 + 1] = pszRgb[i * nWidth * 4 + j * 4 + 1];
+					jpegBuf[i * nWidth * 3 + j * 3 + 2] = pszRgb[i * nWidth * 4 + j * 4 + 2];
 				}
 			}
-		}
+			break;
+		case GL_BGRA:
+			jpegBuf.resize(nWidth * nHeight * 3);
+			for (int i = 0; i < nHeight; i++)
+			{
+				for (int j = 0; j < nWidth; j++)
+				{
+					jpegBuf[i * nWidth * 3 + j * 3] = pszRgb[i * nWidth * 4 + j * 4 + 2];
+					jpegBuf[i * nWidth * 3 + j * 3 + 1] = pszRgb[i * nWidth * 4 + j * 4 + 1];
+					jpegBuf[i * nWidth * 3 + j * 3 + 2] = pszRgb[i * nWidth * 4 + j * 4];
+				}
+			}
+			break;
+		case GL_RGB:
+			for (int i = 0; i < nHeight; i++)
+			{
+				for (int j = 0; j < nRowSize; j++)
+				{
+					jpegBuf.emplace_back(pszRgb[nRowStep * i + j]);
+				}
+			}
+			break;
+		default:
+			break;
 	}
-	if (!jpeg_buf.empty())
+
+	if (!jpegBuf.empty())
 	{
-		std::vector<char> buffer_data;
-		stbi_write_jpg_to_func(write_buf, &buffer_data, width, height, 3, jpeg_buf.data(), 80);
-		image_data.assign(buffer_data.begin(), buffer_data.end());
-		mime_type = "image/jpeg";
+		std::vector<char> bufferData;
+		stbi_write_jpg_to_func(WriteBuf, &bufferData, nWidth, nHeight, 3, jpegBuf.data(), 80);
+		imageData.assign(bufferData.begin(), bufferData.end());
+		strMimeType = "image/jpeg";
+
 		return true;
 	}
 	else
 	{
-		std::vector<char> v_data(256 * 256 * 3, 255);
-		width = height = 256;
-		std::vector<char> buffer_data;
-		stbi_write_jpg_to_func(write_buf, &buffer_data, width, height, 3, v_data.data(), 80);
-		image_data.assign(buffer_data.begin(), buffer_data.end());
-		mime_type = "image/jpeg";
+		nWidth = nHeight = 256;
+		std::vector<unsigned char> arrData(nWidth * nHeight * 3, 255);
+		std::vector<unsigned char> bufferData;
+		stbi_write_jpg_to_func(WriteBuf, &bufferData, nWidth, nHeight, 3, arrData.data(), static_cast<int>(80));
+		imageData.assign(bufferData.begin(), bufferData.end());
+		strMimeType = "image/jpeg";
+
 		return true;
 	}
 
