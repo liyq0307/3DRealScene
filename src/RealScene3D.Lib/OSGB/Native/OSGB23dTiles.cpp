@@ -1939,12 +1939,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 	}
 
 	// 4. 创建输出目录
-	std::string out_path = strOutputDir;
-#ifdef _WIN32
-	CreateDirectoryA(out_path.c_str(), NULL);
-#else
-	mkdir(out_path.c_str(), 0755);
-#endif
+	OSGBTools::MkDirs(strOutputDir);
 
 	// 5. 收集所有子目录/OSGB文件
 	struct TileInfo {
@@ -1960,12 +1955,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 	if (is_oblique_data)
 	{
 		// 倾斜摄影模式：扫描 Tile_* 目录
-		std::string out_data_path = out_path + "/Data";
-#ifdef _WIN32
-		CreateDirectoryA(out_data_path.c_str(), NULL);
-#else
-		mkdir(out_data_path.c_str(), 0755);
-#endif
+		std::string out_data_path = strOutputDir + "/Data";
+		OSGBTools::MkDirs(out_data_path);
 
 		// 使用 OSGBTools 统一的目录扫描函数
 		std::vector<std::string> tile_names = OSGBTools::ScanTileDirectories(check_data_dir);
@@ -1984,11 +1975,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 			info.tile_name = tile_name;
 			info.osgb_path = osgb_file;
 			info.output_path = out_data_path + "/" + tile_name;
-#ifdef _WIN32
-			CreateDirectoryA(info.output_path.c_str(), NULL);
-#else
-			mkdir(info.output_path.c_str(), 0755);
-#endif
+			OSGBTools::MkDirs(info.output_path);
 			tiles.emplace_back(info);
 		}
 	}
@@ -2028,12 +2015,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 			TileInfo info;
 			info.tile_name = dir_name;
 			info.osgb_path = root_osgb;
-			info.output_path = out_path + "/" + dir_name;
-#ifdef _WIN32
-			CreateDirectoryA(info.output_path.c_str(), NULL);
-#else
-			mkdir(info.output_path.c_str(), 0755);
-#endif
+			info.output_path = strOutputDir + "/" + dir_name;
+			OSGBTools::MkDirs(info.output_path);
 			tiles.emplace_back(info);
 		}
 		else
@@ -2072,12 +2055,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 				TileInfo info;
 				info.tile_name = folder_name;
 				info.osgb_path = root_osgb;
-				info.output_path = out_path + "/" + folder_name;
-#ifdef _WIN32
-				CreateDirectoryA(info.output_path.c_str(), NULL);
-#else
-				mkdir(info.output_path.c_str(), 0755);
-#endif
+				info.output_path = strOutputDir + "/" + folder_name;
+				OSGBTools::MkDirs(info.output_path);
 				tiles.emplace_back(info);
 			}
 		}

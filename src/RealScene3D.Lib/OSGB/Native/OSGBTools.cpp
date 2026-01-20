@@ -113,49 +113,26 @@ std::string OSGBTools::FindRootOSGB(const std::string& strDirPath)
 		strNormalizedPath.pop_back();
 	}
 
-	// 在目录中搜索根 OSGB 的辅助函数
-	auto search_dir = [](const std::string& strSearchPath) -> std::string
+	// 在目录中递归搜索根 OSGB 的辅助函数
+	auto SearchDir = [](const std::string& strSearchPath) -> std::string
 	{
-		std::string result;
-
-		ForEachEntry(strSearchPath, [&](const DirectoryEntry& entry) -> bool
+		std::vector<std::string> osgbFiles = ScanOSGBFiles(strSearchPath, true);
+		for (const auto& filePath : osgbFiles)
 		{
-			if (!entry.is_directory)
+			std::string filename = std::filesystem::path(filePath).filename().string();
+			// 检查是否为 OSGB 文件且不包含 "_L" 级别指示符
+			if (filename.length() > 5 &&
+				filename.substr(filename.length() - 5) == ".osgb" &&
+				filename.find("_L") == std::string::npos)
 			{
-				return true; // 继续遍历
+				return filePath;
 			}
-
-			// 在子目录中搜索 OSGB 文件
-			std::string subdir_path = strSearchPath + "/" + entry.name;
-
-			ForEachEntry(subdir_path, [&](const DirectoryEntry& subEntry) -> bool
-			{
-				if (!subEntry.is_regular_file)
-				{
-					return true;
-				}
-
-				// 检查是否为 OSGB 文件且不包含 "_L" 级别指示符
-				if (subEntry.name.length() > 5 &&
-					subEntry.name.substr(subEntry.name.length() - 5) == ".osgb" &&
-					subEntry.name.find("_L") == std::string::npos)
-				{
-					result = subdir_path + "/" + subEntry.name;
-					return false;  // 找到了，提前终止
-				}
-
-				return true;
-			});
-
-			// 如果找到了，提前终止外层遍历
-			return result.empty();
-		});
-
-		return result;
+		}
+		return "";
 	};
 
-	// 检查输入路径本身是否看起来像 Data 目录（包含带有 OSGB 文件的子目录）
-	std::string result = search_dir(strNormalizedPath);
+	// 检查输入路径本身
+	std::string result = SearchDir(strNormalizedPath);
 	if (!result.empty())
 	{
 		return result;
@@ -163,9 +140,8 @@ std::string OSGBTools::FindRootOSGB(const std::string& strDirPath)
 
 	// 尝试 Data 子目录
 	std::string strDataDir = strNormalizedPath + "/Data";
-	if (IsDirectory(strDataDir))
 	{
-		result = search_dir(strDataDir);
+		result = SearchDir(strDataDir);
 		if (!result.empty())
 		{
 			return result;
