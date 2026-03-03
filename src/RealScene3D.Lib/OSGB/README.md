@@ -151,11 +151,11 @@ OSGB/
 - tinygltf - GLTF/GLB读写
 - stb_image/stb_image_write - 图像处理
 
-**可选特性（通过CMake选项启用）：**
-- PROJ - 坐标转换
-- meshoptimizer - 网格优化
-- Draco - 网格压缩
-- Basis Universal - 纹理压缩
+**必须依赖（默认启用，可通过CMake选项禁用）：**
+- PROJ - 坐标转换（必须库，找不到会导致CMake失败）
+- meshoptimizer - 网格优化（必须库，找不到会导致CMake失败）
+- Draco - 网格压缩（必须库，找不到会导致CMake失败）
+- Basis Universal - 纹理压缩（必须库，找不到会导致CMake失败）
 
 ---
 
@@ -171,63 +171,85 @@ cmake .. -DUSE_EXTERNAL_OSG=ON
 cmake .. -DUSE_EXTERNAL_OSG=ON -DOSG_DIR="D:/MyOSG"
 ```
 
-### vcpkg 可选库构建
+### vcpkg 必须库构建
 
-**默认情况下，PROJ、meshoptimizer、Draco、Basis Universal等库不通过vcpkg构建。**
-如需通过vcpkg构建这些库，使用以下选项：
+**默认情况下，PROJ、meshoptimizer、Draco、Basis Universal等库会自动通过vcpkg构建。**
+
+**⚠️ 重要：这些是必须库，不是可选库！**
+- PROJ 是必须库，CMake 会无条件查找
+- basisu、meshoptimizer、draco 在对应功能启用时（ENABLE_*=ON）是必须库
+- 如果找不到这些库，CMake 配置会失败
+
+**禁用 vcpkg 构建的正确方式：**
 
 ```bash
-# 通过vcpkg构建PROJ（坐标转换库）
-cmake .. -DBUILD_PROJ_WITH_VCPKG=ON
+# 方式1：禁用vcpkg构建，但必须确保系统中已安装对应库
+cmake .. -DBUILD_PROJ_WITH_VCPKG=OFF  # 系统中必须有PROJ
+cmake .. -DBUILD_BASISU_WITH_VCPKG=OFF  # 系统中必须有basisu
 
-# 通过vcpkg构建Basis Universal（纹理压缩）
-cmake .. -DBUILD_BASISU_WITH_VCPKG=ON
-
-# 通过vcpkg构建meshoptimizer（网格优化）
-cmake .. -DBUILD_MESHOPT_WITH_VCPKG=ON
-
-# 通过vcpkg构建Draco（网格压缩）
-cmake .. -DBUILD_DRACO_WITH_VCPKG=ON
-
-# 组合使用多个选项
+# 方式2：禁用vcpkg构建 + 禁用对应功能（推荐）
 cmake .. \
-  -DBUILD_PROJ_WITH_VCPKG=ON \
-  -DBUILD_MESHOPT_WITH_VCPKG=ON \
-  -DBUILD_DRACO_WITH_VCPKG=ON
+  -DBUILD_BASISU_WITH_VCPKG=OFF \
+  -DENABLE_TEXTURE_COMPRESSION=OFF  # 完全禁用纹理压缩功能
+
+cmake .. \
+  -DBUILD_MESHOPT_WITH_VCPKG=OFF \
+  -DENABLE_MESH_OPTIMIZATION=OFF  # 完全禁用网格优化功能
+
+cmake .. \
+  -DBUILD_DRACO_WITH_VCPKG=OFF \
+  -DENABLE_DRACO_COMPRESSION=OFF  # 完全禁用Draco压缩功能
 ```
 
 **说明：**
-- 这些选项控制vcpkg是否构建对应的库
-- 即使不通过vcpkg构建，CMake仍会尝试查找系统中已安装的版本
-- 如果库未找到，相关功能将被禁用（不影响核心功能）
+- 默认情况下，这些库会通过vcpkg自动构建，确保依赖可用
+- 设置 BUILD_*_WITH_VCPKG=OFF 后，CMake 仍会查找系统中已安装的版本
+- **如果库未找到，CMake 配置会失败**（不是警告，是错误）
+- 如需完全禁用某个功能，必须同时设置 BUILD_*_WITH_VCPKG=OFF 和 ENABLE_*=OFF
 - 使用vcpkg构建会增加首次编译时间，但保证版本兼容性
 
-### 运行时功能开关
+### 功能开关
 
-以下选项控制运行时是否启用特定功能（需要对应的库已安装）：
+以下选项控制是否启用特定功能（默认全部启用）：
 
 ```bash
-cmake .. \
-  -DENABLE_TEXTURE_COMPRESSION=ON \   # 启用KTX2纹理压缩功能
-  -DENABLE_MESH_OPTIMIZATION=ON \     # 启用网格优化功能
-  -DENABLE_DRACO_COMPRESSION=ON       # 启用Draco压缩功能
+# 禁用纹理压缩功能（不查找basisu库）
+cmake .. -DENABLE_TEXTURE_COMPRESSION=OFF
+
+# 禁用网格优化功能（不查找meshoptimizer库）
+cmake .. -DENABLE_MESH_OPTIMIZATION=OFF
+
+# 禁用Draco压缩功能（不查找draco库）
+cmake .. -DENABLE_DRACO_COMPRESSION=OFF
 ```
 
 **注意：**
-- 这些选项与vcpkg构建选项是**独立**的
-- `ENABLE_*` 控制是否使用功能（需要库已安装）
-- `BUILD_*_WITH_VCPKG` 控制是否通过vcpkg构建库
-- 完整示例：
-  ```bash
-  # 通过vcpkg构建PROJ并启用坐标转换功能
-  cmake .. -DBUILD_PROJ_WITH_VCPKG=ON
+- `ENABLE_*=ON`（默认）时，对应的库是**必须的**，找不到会导致CMake失败
+- `ENABLE_*=OFF` 时，不会查找对应的库，功能完全禁用
+- `BUILD_*_WITH_VCPKG` 控制是否通过vcpkg构建库（默认ON）
+- PROJ 库无法禁用，始终是必须库
 
-  # 使用系统已安装的meshoptimizer并启用网格优化
-  cmake .. -DENABLE_MESH_OPTIMIZATION=ON
+**完整示例：**
+```bash
+# 示例1：默认行为（推荐）
+# 通过vcpkg自动构建所有必须库
+cmake .. -DUSE_EXTERNAL_OSG=ON
 
-  # 组合：通过vcpkg构建Draco并启用压缩功能
-  cmake .. -DBUILD_DRACO_WITH_VCPKG=ON -DENABLE_DRACO_COMPRESSION=ON
-  ```
+# 示例2：使用系统已安装的库（必须确保系统中有这些库）
+cmake .. \
+  -DUSE_EXTERNAL_OSG=ON \
+  -DBUILD_PROJ_WITH_VCPKG=OFF \
+  -DBUILD_BASISU_WITH_VCPKG=OFF \
+  -DBUILD_MESHOPT_WITH_VCPKG=OFF \
+  -DBUILD_DRACO_WITH_VCPKG=OFF
+
+# 示例3：完全禁用某些功能（不需要对应的库）
+cmake .. \
+  -DUSE_EXTERNAL_OSG=ON \
+  -DENABLE_TEXTURE_COMPRESSION=OFF \
+  -DENABLE_MESH_OPTIMIZATION=OFF \
+  -DENABLE_DRACO_COMPRESSION=OFF
+```
 
 ### 构建类型
 
@@ -241,39 +263,44 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug
 
 ### 常见使用场景
 
-**场景1：快速开始（仅核心功能）**
+**场景1：快速开始（最小功能集）**
 ```bash
-# 仅构建OSG和核心功能，不构建任何可选库
-cmake .. -G "Visual Studio 17 2022" -A x64
+# 仅构建OSG和核心功能，禁用所有高级功能
+# 注意：PROJ仍然是必须的，会通过vcpkg构建
+cmake .. -G "Visual Studio 17 2022" -A x64 \
+  -DENABLE_TEXTURE_COMPRESSION=OFF \
+  -DENABLE_MESH_OPTIMIZATION=OFF \
+  -DENABLE_DRACO_COMPRESSION=OFF
 cmake --build . --config Release
 ```
 
-**场景2：完整功能（通过vcpkg）**
+**场景2：完整功能（默认，推荐）**
 ```bash
-# 通过vcpkg构建所有可选库
+# 使用预编译OSG，通过vcpkg自动构建所有必须库（默认行为）
 cmake .. -G "Visual Studio 17 2022" -A x64 \
-  -DBUILD_PROJ_WITH_VCPKG=ON \
-  -DBUILD_BASISU_WITH_VCPKG=ON \
-  -DBUILD_MESHOPT_WITH_VCPKG=ON \
-  -DBUILD_DRACO_WITH_VCPKG=ON \
-  -DENABLE_TEXTURE_COMPRESSION=ON \
-  -DENABLE_MESH_OPTIMIZATION=ON \
-  -DENABLE_DRACO_COMPRESSION=ON \
   -DUSE_EXTERNAL_OSG=ON
+cmake --build . --config Release
 ```
 
 **场景3：使用预编译OSG + 系统库**
 ```bash
-# 使用预编译OSG，其他库从系统查找
+# 使用预编译OSG，禁用vcpkg构建，从系统查找必须库
+# ⚠️ 警告：系统中必须已安装 PROJ、basisu、meshoptimizer、draco
 cmake .. -G "Visual Studio 17 2022" -A x64 \
   -DUSE_EXTERNAL_OSG=ON \
-  -DENABLE_MESH_OPTIMIZATION=ON
+  -DBUILD_PROJ_WITH_VCPKG=OFF \
+  -DBUILD_BASISU_WITH_VCPKG=OFF \
+  -DBUILD_MESHOPT_WITH_VCPKG=OFF \
+  -DBUILD_DRACO_WITH_VCPKG=OFF
 ```
 
-**场景4：仅添加PROJ支持**
+**场景4：禁用部分高级功能**
 ```bash
-# 只通过vcpkg构建PROJ，其他保持默认
-cmake .. -DBUILD_PROJ_WITH_VCPKG=ON
+# 禁用纹理压缩和网格优化，保留Draco压缩
+cmake .. -G "Visual Studio 17 2022" -A x64 \
+  -DUSE_EXTERNAL_OSG=ON \
+  -DENABLE_TEXTURE_COMPRESSION=OFF \
+  -DENABLE_MESH_OPTIMIZATION=OFF
 ```
 
 ---

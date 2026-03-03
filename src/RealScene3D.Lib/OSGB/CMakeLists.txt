@@ -18,10 +18,10 @@ set(VCPKG_BINARY_SOURCES "clear;files,${CMAKE_SOURCE_DIR}/../3dParty/vcpkg_cache
 option(USE_EXTERNAL_OSG "Use externally installed OSG instead of vcpkg" OFF)
 
 # 可选库的vcpkg构建开关（默认不构建，按需启用）
-option(BUILD_PROJ_WITH_VCPKG "Build PROJ library with vcpkg" OFF)
-option(BUILD_BASISU_WITH_VCPKG "Build Basis Universal with vcpkg" OFF)
-option(BUILD_MESHOPT_WITH_VCPKG "Build meshoptimizer with vcpkg" OFF)
-option(BUILD_DRACO_WITH_VCPKG "Build Draco with vcpkg" OFF)
+option(BUILD_PROJ_WITH_VCPKG "Build PROJ library with vcpkg" ON)
+option(BUILD_BASISU_WITH_VCPKG "Build Basis Universal with vcpkg" ON)
+option(BUILD_MESHOPT_WITH_VCPKG "Build meshoptimizer with vcpkg" ON)
+option(BUILD_DRACO_WITH_VCPKG "Build Draco with vcpkg" ON)
 
 # 功能启用开关（控制是否查找和使用库，默认启用）
 option(ENABLE_TEXTURE_COMPRESSION "Enable KTX2 texture compression" ON)
@@ -368,108 +368,116 @@ endif()
 # 可选依赖（用于高级功能）
 # ============================================================================
 
-# Basis Universal (KTX2纹理压缩)
-if(ENABLE_TEXTURE_COMPRESSION)
-    find_package(basisu CONFIG)
-    if(basisu_FOUND)
-        message(STATUS "Found Basis Universal - KTX2 compression enabled")
-        target_link_libraries(${PROJECT_NAME} PRIVATE basisu::basisu_encoder)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_KTX2)
-    else()
-        message(WARNING "basisu not found - texture compression disabled")
-    endif()
+# Basis Universal (KTX2纹理压缩) - 必须库
+if(NOT ENABLE_TEXTURE_COMPRESSION)
+    message(FATAL_ERROR "ENABLE_TEXTURE_COMPRESSION is OFF, but basisu is a REQUIRED dependency. Please set it to ON.")
 endif()
 
-# meshoptimizer (网格优化)
-if(ENABLE_MESH_OPTIMIZATION)
-    find_package(meshoptimizer CONFIG)
-    if(meshoptimizer_FOUND)
-        message(STATUS "Found meshoptimizer - mesh optimization enabled")
-        target_link_libraries(${PROJECT_NAME} PRIVATE meshoptimizer::meshoptimizer)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE OPTIMIZER)
-    else()
-        message(WARNING "meshoptimizer not found - mesh optimization disabled")
-    endif()
+find_package(basisu CONFIG REQUIRED)
+if(basisu_FOUND)
+    message(STATUS "Found Basis Universal - KTX2 compression enabled")
+    target_link_libraries(${PROJECT_NAME} PRIVATE basisu::basisu_encoder)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_KTX2)
+else()
+    message(FATAL_ERROR "basisu is REQUIRED but not found. Please install it via vcpkg or check BUILD_BASISU_WITH_VCPKG option.")
 endif()
 
-# Draco (网格压缩)
-if(ENABLE_DRACO_COMPRESSION)
-    find_package(draco CONFIG)
-    if(draco_FOUND)
-        message(STATUS "Found Draco - mesh compression enabled")
-        target_link_libraries(${PROJECT_NAME} PRIVATE draco::draco)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_DRACO)
-    else()
-        message(WARNING "draco not found - mesh compression disabled")
-    endif()
+# meshoptimizer (网格优化) - 必须库
+if(NOT ENABLE_MESH_OPTIMIZATION)
+    message(FATAL_ERROR "ENABLE_MESH_OPTIMIZATION is OFF, but meshoptimizer is a REQUIRED dependency. Please set it to ON.")
 endif()
 
-# PROJ (地理坐标系转换 - 可选，轻量级)
-find_package(PROJ CONFIG)
+find_package(meshoptimizer CONFIG REQUIRED)
+if(meshoptimizer_FOUND)
+    message(STATUS "Found meshoptimizer - mesh optimization enabled")
+    target_link_libraries(${PROJECT_NAME} PRIVATE meshoptimizer::meshoptimizer)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE OPTIMIZER)
+else()
+    message(FATAL_ERROR "meshoptimizer is REQUIRED but not found. Please install it via vcpkg or check BUILD_MESHOPT_WITH_VCPKG option.")
+endif()
+
+# Draco (网格压缩) - 必须库
+if(NOT ENABLE_DRACO_COMPRESSION)
+    message(FATAL_ERROR "ENABLE_DRACO_COMPRESSION is OFF, but draco is a REQUIRED dependency. Please set it to ON.")
+endif()
+
+find_package(draco CONFIG REQUIRED)
+if(draco_FOUND)
+    message(STATUS "Found Draco - mesh compression enabled")
+    target_link_libraries(${PROJECT_NAME} PRIVATE draco::draco)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_DRACO)
+else()
+    message(FATAL_ERROR "draco is REQUIRED but not found. Please install it via vcpkg or check BUILD_DRACO_WITH_VCPKG option.")
+endif()
+
+# PROJ (地理坐标系转换) - 必须库
+find_package(PROJ CONFIG REQUIRED)
 if(PROJ_FOUND)
     message(STATUS "Found PROJ - coordinate transformations enabled")
     target_link_libraries(${PROJECT_NAME} PRIVATE PROJ::proj)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_PROJ)
+else()
+    message(FATAL_ERROR "PROJ is REQUIRED but not found. Please install it via vcpkg or check BUILD_PROJ_WITH_VCPKG option.")
+endif()
 
-    # 拷贝 proj.db 数据文件到输出目录
-    if(WIN32)
-        # 获取 PROJ 安装路径并查找 proj.db
-        get_target_property(PROJ_LOCATION PROJ::proj LOCATION)
-        if(PROJ_LOCATION)
-            get_filename_component(PROJ_BIN_DIR "${PROJ_LOCATION}" DIRECTORY)
-            get_filename_component(PROJ_ROOT_DIR "${PROJ_BIN_DIR}" DIRECTORY)
+# 拷贝 proj.db 数据文件到输出目录
+if(WIN32)
+    # 获取 PROJ 安装路径并查找 proj.db
+    get_target_property(PROJ_LOCATION PROJ::proj LOCATION)
+    if(PROJ_LOCATION)
+        get_filename_component(PROJ_BIN_DIR "${PROJ_LOCATION}" DIRECTORY)
+        get_filename_component(PROJ_ROOT_DIR "${PROJ_BIN_DIR}" DIRECTORY)
 
-            # vcpkg 安装：proj.db 在 x64-windows/share/proj（共享数据目录，不区分 debug/release）
-            # 预编译版本：proj.db 在 <root>/share/proj
-            # 尝试多个可能的路径
-            set(PROJ_DATA_DIR "")
-            set(POSSIBLE_PATHS
-                "${PROJ_ROOT_DIR}/../share/proj"        # vcpkg: x64-windows/share/proj
-                "${PROJ_ROOT_DIR}/share/proj"            # 预编译版本
-                "${PROJ_ROOT_DIR}/../../share/proj"      # 其他可能的结构
-            )
+        # vcpkg 安装：proj.db 在 x64-windows/share/proj（共享数据目录，不区分 debug/release）
+        # 预编译版本：proj.db 在 <root>/share/proj
+        # 尝试多个可能的路径
+        set(PROJ_DATA_DIR "")
+        set(POSSIBLE_PATHS
+            "${PROJ_ROOT_DIR}/../share/proj"        # vcpkg: x64-windows/share/proj
+            "${PROJ_ROOT_DIR}/share/proj"            # 预编译版本
+            "${PROJ_ROOT_DIR}/../../share/proj"      # 其他可能的结构
+        )
 
+        foreach(POSSIBLE_PATH ${POSSIBLE_PATHS})
+            get_filename_component(ABS_PATH "${POSSIBLE_PATH}" ABSOLUTE)
+            if(EXISTS "${ABS_PATH}/proj.db")
+                set(PROJ_DATA_DIR "${ABS_PATH}")
+                break()
+            endif()
+        endforeach()
+
+        if(PROJ_DATA_DIR)
+            message(STATUS "Found proj.db: ${PROJ_DATA_DIR}/proj.db")
+
+            set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../../../bin")
+
+            if(CMAKE_CONFIGURATION_TYPES)
+                # 多配置生成器 - 为 Debug 和 Release 分别复制
+                foreach(CONFIG_TYPE Debug Release)
+                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND $<$<CONFIG:${CONFIG_TYPE}>:${CMAKE_COMMAND}>
+                            $<$<CONFIG:${CONFIG_TYPE}>:-E>
+                            $<$<CONFIG:${CONFIG_TYPE}>:copy_if_different>
+                            $<$<CONFIG:${CONFIG_TYPE}>:"${PROJ_DATA_DIR}/proj.db">
+                            $<$<CONFIG:${CONFIG_TYPE}>:"${OUTPUT_DIR}/${CONFIG_TYPE}/proj.db">
+                        COMMENT "Copying proj.db for ${CONFIG_TYPE}"
+                    )
+                endforeach()
+            else()
+                # 单配置生成器
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${PROJ_DATA_DIR}/proj.db"
+                        "${OUTPUT_DIR}/${CMAKE_BUILD_TYPE}/proj.db"
+                    COMMENT "Copying proj.db for ${CMAKE_BUILD_TYPE}"
+                )
+            endif()
+        else()
+            message(WARNING "proj.db not found. Searched paths:")
             foreach(POSSIBLE_PATH ${POSSIBLE_PATHS})
                 get_filename_component(ABS_PATH "${POSSIBLE_PATH}" ABSOLUTE)
-                if(EXISTS "${ABS_PATH}/proj.db")
-                    set(PROJ_DATA_DIR "${ABS_PATH}")
-                    break()
-                endif()
+                message(WARNING "  - ${ABS_PATH}/proj.db")
             endforeach()
-
-            if(PROJ_DATA_DIR)
-                message(STATUS "Found proj.db: ${PROJ_DATA_DIR}/proj.db")
-
-                set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../../../bin")
-
-                if(CMAKE_CONFIGURATION_TYPES)
-                    # 多配置生成器 - 为 Debug 和 Release 分别复制
-                    foreach(CONFIG_TYPE Debug Release)
-                        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                            COMMAND $<$<CONFIG:${CONFIG_TYPE}>:${CMAKE_COMMAND}>
-                                $<$<CONFIG:${CONFIG_TYPE}>:-E>
-                                $<$<CONFIG:${CONFIG_TYPE}>:copy_if_different>
-                                $<$<CONFIG:${CONFIG_TYPE}>:"${PROJ_DATA_DIR}/proj.db">
-                                $<$<CONFIG:${CONFIG_TYPE}>:"${OUTPUT_DIR}/${CONFIG_TYPE}/proj.db">
-                            COMMENT "Copying proj.db for ${CONFIG_TYPE}"
-                        )
-                    endforeach()
-                else()
-                    # 单配置生成器
-                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                            "${PROJ_DATA_DIR}/proj.db"
-                            "${OUTPUT_DIR}/${CMAKE_BUILD_TYPE}/proj.db"
-                        COMMENT "Copying proj.db for ${CMAKE_BUILD_TYPE}"
-                    )
-                endif()
-            else()
-                message(WARNING "proj.db not found. Searched paths:")
-                foreach(POSSIBLE_PATH ${POSSIBLE_PATHS})
-                    get_filename_component(ABS_PATH "${POSSIBLE_PATH}" ABSOLUTE)
-                    message(WARNING "  - ${ABS_PATH}/proj.db")
-                endforeach()
-            endif()
         endif()
     endif()
 else()
