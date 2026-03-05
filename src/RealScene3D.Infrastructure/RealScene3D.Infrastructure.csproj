@@ -5,17 +5,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Native OSGB 库引用 -->
-    <Reference Include="RealScene3D.Lib.OSGB">
-      <HintPath>..\..\bin\$(Configuration)\RealScene3D.Lib.OSGB.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-
-    <!-- SWIG 生成的 C# 包装 DLL（可选，如果未使用 SWIG 则跳过）-->
-    <Reference Include="OsgbReaderCS" Condition="Exists('..\..\bin\$(Configuration)\OsgbReaderCS.dll')">
-      <HintPath>..\..\bin\$(Configuration)\OsgbReaderCS.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <!-- Native OSGB DLL 运行时依赖（复制到输出目录，不作为程序集引用）-->
+    <Content Include="..\..\bin\$(Configuration)\RealScene3D.Lib.OSGB.dll" Condition="Exists('..\..\bin\$(Configuration)\RealScene3D.Lib.OSGB.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>RealScene3D.Lib.OSGB.dll</Link>
+    </Content>
+    <Content Include="..\..\bin\$(Configuration)\OSGB23dTilesCS.dll" Condition="Exists('..\..\bin\$(Configuration)\OSGB23dTilesCS.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>OSGB23dTilesCS.dll</Link>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
