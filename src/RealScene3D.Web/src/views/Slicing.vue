@@ -131,7 +131,7 @@
               </option>
             </select>
             <label>LOD层级:</label>
-            <select v-model="selectedLevel" @change="loadSliceMetadata" class="form-select">
+            <select v-model="selectedLevel" @change="loadSliceMetadata" class="form-select" :disabled="!selectedTaskId">
               <option v-for="level in availableLevels" :key="level" :value="level">
                 Level {{ level }}
               </option>
@@ -270,106 +270,12 @@
       </div>
     </div>
 
-    <!-- 创建切片任务对话框 -->
-    <div v-if="showCreateTaskDialog" class="modal-overlay" @click="closeCreateTaskDialog">
-      <div class="modal-content large" @click.stop>
-        <h3>创建切片任务</h3>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>任务名称 *</label>
-            <input v-model="taskForm.name" type="text" class="form-input" placeholder="输入任务名称" />
-          </div>
-
-          <div class="form-group">
-            <label>描述</label>
-            <textarea v-model="taskForm.description" class="form-textarea" placeholder="输入任务描述"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label>模型路径 *</label>
-            <input v-model="taskForm.modelPath" type="text" class="form-input" placeholder="例如: F:/Data/3D/model.obj" />
-            <small class="form-hint">模型文件绝对路径或者minio服务器上路径</small>
-          </div>
-
-          <div class="form-group">
-            <label>输出路径</label>
-            <input v-model="taskForm.outputPath" type="text" class="form-input" placeholder="例如: F:/Data/3D/Output" />
-            <small class="form-hint">名称或绝对路径或空，名称或者为空则切片保存到minio</small>
-          </div>
-
-          <div class="form-group">
-            <label>LOD层级数（网格简化级别）*</label>
-            <input v-model.number="taskForm.lodLevels" type="number" min="1" max="5" class="form-input"
-              placeholder="默认3" />
-          </div>
-
-          <div class="form-group">
-            <label>输出格式 *</label>
-            <select v-model="taskForm.outputFormat" class="form-select">
-              <option value="b3dm">B3DM - Batched 3D Model（默认，推荐）✨</option>
-              <option value="gltf">GLTF - GL Transmission Format</option>
-              <option value="i3dm">I3DM - Instanced 3D Model</option>
-              <option value="pnts">PNTS - Point Cloud</option>
-              <option value="cmpt">CMPT - Composite</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label>纹理策略 *</label>
-            <select v-model.number="taskForm.textureStrategy" class="form-select">
-              <option :value="2">Repack - 重新打包纹理（PNG格式，推荐）✨</option>
-              <option :value="3">RepackCompressed - 打包+压缩（JPEG质量75）</option>
-              <option :value="1">Compress - 压缩纹理（保持原始分辨率）</option>
-              <option :value="0">KeepOriginal - 保持原样（不推荐）</option>
-            </select>
-          </div>
-
-          <div class="form-group" v-if="taskForm.enableMeshDecimation">
-            <label>空间分割递归深度（Divisions）</label>
-            <input v-model.number="taskForm.divisions" type="number" min="1" max="4" class="form-input"
-              placeholder="默认2" />
-            <small class="form-hint" style="color: #2196F3; display: block; margin-top: 4px;">
-              📊 预估切片数：{{ estimateSliceCount(taskForm.lodLevels, taskForm.divisions) }} 个
-              （{{ taskForm.lodLevels }} LOD × {{ Math.pow(2, taskForm.divisions) }}×{{ Math.pow(2, taskForm.divisions)
-              }} 空间单元）
-            </small>
-          </div>
-
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input v-model="taskForm.enableMeshDecimation" type="checkbox" />
-              <span>启用网格简化（LOD生成）</span>
-            </label>
-            <small class="form-hint" v-if="taskForm.enableMeshDecimation">
-              使用 Fast Quadric Mesh Simplification 算法生成多级 LOD
-            </small>
-          </div>
-
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input v-model="taskForm.enableIncrementalUpdate" type="checkbox" />
-              <span>启用增量更新</span>
-            </label>
-          </div>
-
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input v-model="taskForm.enableCompression" type="checkbox" />
-              <span>启用几何压缩</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button @click="closeCreateTaskDialog" class="btn btn-secondary">
-            取消
-          </button>
-          <button @click="createTask" class="btn btn-primary">
-            创建任务
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- 创建切片任务对话框（使用新的智能对话框组件） -->
+    <ObliqueSliceDialog
+      v-model:visible="showCreateTaskDialog"
+      @submit="handleDialogSubmit"
+      @cancel="closeCreateTaskDialog"
+    />
 
 
 
@@ -514,6 +420,8 @@ import SearchFilter from '@/components/SearchFilter.vue'
 import Badge from '@/components/Badge.vue'
 import Pagination from '@/components/Pagination.vue'
 import { useAuthStore } from '@/stores/auth'
+import ObliqueSliceDialog from '@/components/slicing/ObliqueSliceDialog.vue'
+import { mapObliqueFormDataToRequest } from '@/composables/useObliqueSlice'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -557,7 +465,7 @@ const filterConfigs: Filter[] = [
 const selectedTaskId = ref('')
 const selectedLevel = ref(0)
 const sliceMetadata = ref<any[]>([])
-const availableLevels = ref<number[]>([0, 1, 2, 3, 4])
+const availableLevels = ref<number[]>([])
 const lodLevelStats = ref<Map<number, { count: number; totalSize: number; avgSize: number }>>(new Map())
 
 // 切片策略
@@ -732,10 +640,10 @@ const loadSliceMetadata = async () => {
   try {
     // 获取任务信息以确定最大LOD层级
     const taskInfo = await slicingService.getSlicingTask(selectedTaskId.value)
-    const maxLevel = taskInfo?.slicingConfig?.lodLevels || 5
+    const maxLevel = taskInfo?.slicingConfig?.lodLevels || 0
 
-    // 更新可用层级列表
-    availableLevels.value = Array.from({ length: maxLevel + 1 }, (_, i) => i)
+    // 更新可用层级列表（lodLevels=3表示有Level 0,1,2三层）
+    availableLevels.value = Array.from({ length: maxLevel }, (_, i) => i)
 
     // 并行加载所有层级的统计信息
     const statsPromises = availableLevels.value.map(async (level) => {
@@ -816,6 +724,50 @@ const openCreateTaskDialog = () => {
 
 const closeCreateTaskDialog = () => {
   showCreateTaskDialog.value = false
+}
+
+// 处理新对话框的提交
+const handleDialogSubmit = async (submitData: { type: string; data: any }) => {
+  try {
+    let requestData: any
+
+    if (submitData.type === 'oblique') {
+      // 倾斜摄影任务
+      requestData = mapObliqueFormDataToRequest(submitData.data, userId)
+    } else {
+      // 通用模型任务
+      const generalData = submitData.data
+      requestData = {
+        name: generalData.name,
+        sourceModelPath: generalData.modelPath,
+        modelType: 'General3DModel',
+        outputPath: generalData.outputPath || '',
+        slicingConfig: {
+          outputFormat: generalData.outputFormat,
+          coordinateSystem: 'EPSG:4326',
+          customSettings: '{}',
+          divisions: generalData.divisions,
+          lodLevels: generalData.lodLevels,
+          enableMeshDecimation: generalData.enableMeshDecimation,
+          generateTileset: true,
+          compressOutput: generalData.enableCompression,
+          enableIncrementalUpdates: false,
+          textureStrategy: generalData.textureStrategy
+        }
+      }
+    }
+
+    console.log('发送的请求数据:', JSON.stringify(requestData, null, 2))
+    await slicingService.createSlicingTask(requestData, userId)
+    await loadTasks()
+    closeCreateTaskDialog()
+  } catch (error: any) {
+    console.error('创建切片任务失败:', error)
+    console.error('错误详情:', error.response?.data)
+    console.error('错误状态:', error.response?.status)
+    const errorMessage = error.response?.data?.message || error.message || '创建任务失败'
+    alert(`创建任务失败: ${errorMessage}`)
+  }
 }
 
 // 估算切片数量

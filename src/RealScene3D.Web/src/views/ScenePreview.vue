@@ -25,30 +25,6 @@
       </div>
     </div>
 
-    <!-- 渲染引擎提示 -->
-    <div v-if="showFormatNotice && sceneRenderEngine" class="format-notice" :class="sceneRenderEngine === 'threejs' ? 'info' : ''">
-      <div class="notice-icon">{{ sceneRenderEngine === 'threejs' ? 'ℹ️' : '🌍' }}</div>
-      <div class="notice-content">
-        <strong>{{ sceneRenderEngine === 'threejs' ? 'Three.js 渲染器' : 'Cesium 地球渲染器' }}</strong>
-        <p v-if="sceneRenderEngine === 'threejs'">
-          此场景使用 Three.js 渲染器显示，支持 OBJ、FBX、GLTF、GLB 等多种格式。
-          适合产品展示、室内场景、工业模型等通用3D场景。
-        </p>
-        <p v-else>
-          此场景使用 Cesium 地球渲染器显示，支持地理坐标系统和 3D Tiles 格式。
-          适合大规模地理空间数据展示。
-        </p>
-        <div class="notice-actions">
-          <button v-if="hasUnsupportedModels" class="btn btn-primary btn-sm" @click="convertModelsToTiles">
-            转换为 3D Tiles
-          </button>
-          <button class="btn btn-secondary btn-sm" @click="showFormatNotice = false">
-            关闭提示
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- 动态渲染器容器 -->
     <div class="viewer-container">
       <!-- Three.js 查看器 (用于通用3D模型) -->
@@ -64,13 +40,13 @@
         @objectLoaded="onThreeJSObjectLoaded"
       />
 
-      <!-- Cesium 3D地球查看器 (用于地理空间数据) -->
-      <CesiumViewer
+      <!-- Mars3D 3D地球查看器 (用于地理空间数据) -->
+      <Mars3DViewer
         v-else-if="!loading && sceneObjects.length > 0 && sceneRenderEngine === 'cesium'"
         :show-info="true"
         :scene-objects="sceneObjects"
-        @ready="onCesiumReady"
-        @error="onCesiumError"
+        @ready="onMars3DReady"
+        @error="onMars3DError"
       />
     </div>
 
@@ -115,7 +91,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
-import CesiumViewer from '@/components/CesiumViewer.vue'
+import Mars3DViewer from '@/components/Mars3DViewer.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
 
 // ==================== 组合式API ====================
@@ -130,7 +106,6 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const currentScene = ref<any>(null)
 const sceneObjects = ref<any[]>([])
-const showFormatNotice = ref(true)
 const isFullscreen = ref(false)
 
 // ==================== 计算属性 ====================
@@ -307,19 +282,19 @@ const convertModelsToTiles = async () => {
 }
 
 /**
- * Cesium就绪回调
+ * Mars3D就绪回调
  */
-const onCesiumReady = (viewer: any) => {
-  console.log('[ScenePreview] Cesium地球初始化成功', viewer)
-  showSuccess('Cesium 3D地球加载成功')
+const onMars3DReady = (map: any) => {
+  console.log('[ScenePreview] Mars3D地球初始化成功', map)
+  showSuccess('Mars3D 3D地球加载成功')
 }
 
 /**
- * Cesium错误回调
+ * Mars3D错误回调
  */
-const onCesiumError = (err: Error) => {
-  console.error('[ScenePreview] Cesium初始化失败:', err)
-  showError('Cesium地球加载失败: ' + err.message)
+const onMars3DError = (err: Error) => {
+  console.error('[ScenePreview] Mars3D初始化失败:', err)
+  showError('Mars3D地球加载失败: ' + err.message)
 }
 
 /**
@@ -474,64 +449,7 @@ onUnmounted(() => {
   font-size: 1.2rem;
 }
 
-/* 格式兼容性提示 */
-.format-notice {
-  display: flex;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
-  margin: 1rem 1.5rem;
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.9) 0%, rgba(255, 235, 59, 0.9) 100%);
-  border-radius: 8px;
-  border-left: 4px solid #ff9800;
-  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
-  animation: slideInDown 0.4s ease;
-  z-index: 5;
-}
 
-.notice-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.notice-content {
-  flex: 1;
-}
-
-.notice-content strong {
-  display: block;
-  margin-bottom: 0.5rem;
-  color: #856404;
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.notice-content p {
-  margin: 0 0 0.75rem 0;
-  color: #664d03;
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-.notice-actions {
-  display: flex;
-  gap: 0.75rem;
-}
-
-/* Three.js渲染器信息提示样式 */
-.format-notice.info {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(147, 197, 253, 0.9) 100%);
-  border-left-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.format-notice.info .notice-content strong {
-  color: #1e40af;
-}
-
-.format-notice.info .notice-content p {
-  color: #1e3a8a;
-}
 
 /* Cesium查看器容器 */
 .viewer-container {

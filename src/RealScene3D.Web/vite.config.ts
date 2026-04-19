@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
-import cesium from 'vite-plugin-cesium'
+import mars3d from 'vite-plugin-mars3d'
 
 export default defineConfig({
   plugins: [
     vue(),
-    cesium()
+    mars3d()
   ],
   resolve: {
     alias: {
@@ -17,6 +17,14 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: (id) => {
+          // 将Mars3D/Cesium相关代码拆分到单独的chunk
+          if (id.includes('mars3d') || id.includes('cesium') || id.includes('Cesium')) {
+            return 'mars3d-vendor'
+          }
+          // 将Three.js相关代码拆分
+          if (id.includes('three') || id.includes('3d-tiles-renderer')) {
+            return 'three-vendor'
+          }
           // 将Vue相关代码拆分到单独的chunk
           if (id.includes('vue') || id.includes('pinia') || id.includes('@vue')) {
             return 'vue-vendor'
@@ -30,7 +38,7 @@ export default defineConfig({
         }
       }
     },
-    chunkSizeWarningLimit: 1000 // 提高chunk大小警告限制
+    chunkSizeWarningLimit: 5000 // Mars3D+Cesium体积较大，提高警告限制
   },
   server: {
     port: 5173,

@@ -65,7 +65,7 @@
 
     <!-- 3D查看器容器 -->
     <div class="viewer-container">
-      <CesiumViewer
+      <Mars3DViewer
         v-if="!loading && sceneObject"
         :sceneObjects="[sceneObject]"
         :showInfo="true"
@@ -128,7 +128,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { slicingService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
-import CesiumViewer from '@/components/CesiumViewer.vue'
+import Mars3DViewer from '@/components/Mars3DViewer.vue'
 
 // ==================== 组合式API ====================
 

@@ -45,7 +45,7 @@
           </div>
         </div>
         <div class="viewer-container">
-          <CesiumViewer
+          <Mars3DViewer
             v-if="sceneObject"
             :sceneObjects="[sceneObject]"
             :showInfo="true"
@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { slicingService } from '@/services/api'
-import CesiumViewer from './CesiumViewer.vue'
+import Mars3DViewer from './Mars3DViewer.vue'
 
 // Props
 interface Props {
