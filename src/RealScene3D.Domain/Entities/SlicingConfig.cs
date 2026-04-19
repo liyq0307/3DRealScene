@@ -52,4 +52,49 @@ public class SlicingConfig
     /// 几何误差阈值
     /// </summary>
     public double GeometricErrorThreshold { get; set; } = 0.001;
+
+    /// <summary>
+    /// 空间参考系统（坐标系）
+    /// 例如：EPSG:4326, EPSG:3857, EPSG:4978等
+    /// 主要用于倾斜摄影数据
+    /// </summary>
+    public string? SpatialReference { get; set; }
+
+    /// <summary>
+    /// 零点坐标X（中心点经度或X坐标）
+    /// 主要用于倾斜摄影数据的坐标偏移
+    /// </summary>
+    public double? CenterX { get; set; }
+
+    /// <summary>
+    /// 零点坐标Y（中心点纬度或Y坐标）
+    /// 主要用于倾斜摄影数据的坐标偏移
+    /// </summary>
+    public double? CenterY { get; set; }
+
+    /// <summary>
+    /// 零点坐标Z（中心点高度或Z坐标）
+    /// 主要用于倾斜摄影数据的坐标偏移
+    /// </summary>
+    public double? CenterZ { get; set; }
+
+    /// <summary>
+    /// 是否启用纹理压缩
+    /// </summary>
+    public bool EnableTextureCompression { get; set; } = false;
+
+    /// <summary>
+    /// 是否启用网格优化
+    /// </summary>
+    public bool EnableMeshOptimization { get; set; } = false;
+
+    /// <summary>
+    /// 是否启用Draco压缩
+    /// </summary>
+    public bool EnableDracoCompression { get; set; } = false;
+
+    /// <summary>
+    /// 3D Tiles版本（1.0或1.1）
+    /// </summary>
+    public string TilesVersion { get; set; } = "1.0";
 }

@@ -44,6 +44,10 @@
 
             <div class="task-info">
               <div class="info-item">
+                <span class="label">模型类型:</span>
+                <span class="value model-type">{{ getModelTypeName(task.modelType) }}</span>
+              </div>
+              <div class="info-item">
                 <span class="label">模型路径:</span>
                 <span class="value">{{ task.sourceModelPath }}</span>
               </div>
@@ -55,17 +59,55 @@
                 <span class="label">输出格式:</span>
                 <span class="value">{{ (task.slicingConfig?.outputFormat || 'b3dm').toUpperCase() }}</span>
               </div>
-              <div class="info-item">
+              <div class="info-item" v-if="task.modelType !== 'ObliquePhotography'">
                 <span class="label">纹理策略:</span>
                 <span class="value">{{ getTextureStrategyName(task.slicingConfig?.textureStrategy) }}</span>
               </div>
-              <div class="info-item">
+              <div class="info-item" v-if="task.modelType !== 'ObliquePhotography'">
                 <span class="label">LOD层级:</span>
                 <span class="value">{{ task.slicingConfig?.lodLevels || 3 }}</span>
               </div>
-              <div class="info-item">
+              <div class="info-item" v-if="task.modelType !== 'ObliquePhotography'">
                 <span class="label">递归深度:</span>
                 <span class="value">{{ task.slicingConfig?.divisions || 2 }}</span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography' && task.slicingConfig?.spatialReference">
+                <span class="label">空间参考:</span>
+                <span class="value">{{ task.slicingConfig.spatialReference }}</span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography' && (task.slicingConfig?.centerX || task.slicingConfig?.centerY || task.slicingConfig?.centerZ)">
+                <span class="label">零点坐标:</span>
+                <span class="value">
+                  ({{ task.slicingConfig?.centerX?.toFixed(6) || '0' }}, 
+                  {{ task.slicingConfig?.centerY?.toFixed(6) || '0' }}, 
+                  {{ task.slicingConfig?.centerZ?.toFixed(2) || '0' }})
+                </span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
+                <span class="label">处理参数:</span>
+                <span class="value">
+                  顶层重建
+                </span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
+                <span class="label">纹理压缩:</span>
+                <span class="value">{{ task.slicingConfig?.enableTextureCompression ? '是' : '否' }}</span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
+                <span class="label">顶点压缩:</span>
+                <span class="value">{{ task.slicingConfig?.enableMeshOptimization ? '是' : '否' }}</span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
+                <span class="label">Draco压缩:</span>
+                <span class="value">{{ task.slicingConfig?.enableDracoCompression ? '是' : '否' }}</span>
+              </div>
+              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
+                <span class="label">3D Tiles版本:</span>
+                <span class="value">{{ get3DTilesVersion(task.slicingConfig) }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">存储类型:</span>
+                <span class="value">{{ getStorageTypeName(task.slicingConfig?.storageLocation) }}</span>
               </div>
               <div class="info-item" v-if="task.status === 'failed' && task.errorMessage">
                 <span class="label error-label">失败原因:</span>
@@ -318,36 +360,81 @@
             <h4>切片配置</h4>
             <div class="detail-grid">
               <div class="detail-item">
+                <span class="label">模型类型:</span>
+                <span class="value">{{ getModelTypeName(currentTask.modelType) }}</span>
+              </div>
+              <div class="detail-item">
                 <span class="label">输出格式:</span>
                 <span class="value">{{ (currentTask.slicingConfig?.outputFormat || 'b3dm').toUpperCase() }}</span>
               </div>
+              
+              <!-- 倾斜摄影特有配置 -->
+              <template v-if="currentTask.modelType === 'ObliquePhotography'">
+                <div class="detail-item" v-if="currentTask.slicingConfig?.spatialReference">
+                  <span class="label">空间参考:</span>
+                  <span class="value">{{ currentTask.slicingConfig.spatialReference }}</span>
+                </div>
+                <div class="detail-item" v-if="currentTask.slicingConfig?.centerX || currentTask.slicingConfig?.centerY || currentTask.slicingConfig?.centerZ">
+                  <span class="label">零点坐标:</span>
+                  <span class="value">
+                    ({{ currentTask.slicingConfig?.centerX?.toFixed(6) || '0' }}, 
+                    {{ currentTask.slicingConfig?.centerY?.toFixed(6) || '0' }}, 
+                    {{ currentTask.slicingConfig?.centerZ?.toFixed(2) || '0' }})
+                  </span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">处理参数:</span>
+                  <span class="value">顶层重建</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">纹理压缩:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.enableTextureCompression ? '是' : '否' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">顶点压缩:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.enableMeshOptimization ? '是' : '否' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Draco压缩:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.enableDracoCompression ? '是' : '否' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">3D Tiles版本:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.tilesVersion || '1.0' }}</span>
+                </div>
+              </template>
+              
+              <!-- 通用3D模型配置 -->
+              <template v-else>
+                <div class="detail-item">
+                  <span class="label">纹理策略:</span>
+                  <span class="value">{{ getTextureStrategyName(currentTask.slicingConfig?.textureStrategy) }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">LOD层级:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.lodLevels || 3 }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">递归深度:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.divisions || 2 }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">网格简化:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.enableMeshDecimation ? '✓ 已启用' : '✗ 未启用' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">几何压缩:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.compressOutput ? '✓ 已启用' : '✗ 未启用' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">增量更新:</span>
+                  <span class="value">{{ currentTask.slicingConfig?.enableIncrementalUpdates ? '✓ 已启用' : '✗ 未启用' }}</span>
+                </div>
+              </template>
+              
               <div class="detail-item">
-                <span class="label">纹理策略:</span>
-                <span class="value">{{ getTextureStrategyName(currentTask.slicingConfig?.textureStrategy) }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">LOD层级:</span>
-                <span class="value">{{ currentTask.slicingConfig?.lodLevels || 3 }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">递归深度:</span>
-                <span class="value">{{ currentTask.slicingConfig?.divisions || 2 }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">网格简化:</span>
-                <span class="value">{{ currentTask.slicingConfig?.enableMeshDecimation ? '✓ 已启用' : '✗ 未启用' }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">几何压缩:</span>
-                <span class="value">{{ currentTask.slicingConfig?.compressOutput ? '✓ 已启用' : '✗ 未启用' }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">增量更新:</span>
-                <span class="value">{{ currentTask.slicingConfig?.enableIncrementalUpdates ? '✓ 已启用' : '✗ 未启用' }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">坐标系统:</span>
-                <span class="value">{{ currentTask.slicingConfig?.coordinateSystem || 'EPSG:4326' }}</span>
+                <span class="label">存储类型:</span>
+                <span class="value">{{ getStorageTypeName(currentTask.slicingConfig?.storageLocation) }}</span>
               </div>
             </div>
           </div>
@@ -600,6 +687,63 @@ const getTextureStrategyName = (strategy: number | string | undefined) => {
   }
 
   return '未指定'
+}
+
+const getModelTypeName = (modelType: string | undefined) => {
+  const typeMap: Record<string, string> = {
+    'General3DModel': '通用3D模型',
+    'ObliquePhotography': '倾斜摄影',
+    'BIMModel': 'BIM模型',
+    'PointCloud': '点云数据'
+  }
+  return typeMap[modelType || 'General3DModel'] || modelType || '未知类型'
+}
+
+const getStorageTypeName = (storageLocation: number | string | undefined) => {
+  if (typeof storageLocation === 'string') {
+    const nameMap: Record<string, string> = {
+      'MinIO': 'MinIO对象存储',
+      'LocalFileSystem': '本地文件系统'
+    }
+    return nameMap[storageLocation] || storageLocation
+  }
+  
+  if (typeof storageLocation === 'number') {
+    const locationMap: Record<number, string> = {
+      0: 'MinIO对象存储',
+      1: '本地文件系统'
+    }
+    return locationMap[storageLocation] || '未知存储'
+  }
+  
+  return 'MinIO对象存储'
+}
+
+const getObliqueProcessingParams = (config: any) => {
+  const params: string[] = []
+  
+  // 倾斜摄影特有的处理参数
+  if (config?.enableTextureCompression) {
+    params.push('纹理压缩')
+  }
+  if (config?.enableMeshOptimization) {
+    params.push('顶点压缩')
+  }
+  if (config?.enableDracoCompression) {
+    params.push('Draco压缩')
+  }
+  
+  // 默认处理参数
+  if (params.length === 0) {
+    params.push('顶层重建')
+  }
+  
+  return params.join('、')
+}
+
+const get3DTilesVersion = (config: any) => {
+  // 3D Tiles版本，默认1.0
+  return config?.tilesVersion || '1.0'
 }
 
 const formatBoundingBox = (bbox: any): string => {

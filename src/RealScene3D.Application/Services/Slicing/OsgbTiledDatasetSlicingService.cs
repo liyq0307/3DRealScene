@@ -50,11 +50,12 @@ public class OsgbTiledDatasetSlicingService
         // 1. 验证数据集结构
         ValidateDatasetStructure(datasetRootPath);
 
-        // 2. 检查 metadata.xml（C++ 会自动读取）
+        // 2. 检查并读取 metadata.xml
         string metadataPath = Path.Combine(datasetRootPath, "metadata.xml");
         if (File.Exists(metadataPath))
         {
-            _logger.LogInformation("找到 metadata.xml，C++ 将自动读取坐标系信息");
+            _logger.LogInformation("找到 metadata.xml，读取坐标系信息");
+            ReadMetadata(metadataPath, config);
         }
         else
         {
@@ -70,12 +71,12 @@ public class OsgbTiledDatasetSlicingService
             reader.ConvertToB3DMBatch(
                 datasetRootPath,
                 outputDir,
-                centerX: 0.0,  // C++ 会从 metadata.xml 自动读取
-                centerY: 0.0,
-                maxLevel: -1,   // - 表示不限制层级，处理所有 LOD
-                enableTextureCompression: false,
-                enableMeshOptimization: false,
-                enableDracoCompression: false
+                centerX: config.CenterX ?? 0.0,
+                centerY: config.CenterY ?? 0.0,
+                maxLevel: -1,   // -1 表示不限制层级，处理所有 LOD
+                enableTextureCompression: config.EnableTextureCompression,
+                enableMeshOptimization: config.EnableMeshOptimization,
+                enableDracoCompression: config.EnableDracoCompression
             ), cancellationToken);
 
         if (!success)
@@ -88,6 +89,56 @@ public class OsgbTiledDatasetSlicingService
         _logger.LogInformation("根 tileset.json 已生成: {Path}", Path.Combine(outputDir, "tileset.json"));
 
         return true;
+    }
+
+    /// <summary>
+    /// 读取metadata.xml文件，提取坐标系信息
+    /// </summary>
+    private void ReadMetadata(string metadataPath, SlicingConfig config)
+    {
+        try
+        {
+            var doc = new System.Xml.XmlDocument();
+            doc.Load(metadataPath);
+
+            // 尝试读取SRS（空间参考系统）
+            var srsNode = doc.SelectSingleNode("//SRS") ?? doc.SelectSingleNode("//CoordinateSystem");
+            if (srsNode != null && !string.IsNullOrEmpty(srsNode.InnerText))
+            {
+                config.SpatialReference = srsNode.InnerText;
+                _logger.LogInformation("空间参考系统: {SRS}", config.SpatialReference);
+            }
+
+            // 尝试读取中心点坐标
+            var centerXNode = doc.SelectSingleNode("//CenterX") ?? doc.SelectSingleNode("//X");
+            var centerYNode = doc.SelectSingleNode("//CenterY") ?? doc.SelectSingleNode("//Y");
+            var centerZNode = doc.SelectSingleNode("//CenterZ") ?? doc.SelectSingleNode("//Z");
+
+            if (centerXNode != null && double.TryParse(centerXNode.InnerText, out double centerX))
+            {
+                config.CenterX = centerX;
+            }
+
+            if (centerYNode != null && double.TryParse(centerYNode.InnerText, out double centerY))
+            {
+                config.CenterY = centerY;
+            }
+
+            if (centerZNode != null && double.TryParse(centerZNode.InnerText, out double centerZ))
+            {
+                config.CenterZ = centerZ;
+            }
+
+            if (config.CenterX.HasValue || config.CenterY.HasValue || config.CenterZ.HasValue)
+            {
+                _logger.LogInformation("中心点坐标: ({X}, {Y}, {Z})",
+                    config.CenterX ?? 0, config.CenterY ?? 0, config.CenterZ ?? 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "读取metadata.xml失败，将使用默认坐标");
+        }
     }
 
     /// <summary>

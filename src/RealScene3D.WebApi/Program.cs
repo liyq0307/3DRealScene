@@ -37,6 +37,10 @@ using RealScene3D.Application.Services.Slicing;
 /// </summary>
 var builder = WebApplication.CreateBuilder(args);
 
+// 设置控制台编码为UTF-8，解决中文日志乱码问题
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+Console.InputEncoding = System.Text.Encoding.UTF8;
+
 // ========== Kestrel服务器配置 ==========
 // 配置请求大小限制以支持大文件上传（最大500MB）
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>

@@ -130,6 +130,24 @@ public static class SlicingUtilities
         {
             if (storageLocation == StorageLocationType.LocalFileSystem)
             {
+                // 检查是否为倾斜摄影切片目录（包含Data目录）
+                var dataDir = Path.Combine(filePath, "Data");
+                if (Directory.Exists(dataDir))
+                {
+                    logger.LogInformation("检测到倾斜摄影切片目录，开始删除Data目录：{DataDir}", dataDir);
+                    
+                    try
+                    {
+                        // 递归删除整个Data目录
+                        Directory.Delete(dataDir, recursive: true);
+                        logger.LogInformation("倾斜摄影Data目录已删除：{DataDir}", dataDir);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "删除倾斜摄影Data目录失败：{DataDir}", dataDir);
+                    }
+                }
+
                 var indexPath = Path.Combine(filePath, "index.json");
                 if (File.Exists(indexPath))
                 {

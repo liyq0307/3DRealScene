@@ -168,23 +168,48 @@ public class SlicingProcessor : ISlicingProcessor
             var osgbLogger = new Logger<OsgbTiledDatasetSlicingService>(new NullLoggerFactory());
             var osgbService = new OsgbTiledDatasetSlicingService(osgbLogger);
             
-            // 执行OSGB切片处理
+            // 确定输出路径
             var outputPath = task.OutputPath;
             if (string.IsNullOrEmpty(outputPath))
             {
-                // 如果没有指定输出路径，使用默认路径
-                outputPath = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(task.SourceModelPath) ?? "",
-                    "Output"
-                );
+                // 如果没有指定输出路径，生成默认路径
+                outputPath = GenerateDefaultObliqueOutputPath(task.SourceModelPath, task.Id);
+                _logger.LogInformation("使用生成的默认输出路径: {OutputPath}", outputPath);
             }
 
+            // 执行OSGB切片处理
             var success = await osgbService.ProcessDatasetAsync(
                 task.SourceModelPath,
                 outputPath,
                 config,
                 cancellationToken
             );
+
+            if (!success)
+            {
+                throw new InvalidOperationException("倾斜摄影切片处理失败");
+            }
+
+            _logger.LogInformation("倾斜摄影切片处理完成，开始扫描和保存元数据");
+
+            // 扫描输出目录，收集切片文件信息
+            var sliceFiles = await ScanObliqueSliceFilesAsync(outputPath, task.Id);
+            
+            if (sliceFiles.Count == 0)
+            {
+                _logger.LogWarning("未发现切片文件，请检查输出目录: {OutputPath}", outputPath);
+            }
+            else
+            {
+                // 保存切片元数据到数据库
+                await SaveObliqueSliceMetadataAsync(task.Id, sliceFiles);
+            }
+
+            // 更新任务的输出路径
+            task.OutputPath = outputPath;
+            await _unitOfWork.SaveChangesAsync();
+            
+            _logger.LogInformation("任务输出路径已更新: {OutputPath}", outputPath);
 
             // 更新任务进度
             await UpdateProgressAsync(task.Id, new SlicingProgress
@@ -194,14 +219,8 @@ public class SlicingProcessor : ISlicingProcessor
                 CurrentStage = "倾斜摄影切片完成"
             });
 
-            if (success)
-            {
-                _logger.LogInformation("倾斜摄影切片处理完成");
-            }
-            else
-            {
-                _logger.LogWarning("倾斜摄影切片处理失败");
-            }
+            var processingTime = DateTime.UtcNow - startTime;
+            _logger.LogInformation("========== 倾斜摄影切片处理完成，耗时{Time:F2}秒 ==========", processingTime.TotalSeconds);
         }
         catch (Exception ex)
         {
@@ -733,4 +752,220 @@ public class SlicingProcessor : ISlicingProcessor
             _logger.LogError(ex, "生成 tileset.json 失败");
         }
     }
+
+    #region 倾斜摄影切片元数据处理
+
+    /// <summary>
+    /// 切片文件信息
+    /// </summary>
+    private class ObliqueSliceInfo
+    {
+        public int Level { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Z { get; set; }
+        public string FilePath { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+    }
+
+    /// <summary>
+    /// 扫描倾斜摄影切片输出目录，收集切片文件信息
+    /// </summary>
+    /// <param name="outputPath">输出目录路径</param>
+    /// <param name="taskId">切片任务ID</param>
+    /// <returns>切片文件信息列表</returns>
+    private async Task<List<ObliqueSliceInfo>> ScanObliqueSliceFilesAsync(string outputPath, Guid taskId)
+    {
+        _logger.LogInformation("开始扫描倾斜摄影切片输出目录: {OutputPath}", outputPath);
+
+        var sliceFiles = new List<ObliqueSliceInfo>();
+
+        try
+        {
+            if (!Directory.Exists(outputPath))
+            {
+                _logger.LogWarning("输出目录不存在: {OutputPath}", outputPath);
+                return sliceFiles;
+            }
+
+            // 扫描 Data 目录下的所有 Tile_* 目录
+            var dataDir = Path.Combine(outputPath, "Data");
+            if (!Directory.Exists(dataDir))
+            {
+                _logger.LogWarning("Data目录不存在: {DataDir}", dataDir);
+                return sliceFiles;
+            }
+
+            var tileDirectories = Directory.GetDirectories(dataDir, "Tile_*");
+            _logger.LogInformation("发现 {Count} 个Tile目录", tileDirectories.Length);
+
+            foreach (var tileDir in tileDirectories)
+            {
+                // 扫描目录下的所有 .b3dm 文件
+                var b3dmFiles = Directory.GetFiles(tileDir, "*.b3dm", SearchOption.AllDirectories);
+
+                foreach (var filePath in b3dmFiles)
+                {
+                    var fileInfo = new FileInfo(filePath);
+                    
+                    // 从目录名解析坐标
+                    var dirName = Path.GetFileName(tileDir);
+                    var (x, y, z) = ParseObliqueSliceCoordinates(dirName);
+
+                    // 从文件路径推断LOD级别（如果有LOD目录结构）
+                    int level = 0;
+                    var relativePath = Path.GetRelativePath(outputPath, filePath);
+                    var pathParts = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    foreach (var part in pathParts)
+                    {
+                        if (part.StartsWith("LOD-") && int.TryParse(part.Substring(4), out int lodLevel))
+                        {
+                            level = lodLevel;
+                            break;
+                        }
+                    }
+
+                    sliceFiles.Add(new ObliqueSliceInfo
+                    {
+                        Level = level,
+                        X = x,
+                        Y = y,
+                        Z = z,
+                        FilePath = filePath,
+                        FileSize = fileInfo.Length
+                    });
+                }
+            }
+
+            _logger.LogInformation("扫描完成，共发现 {Count} 个切片文件", sliceFiles.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "扫描切片文件时发生错误");
+        }
+
+        return await Task.FromResult(sliceFiles);
+    }
+
+    /// <summary>
+    /// 从倾斜摄影切片目录名解析坐标
+    /// 支持格式：Tile_+000_+000, Tile_-001_+002 等
+    /// </summary>
+    /// <param name="directoryName">目录名</param>
+    /// <returns>解析出的坐标 (x, y, z)</returns>
+    private (int x, int y, int z) ParseObliqueSliceCoordinates(string directoryName)
+    {
+        int x = 0, y = 0, z = 0;
+
+        try
+        {
+            // 格式: Tile_+000_+000
+            if (directoryName.StartsWith("Tile_"))
+            {
+                var parts = directoryName.Substring(5).Split('_');
+                
+                if (parts.Length >= 1 && int.TryParse(parts[0], out int parsedX))
+                {
+                    x = parsedX;
+                }
+                
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int parsedY))
+                {
+                    y = parsedY;
+                }
+                
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int parsedZ))
+                {
+                    z = parsedZ;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "解析切片坐标失败，使用默认值: {DirectoryName}", directoryName);
+        }
+
+        return (x, y, z);
+    }
+
+    /// <summary>
+    /// 保存倾斜摄影切片元数据到数据库
+    /// </summary>
+    /// <param name="taskId">切片任务ID</param>
+    /// <param name="sliceFiles">切片文件信息列表</param>
+    private async Task SaveObliqueSliceMetadataAsync(Guid taskId, List<ObliqueSliceInfo> sliceFiles)
+    {
+        _logger.LogInformation("开始保存切片元数据，任务ID: {TaskId}, 切片数量: {Count}", taskId, sliceFiles.Count);
+
+        try
+        {
+            const int batchSize = 50;
+            int savedCount = 0;
+
+            for (int i = 0; i < sliceFiles.Count; i += batchSize)
+            {
+                var batch = sliceFiles.Skip(i).Take(batchSize).ToList();
+
+                foreach (var sliceInfo in batch)
+                {
+                    var slice = new Slice
+                    {
+                        SlicingTaskId = taskId,
+                        Level = sliceInfo.Level,
+                        X = sliceInfo.X,
+                        Y = sliceInfo.Y,
+                        Z = sliceInfo.Z,
+                        FilePath = sliceInfo.FilePath,
+                        FileSize = sliceInfo.FileSize,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    await _sliceRepository.AddAsync(slice);
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                savedCount += batch.Count;
+
+                _logger.LogDebug("保存切片元数据进度: {Saved}/{Total}", savedCount, sliceFiles.Count);
+            }
+
+            _logger.LogInformation("切片元数据保存完成，共保存 {Count} 条记录", savedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "保存切片元数据失败");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 生成默认的倾斜摄影输出路径
+    /// </summary>
+    /// <param name="sourcePath">源数据路径</param>
+    /// <param name="taskId">任务ID（用于生成唯一标识）</param>
+    /// <returns>默认输出路径</returns>
+    private string GenerateDefaultObliqueOutputPath(string sourcePath, Guid taskId)
+    {
+        try
+        {
+            var baseName = Path.GetFileNameWithoutExtension(sourcePath);
+            var directory = Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory();
+            
+            // 使用任务ID的短哈希确保唯一性
+            var shortHash = taskId.ToString("N").Substring(0, 8);
+            
+            var outputPath = Path.Combine(directory, $"oblique_{baseName}_{shortHash}");
+            
+            _logger.LogInformation("生成默认输出路径: {OutputPath}", outputPath);
+            
+            return outputPath;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "生成默认输出路径失败");
+            return Path.Combine(Directory.GetCurrentDirectory(), $"oblique_output_{taskId:N}");
+        }
+    }
+
+    #endregion
 }

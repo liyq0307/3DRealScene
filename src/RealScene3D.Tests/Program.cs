@@ -78,6 +78,9 @@ class Program
                 case "7":
                     await TestOsgbTiledDataset(logger, serviceProvider, osgbDatasetPath);
                     break;
+                case "8":
+                    await TestObliqueSliceMetadata(logger);
+                    break;
                 default:
                     logger.LogWarning("无效选择");
                     return;
@@ -111,8 +114,9 @@ class Program
         logger.LogInformation("  5. OSGB PagedLOD 层次结构加载测试");
         logger.LogInformation("  6. OSGB PagedLOD 分层切片测试");
         logger.LogInformation("  7. OSGB 倾斜摄影数据集切片测试 (新)");
+        logger.LogInformation("  8. 倾斜摄影切片元数据处理测试");
         logger.LogInformation("========================================");
-        logger.LogInformation("输入选项 (1-7): ");
+        logger.LogInformation("输入选项 (1-8): ");
     }
 
     /// <summary>
@@ -750,5 +754,14 @@ class Program
         // logger.LogInformation("");
         // logger.LogInformation("💡 提示: 使用 Cesium Viewer 加载根 tileset.json 查看完整数据集");
         // logger.LogInformation("💡 根 tileset 会引用所有瓦片的子 tileset，实现分块加载");
+    }
+
+    /// <summary>
+    /// 测试8: 倾斜摄影切片元数据处理
+    /// </summary>
+    static async Task TestObliqueSliceMetadata(ILogger<Program> logger)
+    {
+        var tests = new ObliqueSliceMetadataTests();
+        await tests.RunAllTestsAsync();
     }
 }
