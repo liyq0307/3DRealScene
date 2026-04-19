@@ -156,7 +156,17 @@ export function mapObliqueFormDataToRequest(
       
       // 通用配置
       outputFormat: 'b3dm',
-      coordinateSystem: formData.spatialReference || 'EPSG:4326'
+      coordinateSystem: formData.spatialReference || 'EPSG:4326',
+      
+      // 必需字段（后端要求）
+      lodLevels: 1,
+      divisions: 1,
+      enableMeshDecimation: false,
+      generateTileset: true,
+      compressOutput: formData.textureCompression || formData.vertexCompression,
+      enableIncrementalUpdates: false,
+      textureStrategy: 2,
+      customSettings: '{}'
     }
   }
 }

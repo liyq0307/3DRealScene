@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using RealScene3D.Application.Interfaces;
 using RealScene3D.Application.Services.MeshDecimator;
 using RealScene3D.Application.Services.MeshDecimator.Algorithms;
@@ -136,6 +137,83 @@ public class SlicingProcessor : ISlicingProcessor
     /// 执行切片处理：简化-分割-生成
     /// </summary>
     private async Task PerformSlicingAsync(SlicingTask task, CancellationToken cancellationToken)
+    {
+        // 根据模型类型选择不同的处理流程
+        if (task.ModelType == "ObliquePhotography")
+        {
+            _logger.LogInformation("检测到倾斜摄影数据，使用OSGB专用处理流程");
+            await PerformObliqueSlicingAsync(task, cancellationToken);
+            return;
+        }
+
+        // 通用3D模型处理流程
+        await PerformGeneralSlicingAsync(task, cancellationToken);
+    }
+
+    /// <summary>
+    /// 执行倾斜摄影切片处理
+    /// </summary>
+    private async Task PerformObliqueSlicingAsync(SlicingTask task, CancellationToken cancellationToken)
+    {
+        var config = ParseSlicingConfig(task.SlicingConfig);
+        var startTime = DateTime.UtcNow;
+
+        _logger.LogInformation("========== 开始倾斜摄影切片处理 ==========");
+        _logger.LogInformation("任务ID: {TaskId}, 任务名称: {TaskName}", task.Id, task.Name);
+        _logger.LogInformation("源数据路径: {SourceModel}", task.SourceModelPath);
+
+        try
+        {
+            // 使用OSGB倾斜摄影专用处理服务
+            var osgbLogger = new Logger<OsgbTiledDatasetSlicingService>(new NullLoggerFactory());
+            var osgbService = new OsgbTiledDatasetSlicingService(osgbLogger);
+            
+            // 执行OSGB切片处理
+            var outputPath = task.OutputPath;
+            if (string.IsNullOrEmpty(outputPath))
+            {
+                // 如果没有指定输出路径，使用默认路径
+                outputPath = System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(task.SourceModelPath) ?? "",
+                    "Output"
+                );
+            }
+
+            var success = await osgbService.ProcessDatasetAsync(
+                task.SourceModelPath,
+                outputPath,
+                config,
+                cancellationToken
+            );
+
+            // 更新任务进度
+            await UpdateProgressAsync(task.Id, new SlicingProgress
+            {
+                TaskId = task.Id,
+                Progress = 100,
+                CurrentStage = "倾斜摄影切片完成"
+            });
+
+            if (success)
+            {
+                _logger.LogInformation("倾斜摄影切片处理完成");
+            }
+            else
+            {
+                _logger.LogWarning("倾斜摄影切片处理失败");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "倾斜摄影切片处理失败");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 执行通用3D模型切片处理
+    /// </summary>
+    private async Task PerformGeneralSlicingAsync(SlicingTask task, CancellationToken cancellationToken)
     {
         var config = ParseSlicingConfig(task.SlicingConfig);
         var startTime = DateTime.UtcNow;
