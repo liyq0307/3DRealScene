@@ -612,7 +612,7 @@ const removeFile = (index: number) => {
 }
 
 // 预览当前选择的模型
-const previewCurrentModel = () => {
+const previewCurrentModel = async () => {
   // 重置预览状态
   previewModelFile.value = undefined
   previewModelFiles.value = undefined
@@ -626,8 +626,37 @@ const previewCurrentModel = () => {
     previewModelFile.value = selectedFile.value
     showPreviewDialog.value = true
   } else if (objectForm.value.modelPath) {
-    // 检查是否是本地文件路径
     const path = objectForm.value.modelPath
+    
+    // 处理文件句柄路径
+    if (path.startsWith('local-file-handle://')) {
+      try {
+        const uuid = path.replace('local-file-handle://', '')
+        const handle = await fileHandleStore.getHandle<any>(uuid)
+        
+        if (handle) {
+          // 检查权限
+          let permission = await handle.queryPermission({ mode: 'read' })
+          if (permission !== 'granted') {
+            permission = await handle.requestPermission({ mode: 'read' })
+          }
+          
+          if (permission === 'granted') {
+            const file = await handle.getFile()
+            previewModelFile.value = file
+            showPreviewDialog.value = true
+          } else {
+            showError('无法访问文件句柄，请重新选择文件')
+          }
+        } else {
+          showError('文件句柄已失效，请重新选择文件')
+        }
+      } catch (err) {
+        console.error('[SceneObjectsEdit] 文件句柄处理失败:', err)
+        showError('文件句柄访问失败，请重新选择文件')
+      }
+      return
+    }
     
     // 如果是本地文件路径（包含盘符或以/开头），提示用户
     if (path.match(/^[A-Za-z]:\\/) || path.startsWith('/')) {

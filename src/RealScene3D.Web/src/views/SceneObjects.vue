@@ -97,7 +97,7 @@
               <span class="meta-label">路径:</span>
               <span class="path-text" :title="obj.modelPath">{{ getShortPath(obj.modelPath) }}</span>
             </span>
-            <span class="meta-item status-item" v-if="obj.slicingTaskStatus">
+            <span class="meta-item status-item">
               <span class="meta-label">切片状态:</span>
               <Badge :variant="getSlicingStatusVariant(obj.slicingTaskStatus)" :label="getSlicingStatusText(obj.slicingTaskStatus)" size="sm" />
             </span>
@@ -169,10 +169,9 @@
               <td>{{ formatVector(obj.rotation) }}</td>
               <td>{{ formatVector(obj.scale) }}</td>
               <td>
-                <span v-if="obj.slicingTaskStatus" :class="getSlicingStatusClass(obj.slicingTaskStatus)">
+                <span :class="getSlicingStatusClass(obj.slicingTaskStatus)">
                   {{ getSlicingStatusText(obj.slicingTaskStatus) }}
                 </span>
-                <span v-else>-</span>
               </td>
               <td>{{ formatDateTime(obj.createdAt) }}</td>
               <td>
@@ -870,7 +869,8 @@ const getTypeIcon = (type: string): string => {
 }
 
 const getSlicingStatusClass = (status: string): string => {
-  switch (status?.toLowerCase()) {
+  if (!status) return 'status-none'
+  switch (status.toLowerCase()) {
     case 'created':
     case 'queued':
       return 'status-pending';
@@ -887,6 +887,7 @@ const getSlicingStatusClass = (status: string): string => {
 };
 
 const getSlicingStatusVariant = (status: string): 'primary' | 'warning' | 'success' | 'danger' | 'gray' => {
+  if (!status) return 'gray'
   const variantMap: Record<string, 'primary' | 'warning' | 'success' | 'danger' | 'gray'> = {
     created: 'primary',
     queued: 'primary',
@@ -895,11 +896,12 @@ const getSlicingStatusVariant = (status: string): 'primary' | 'warning' | 'succe
     failed: 'danger',
     cancelled: 'gray'
   }
-  return variantMap[status?.toLowerCase()] || 'gray'
+  return variantMap[status.toLowerCase()] || 'gray'
 };
 
 const getSlicingStatusText = (status: string): string => {
-  switch (status?.toLowerCase()) {
+  if (!status) return '未切片'
+  switch (status.toLowerCase()) {
     case 'created': return '已创建';
     case 'queued': return '排队中';
     case 'processing': return '处理中';
@@ -1290,6 +1292,27 @@ onUnmounted(() => {
   opacity: 0.4;
   cursor: not-allowed;
   background: #f5f5f5;
+}
+
+/* 切片状态样式 */
+.status-none {
+  color: #999;
+}
+
+.status-pending {
+  color: #007acc;
+}
+
+.status-processing {
+  color: #ff9800;
+}
+
+.status-completed {
+  color: #28a745;
+}
+
+.status-failed {
+  color: #dc3545;
 }
 
 /* 列表视图 */
