@@ -1,7 +1,7 @@
 /**
  * 倾斜摄影切片生成组合式函数
  */
-import { ref, type Ref } from 'vue'
+import { ref } from 'vue'
 import { 
   DataType, 
   type ObliqueSliceFormData, 
@@ -157,16 +157,6 @@ export function mapObliqueFormDataToRequest(
       // 通用配置
       outputFormat: 'b3dm',
       coordinateSystem: formData.spatialReference || 'EPSG:4326',
-      
-      // 必需字段（后端要求）
-      lodLevels: 1,
-      divisions: 1,
-      enableMeshDecimation: false,
-      generateTileset: true,
-      compressOutput: formData.textureCompression || formData.vertexCompression,
-      enableIncrementalUpdates: false,
-      textureStrategy: 2,
-      customSettings: '{}'
     }
   }
 }

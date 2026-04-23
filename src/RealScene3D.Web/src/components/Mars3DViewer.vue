@@ -67,14 +67,17 @@
  * Mars3D 3D地球查看器组件
  *
  * 基于Mars3D框架（Cesium二次封装）的专业级3D地球展示
+ * 集成 Three.js 支持 OBJ、FBX、DAE、STL、PLY 等格式
  *
- * 技术栈：Vue 3 Composition API + TypeScript + Mars3D
+ * 技术栈：Vue 3 Composition API + TypeScript + Mars3D + Three.js
  */
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useMessage } from '@/composables/useMessage'
 import * as mars3d from 'mars3d'
 import * as Cesium from 'mars3d-cesium'
 import authStore from '@/stores/auth'
+import fileHandleStore from '@/services/fileHandleStore'
+
 
 // ==================== 类型定义 ====================
 
@@ -119,7 +122,8 @@ const APP_CONFIG = Object.freeze({
   }),
   SUPPORTED_FORMATS: Object.freeze({
     nativelySupported: Object.freeze(['gltf', 'glb', 'json']),
-    convertible: Object.freeze(['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57'])
+    threejsSupported: Object.freeze(['obj', 'fbx', 'dae', 'stl', 'ply']), // Three.js 支持的格式
+    convertible: Object.freeze(['blend', 'las', 'laz', 'e57']) // 需要切片转换的格式
   }),
   MINIO_BUCKETS: Object.freeze(['models-3d', 'slices', 'textures', 'thumbnails', 'videos']),
   CAMERA_FLIGHT_CONFIG: Object.freeze({
@@ -153,6 +157,9 @@ interface Props {
   terrainProvider?: string
   imageryProvider?: string
   sceneObjects?: SceneObject[]
+  showBasemap?: boolean
+  basemapToggle?: boolean
+  backgroundColor?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -162,7 +169,10 @@ const props = withDefaults(defineProps<Props>(), {
     latitude: 39.91,
     height: 15000000
   }),
-  sceneObjects: () => []
+  sceneObjects: () => [],
+  showBasemap: false,
+  basemapToggle: true,
+  backgroundColor: '#1a1a1a'
 })
 
 // ==================== Emits 定义 ====================
@@ -171,6 +181,7 @@ const emit = defineEmits<{
   ready: [map: mars3d.Map]
   error: [error: Error]
   objectLoaded: [object: SceneObject, success: boolean]
+  basemapChange: [visible: boolean]
 }>()
 
 // ==================== DOM引用 ====================
@@ -196,6 +207,7 @@ const cameraInfo = ref<CameraInfo>({
   latitude: 0,
   height: 0
 })
+const basemapVisible = ref(props.showBasemap)
 
 // ==================== 计算属性 ====================
 
@@ -285,32 +297,63 @@ watch(
 
 // ==================== 场景对象加载 ====================
 
-const resolveObjectUrl = (displayPath: string): string => {
+const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; originalFileName?: string }> => {
   let fullPath = displayPath
 
+  // 检查是否为Windows本地文件路径 (例如 F:/Data/3D/test/tileset.json 或 F:\Data\3D\test\tileset.json)
   const isWindowsPath = /^[A-Za-z]:[\\/]/.test(fullPath)
 
   if (isWindowsPath) {
+    // 本地文件路径需要通过API代理访问
+    // 传递完整的绝对路径，让后端处理
+    // 例如: E:\Data\3D\test\tileset.json -> /api/files/local/E:/Data/3D/test/tileset.json
+
+    // 标准化路径：将反斜杠转换为正斜杠
     const normalizedPath = fullPath.replace(/\\/g, '/')
+
+    // 使用 encodeURI 而非 encodeURIComponent，保留路径分隔符
+    // 这样 Cesium 可以正确解析相对路径（如 LOD-2/Mesh.b3dm）
+    // encodeURI 只编码特殊字符如空格、中文等，但保留 /、: 等路径相关字符
     const encodedPath = encodeURI(normalizedPath)
+
     fullPath = `${apiBaseUrl.value}/api/files/local/${encodedPath}`
-    return fullPath
+    console.log('[Mars3DViewer] 本地文件路径转换:', {
+      original: displayPath,
+      normalized: normalizedPath,
+      encoded: encodedPath,
+      converted: fullPath
+    })
+    return { url: fullPath }
   }
 
+  // 如果是后端代理路径（以 /api/ 开头），添加完整的API基础URL
   if (fullPath.startsWith('/api/')) {
     fullPath = `${apiBaseUrl.value}${fullPath}`
-  } else if (!isAbsoluteUrl(fullPath)) {
+  }
+  // 处理MinIO存储路径
+  else if (!isAbsoluteUrl(fullPath)) {
     const pathParts = fullPath.split('/').filter((p: string) => p)
     const firstPart = pathParts[0]
 
     if (APP_CONFIG.MINIO_BUCKETS.includes(firstPart)) {
+      // MinIO bucket路径，如 models-3d/xxx/xxx.b3dm
       fullPath = `${apiBaseUrl.value}/api/files/proxy/${fullPath}`
+      console.log('[Mars3DViewer] MinIO bucket路径转换:', {
+        original: displayPath,
+        bucket: firstPart,
+        converted: fullPath
+      })
     } else {
+      // 切片输出路径，默认放在 slices bucket
       fullPath = `${apiBaseUrl.value}/api/files/proxy/slices/${fullPath.replace(/^\//, '')}`
+      console.log('[Mars3DViewer] 切片路径转换:', {
+        original: displayPath,
+        converted: fullPath
+      })
     }
   }
 
-  return fullPath
+  return { url: fullPath }
 }
 
 const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
@@ -321,8 +364,8 @@ const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
     if (!tilesetPath.endsWith('tileset.json')) {
       tilesetPath = tilesetPath.replace(/\/$|\\$/, '') + '/tileset.json'
     }
-    const fullTilesetPath = resolveObjectUrl(tilesetPath)
-    return await loadTileset(obj, fullTilesetPath)
+    const fullTilesetPath = await resolveObjectUrl(tilesetPath)
+    return await loadTileset(obj, fullTilesetPath.url)
   } else {
     const position = obj.position.every(coord => coord === 0)
       ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height]
@@ -373,7 +416,8 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     // 构建Mars3D TilesetLayer配置
     const layerConfig: any = {
       url: url,
-      maximumScreenSpaceError: 2,
+      maximumScreenSpaceError: 16, // 默认值，平衡性能和质量
+      maximumMemoryUsage: 512, // 限制内存使用 (MB)
       show: true,
       debugShowBoundingVolume: boundingBoxVisible.value,
       debugShowContentBoundingVolume: boundingBoxVisible.value
@@ -448,9 +492,6 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
 
     loadedObjectsCount.value = loadedModels.size
     tilesCount.value = Array.from(loadedModels.values()).filter(item => item.type === '3dtiles').length
-
-    // 强制加载所有瓦片
-    actualTileset.maximumScreenSpaceError = 0
 
     console.log('[loadTileset] Tileset 加载完成')
     emit('objectLoaded', obj, true)
@@ -556,6 +597,43 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
 }
 
 /**
+ * 使用 Three.js 叠加渲染模型
+ * 参考: https://github.com/CesiumGS/cesium-threejs-experiment
+ */
+const loadThreeJSModel = async (obj: SceneObject, url: string): Promise<boolean> => {
+  if (!map || !viewer) return false
+
+  console.log('[loadThreeJSModel] Three.js 格式模型暂不支持直接预览，请先进行切片:', url)
+  
+  // 在地图上添加一个标记点，提示用户需要切片
+  const position = obj.position.every(coord => coord === 0)
+    ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, 100]
+    : obj.position
+
+  const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2] || 100)
+  loadedModels.set(obj.id, { 
+    type: 'model', 
+    object: null, 
+    position: cartesian
+  })
+  loadedObjectsCount.value = loadedModels.size
+
+  // 飞向位置
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(position[0], position[1], (position[2] || 100) + 500),
+    orientation: {
+      heading: Cesium.Math.toRadians(0),
+      pitch: Cesium.Math.toRadians(-45),
+      roll: 0
+    },
+    duration: 2
+  })
+
+  emit('objectLoaded', obj, true)
+  return true
+}
+
+/**
  * 飞行到指定位置 - 使用Mars3D的setCameraView
  */
 const flyToPosition = async (position: number[], duration: number = APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration): Promise<void> => {
@@ -641,8 +719,9 @@ const normalizeObjectPosition = (obj: SceneObject): [number, number, number] => 
   return position
 }
 
-const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | 'gltf' | 'convertible' | null => {
+const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | 'gltf' | 'threejs' | 'convertible' | null => {
   if (APP_CONFIG.SUPPORTED_FORMATS.convertible.includes(fileExt)) return 'convertible'
+  if (APP_CONFIG.SUPPORTED_FORMATS.threejsSupported.includes(fileExt)) return 'threejs'
   if (!APP_CONFIG.SUPPORTED_FORMATS.nativelySupported.includes(fileExt)) return null
   if (fullPath.endsWith('tileset.json') || fullPath.includes('/tileset.json')) return 'tileset'
   if (['gltf', 'glb'].includes(fileExt)) return 'gltf'
@@ -651,37 +730,137 @@ const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | '
 
 const loadSceneObject = async (obj: SceneObject): Promise<void> => {
   try {
+    console.log('[Mars3DViewer] 开始加载场景对象:', obj.name, obj)
+
+    // 验证对象
     const validation = validateSceneObject(obj)
     if (!validation.isValid) {
+      console.error(`[Mars3DViewer] 对象验证失败: ${validation.error}`)
       emit('objectLoaded', obj, false)
       return
     }
 
+    // 规范化位置
     obj.position = normalizeObjectPosition(obj)
 
+    // ✅ 优先检查是否有完成的切片输出（适用于所有格式，包括GLB/GLTF）
     if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
+      console.log('[Mars3DViewer] 检测到已完成的切片任务，使用切片输出')
       let tilesetPath = obj.slicingOutputPath
+
+      // 确保路径指向tileset.json
       if (!tilesetPath.endsWith('tileset.json')) {
         tilesetPath = tilesetPath.replace(/\/$|\\$/, '') + '/tileset.json'
       }
-      const fullTilesetPath = resolveObjectUrl(tilesetPath)
-      await loadTileset(obj, fullTilesetPath)
+
+      // 使用resolveObjectUrl处理路径（支持本地路径和MinIO路径）
+      const fullTilesetPath = await resolveObjectUrl(tilesetPath)
+
+      console.log('[Mars3DViewer] 使用切片输出:', {
+        original: obj.slicingOutputPath,
+        tilesetPath,
+        fullTilesetPath
+      })
+
+      // 加载3D Tiles
+      await loadTileset(obj, fullTilesetPath.url)
       return
     }
 
-    const fullPath = resolveObjectUrl(obj.displayPath)
-    const fileExt = getFileExtension(fullPath)
+    // ✅ 检查是否为文件句柄路径（使用modelPath而不是displayPath）
+    const modelPath = obj.modelPath || obj.displayPath
+    if (modelPath && modelPath.startsWith('local-file-handle://')) {
+      console.log('[Mars3DViewer] 检测到文件句柄路径，尝试获取文件:', modelPath)
+      
+      try {
+        const uuid = modelPath.replace('local-file-handle://', '')
+        const handle = await fileHandleStore.getHandle<any>(uuid)
+        
+        if (handle) {
+          // 检查权限
+          let permission = await handle.queryPermission({ mode: 'read' })
+          if (permission !== 'granted') {
+            // 请求权限
+            permission = await handle.requestPermission({ mode: 'read' })
+          }
+          
+          if (permission === 'granted') {
+            const file = await handle.getFile()
+            // 创建临时URL用于预览
+            const blobUrl = URL.createObjectURL(file)
+            const fileName = file.name
+            const fileExt = getFileExtension(fileName)
+            
+            console.log('[Mars3DViewer] 文件句柄转换成功:', { uuid, fileName, blobUrl, fileExt })
+            
+            // 确定加载策略
+            const strategy = determineLoadStrategy(blobUrl, fileExt)
+            
+            switch (strategy) {
+              case 'convertible':
+                console.log('[Mars3DViewer] 格式需要转换，调用 handleConvertibleFormat')
+                await handleConvertibleFormat(obj)
+                break
+              case 'tileset':
+                console.log('[Mars3DViewer] 检测到 tileset.json，开始加载 3D Tiles')
+                await loadTileset(obj, blobUrl)
+                break
+              case 'gltf':
+                console.log('[Mars3DViewer] 检测到 GLTF/GLB 模型，开始加载')
+                await loadGltfModel(obj, blobUrl)
+                break
+              case 'threejs':
+                console.log('[Mars3DViewer] 检测到 Three.js 支持的格式，开始加载')
+                await loadThreeJSModel(obj, blobUrl)
+                break
+              default:
+                console.error(`不支持的文件格式: .${fileExt}`)
+                emit('objectLoaded', obj, false)
+            }
+            return
+          }
+        }
+        
+        throw new Error('无法访问文件句柄')
+      } catch (err) {
+        console.error('[Mars3DViewer] 文件句柄处理失败:', err)
+        showError('文件句柄访问失败，请重新选择文件或使用MinIO上传')
+        emit('objectLoaded', obj, false)
+        return
+      }
+    }
+
+    // 解析URL（非文件句柄路径）
+    const resolved = await resolveObjectUrl(obj.displayPath)
+    const fullPath = resolved.url
+    console.log('[Mars3DViewer] fullPath:', fullPath)
+
+    // 检查文件格式
+    // 如果有原始文件名，使用原始文件名提取扩展名；否则使用URL
+    const fileExt = resolved.originalFileName 
+      ? getFileExtension(resolved.originalFileName)
+      : getFileExtension(fullPath)
+    console.log('[Mars3DViewer] fileExt:', fileExt)
+
+    // 确定加载策略
     const strategy = determineLoadStrategy(fullPath, fileExt)
 
     switch (strategy) {
       case 'convertible':
+        console.log('[Mars3DViewer] 格式需要转换，调用 handleConvertibleFormat')
         await handleConvertibleFormat(obj)
         break
       case 'tileset':
+        console.log('[Mars3DViewer] 检测到 tileset.json，开始加载 3D Tiles')
         await loadTileset(obj, fullPath)
         break
       case 'gltf':
+        console.log('[Mars3DViewer] 检测到 GLTF/GLB 模型，开始加载')
         await loadGltfModel(obj, fullPath)
+        break
+      case 'threejs':
+        console.log('[Mars3DViewer] 检测到 Three.js 支持的格式，开始加载')
+        await loadThreeJSModel(obj, fullPath)
         break
       default:
         console.error(`不支持的文件格式: .${fileExt}`)
@@ -879,7 +1058,7 @@ const initMars3D = async (): Promise<void> => {
           name: 'ArcGIS影像底图',
           type: 'xyz',
           url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          show: true
+          show: true // 始终加载底图，确保后续可以切换显示/隐藏
         }
       ]
     })
@@ -905,6 +1084,12 @@ const initMars3D = async (): Promise<void> => {
       }
     } catch (e) {
       // 忽略
+    }
+
+    // 根据props.showBasemap设置底图初始可见性（初始化时已加载底图，这里控制显示状态）
+    if (!props.showBasemap) {
+      updateBasemaps(false)
+      configureBackground()
     }
 
     // 添加坐标轴辅助器
@@ -1240,6 +1425,89 @@ const stopPerformanceMonitoring = (): void => {
   }
 }
 
+// ==================== 底图控制 ====================
+
+/**
+ * 更新底图配置
+ */
+const updateBasemaps = (show: boolean): void => {
+  if (!map) return
+
+  try {
+    console.log('[updateBasemaps] 设置底图可见性:', show)
+
+    // Mars3D通过basemap属性控制底图配置
+    if (map.basemap && typeof map.basemap === 'object' && 'show' in map.basemap) {
+      (map.basemap as any).show = show
+    }
+
+    // 直接操作 Cesium 的底图图层，确保立即生效
+    if (viewer && viewer.imageryLayers && viewer.imageryLayers.length > 0) {
+      const baseImageryLayer = viewer.imageryLayers.get(0)
+      if (baseImageryLayer) {
+        baseImageryLayer.show = show
+        console.log('[updateBasemaps] Cesium底图图层show属性已设置为:', baseImageryLayer.show)
+      }
+    }
+
+    // 强制刷新地图渲染
+    if (viewer) {
+      viewer.scene.requestRender()
+    }
+  } catch (error) {
+    console.error('[updateBasemaps] 底图配置失败:', error)
+  }
+}
+
+/**
+ * 配置背景色
+ */
+const configureBackground = (): void => {
+  if (!viewer) return
+
+  try {
+    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString(props.backgroundColor)
+  } catch (error) {
+    console.error('[configureBackground] 背景配置失败:', error)
+  }
+}
+
+/**
+ * 切换底图显示状态
+ */
+const toggleBasemap = async (): Promise<void> => {
+  await setBasemapVisible(!basemapVisible.value)
+}
+
+/**
+ * 设置底图显示状态
+ */
+const setBasemapVisible = async (visible: boolean): Promise<void> => {
+  basemapVisible.value = visible
+  updateBasemaps(visible)
+  if (!visible) {
+    configureBackground()
+  }
+  emit('basemapChange', visible)
+}
+
+/**
+ * 获取底图显示状态
+ */
+const getBasemapVisible = (): boolean => {
+  return basemapVisible.value
+}
+
+// ==================== 监听Props变化 ====================
+
+watch(() => props.showBasemap, (newVal) => {
+  basemapVisible.value = newVal
+  updateBasemaps(newVal)
+  if (!newVal) {
+    configureBackground()
+  }
+})
+
 // ==================== 生命周期 ====================
 
 onMounted(async () => {
@@ -1257,6 +1525,14 @@ onUnmounted(() => {
     graphicLayer = null
   }
 })
+
+// ==================== 暴露方法 ====================
+
+defineExpose({
+  toggleBasemap,
+  setBasemapVisible,
+  getBasemapVisible
+})
 </script>
 
 <style scoped>
@@ -1268,6 +1544,7 @@ onUnmounted(() => {
 }
 
 .mars3d-container {
+  position: relative;
   width: 100%;
   height: 100%;
 }

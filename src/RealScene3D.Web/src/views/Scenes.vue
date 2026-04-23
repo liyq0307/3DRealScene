@@ -26,41 +26,22 @@
     <div class="scene-list">
       <!--
         场景卡片列表
-        使用v-for指令动态渲染场景集合
-        每个卡片展示场景的基本信息和操作按钮
+        使用SceneCard组件展示场景
+        采用现代化图像背景卡片设计
       -->
-      <div v-for="scene in paginatedScenes" :key="scene.id" class="scene-card">
-        <!-- 场景名称 -->
-        <h3>{{ scene.name }}</h3>
-
-        <!-- 场景描述 -->
-        <p>{{ scene.description }}</p>
-
-        <!-- 场景信息 -->
-        <div class="scene-info">
-          <div class="info-item">
-            <span class="label">创建时间:</span>
-            <span class="value">{{ formatDateTime(scene.createdAt) }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">更新时间:</span>
-            <span class="value">{{ formatDateTime(scene.updatedAt) }}</span>
-          </div>
-        </div>
-
-        <!-- 操作按钮 -->
-        <div class="scene-actions">
-          <button class="btn btn-primary" @click="viewScene(scene.id)">
-            查看场景
-          </button>
-          <button class="btn btn-secondary" @click="editScene(scene.id)">
-            编辑
-          </button>
-          <button class="btn btn-danger" @click="deleteScene(scene.id)">
-            删除
-          </button>
-        </div>
-      </div>
+      <SceneCard
+        v-for="scene in paginatedScenes"
+        :key="scene.id"
+        :id="scene.id"
+        :name="scene.name"
+        :description="scene.description"
+        :created-at="scene.createdAt"
+        :updated-at="scene.updatedAt"
+        :preview-image="scene.previewImage"
+        @view="viewScene"
+        @edit="editScene"
+        @delete="deleteScene"
+      />
     </div>
 
     <!-- 空状态 -->
@@ -78,95 +59,6 @@
       v-model:pageSize="pageSize"
       :total="filteredScenes.length"
     />
-
-    <!-- 创建/编辑场景对话框 -->
-    <div v-if="showCreateDialog" class="modal-overlay" @click="closeCreateDialog">
-      <div class="modal-content" @click.stop>
-        <h3>{{ editingScene ? '编辑场景' : '创建新场景' }}</h3>
-        <div class="form-group">
-          <label>场景名称 *</label>
-          <input
-            v-model="sceneForm.name"
-            type="text"
-            class="form-input"
-            placeholder="输入场景名称"
-          />
-        </div>
-        <div class="form-group">
-          <label>场景描述</label>
-          <textarea
-            v-model="sceneForm.description"
-            class="form-textarea"
-            placeholder="输入场景描述"
-          ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>渲染引擎 *</label>
-          <select v-model="sceneForm.renderEngine" class="form-input">
-            <option value="Cesium">Cesium (3D地球,适合地理空间数据)</option>
-            <option value="ThreeJS">Three.js (通用3D,支持更多模型格式)</option>
-          </select>
-          <div class="field-hint">
-            <div v-if="sceneForm.renderEngine === 'Cesium'">
-              <strong>Cesium特点:</strong>
-              <ul>
-                <li>✓ 支持地理坐标系统和地球可视化</li>
-                <li>✓ 原生支持 3D Tiles, glTF/GLB</li>
-                <li>✓ 适合大规模地理空间数据展示</li>
-                <li>✗ 其他格式需要转换为 3D Tiles</li>
-              </ul>
-            </div>
-            <div v-else-if="sceneForm.renderEngine === 'ThreeJS'">
-              <strong>Three.js特点:</strong>
-              <ul>
-                <li>✓ 支持更多格式: OBJ, FBX, GLTF, GLB, STL, PLY, DAE, 3DS</li>
-                <li>✓ 无需格式转换,直接加载</li>
-                <li>✓ 适合产品展示、室内场景、工业模型</li>
-                <li>✗ 不支持地理坐标系统</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>边界GeoJSON (可选)</label>
-          <input
-            v-model="sceneForm.boundaryGeoJson"
-            type="text"
-            class="form-input"
-            placeholder="输入地理边界框 (GeoJSON格式)"
-            :disabled="sceneForm.renderEngine === 'ThreeJS'"
-          />
-          <div v-if="sceneForm.renderEngine === 'ThreeJS'" class="field-hint warning">
-            Three.js模式不支持地理坐标系统
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>场景文件 (可选)</label>
-          <FileUpload
-            v-model="sceneFile"
-            accept=".gltf,.glb,.obj,.fbx,.dae"
-            :max-size="500"
-            :multiple="false"
-            hint="支持GLTF、GLB、OBJ、FBX、DAE格式，单个文件不超过500MB"
-            :auto-upload="false"
-            @upload="handleSceneFileUpload"
-            @remove="handleRemoveSceneFile"
-          />
-        </div>
-
-        <div class="modal-actions">
-          <button @click="closeCreateDialog" class="btn btn-secondary">
-            取消
-          </button>
-          <button @click="saveScene" class="btn btn-primary">
-            保存
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -188,12 +80,11 @@
 
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { sceneService, fileService } from '../services/api'
-import authStore from '@/stores/auth'
+import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Pagination from '@/components/Pagination.vue'
-import FileUpload from '@/components/FileUpload.vue'
+import SceneCard from '@/components/SceneCard.vue'
 
 const { success: showSuccess, error: showError } = useMessage()
 const router = useRouter()
@@ -206,22 +97,6 @@ const router = useRouter()
  * TODO: 定义Scene接口类型,提供更好的类型安全
  */
 const scenes = ref<any[]>([])
-const editingScene = ref<string | null>(null)
-
-// 对话框状态
-const showCreateDialog = ref(false)
-
-// 场景文件上传状态
-const sceneFile = ref<File | null>(null)
-
-// 场景表单
-const sceneForm = ref({
-  name: '',
-  description: '',
-  renderEngine: 'Cesium', // 默认使用Cesium
-  boundaryGeoJson: '',
-  sceneObjects: [] as any[] // 场景对象集合
-})
 
 // 搜索和筛选状态
 const searchText = ref('')
@@ -271,14 +146,6 @@ const loadScenes = async () => {
 }
 
 /**
- * 格式化日期时间
- */
-const formatDateTime = (dateStr: string) => {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString('zh-CN')
-}
-
-/**
  * 查看场景详情
  *
  * @param id 场景唯一标识符
@@ -296,145 +163,15 @@ const viewScene = (id: string) => {
  * 打开创建场景对话框
  */
 const openCreateDialog = () => {
-  editingScene.value = null
-  sceneForm.value = {
-    name: '',
-    description: '',
-    renderEngine: 'Cesium',
-    boundaryGeoJson: '',
-    sceneObjects: []
-  }
-  sceneFile.value = null
-  showCreateDialog.value = true
-}
-
-/**
- * 关闭创建对话框
- */
-const closeCreateDialog = () => {
-  showCreateDialog.value = false
-  sceneFile.value = null
-}
-
-/**
- * 处理场景文件上传
- */
-const handleSceneFileUpload = async (file: File) => {
-  try {
-    // TODO: 实现场景文件上传到服务器
-    // const formData = new FormData()
-    // formData.append('file', file)
-    // const response = await sceneService.uploadSceneFile(formData)
-
-    console.log('场景文件已选择:', file.name)
-    showSuccess(`场景文件 ${file.name} 已选择，保存时将上传`)
-  } catch (error) {
-    console.error('场景文件处理失败:', error)
-    showError('场景文件处理失败')
-  }
-}
-
-/**
- * 移除场景文件
- */
-const handleRemoveSceneFile = () => {
-  sceneFile.value = null
-  showSuccess('文件已移除')
+  // 从弹窗方式改为路由跳转到创建页面
+  router.push({ name: 'ScenesCreate' })
 }
 
 /**
  * 编辑场景
  */
-const editScene = async (id: string) => {
-  try {
-    const scene = await sceneService.getScene(id)
-    editingScene.value = id
-    sceneForm.value = {
-      name: scene.name,
-      description: scene.description,
-      renderEngine: scene.renderEngine || 'Cesium', // 兼容旧数据，默认Cesium
-      boundaryGeoJson: scene.boundaryGeoJson || '',
-      sceneObjects: [] // 编辑时不修改现有场景对象
-    }
-    sceneFile.value = null
-    showCreateDialog.value = true
-  } catch (error) {
-    console.error('加载场景信息失败:', error)
-    showError('加载场景信息失败')
-  }
-}
-
-/**
- * 保存场景
- */
-const saveScene = async () => {
-  try {
-    if (!sceneForm.value.name) {
-      showError('请输入场景名称')
-      return
-    }
-
-    // 获取当前用户ID (使用已注册的管理员用户ID作为默认值)
-    const userId = authStore.currentUser.value?.id || '9055f06c-20d2-4e67-8a89-069887a2c4e8'
-
-    // 如果有场景文件,先上传文件并创建场景对象
-    if (sceneFile.value) {
-      try {
-        console.log('开始上传场景文件:', sceneFile.value.name)
-
-        // 上传文件到MinIO
-        const uploadResult = await fileService.uploadFile(sceneFile.value, 'models-3d')
-        console.log('文件上传成功:', uploadResult)
-
-        // 从返回的filePath中提取对象名称(去除bucket前缀)
-        // uploadResult.filePath 格式: "models-3d/xxx.glb"
-        // 我们需要提取: "xxx.glb"
-        let objectName = uploadResult.filePath
-        if (objectName.startsWith('models-3d/')) {
-          objectName = objectName.substring('models-3d/'.length)
-        }
-        console.log('提取的对象名称:', objectName)
-
-        // 创建场景对象请求
-        const sceneObject = {
-          sceneId: '00000000-0000-0000-0000-000000000000', // 占位符,后端会自动设置为新创建的场景ID
-          name: sceneFile.value.name.replace(/\.[^/.]+$/, ''), // 去除文件扩展名作为对象名称
-          type: 'Model3D',
-          position: [0, 0, 0], // 默认位置
-          rotation: '{"x":0,"y":0,"z":0}',
-          scale: '{"x":1,"y":1,"z":1}',
-          modelPath: objectName, // 使用纯对象名称(不包含bucket)
-          materialData: '{}',
-          properties: '{}'
-        }
-
-        // 注意: sceneId 将在后端创建场景对象时自动设置
-        sceneForm.value.sceneObjects = [sceneObject]
-
-        showSuccess(`场景文件 ${sceneFile.value.name} 上传成功`)
-      } catch (error) {
-        console.error('场景文件上传失败:', error)
-        showError('场景文件上传失败，请重试')
-        return
-      }
-    }
-
-    if (editingScene.value) {
-      // 更新场景
-      await sceneService.updateScene(editingScene.value, sceneForm.value, userId)
-      showSuccess('场景更新成功')
-    } else {
-      // 创建场景
-      await sceneService.createScene(sceneForm.value, userId)
-      showSuccess('场景创建成功')
-    }
-
-    await loadScenes()
-    closeCreateDialog()
-  } catch (error) {
-    console.error('保存场景失败:', error)
-    showError('保存场景失败，请稍后重试')
-  }
+const editScene = (id: string) => {
+  router.push({ name: 'ScenesEdit', params: { id } })
 }
 
 /**
@@ -444,7 +181,7 @@ const deleteScene = async (id: string) => {
   if (confirm('确定要删除此场景吗?')) {
     try {
       // 获取当前用户ID (使用已注册的管理员用户ID作为默认值)
-      const userId = authStore.currentUser.value?.id || '9055f06c-20d2-4e67-8a89-069887a2c4e8'
+      const userId = '9055f06c-20d2-4e67-8a89-069887a2c4e8'
       await sceneService.deleteScene(id, userId)
       showSuccess('场景删除成功')
       await loadScenes()
@@ -488,21 +225,16 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 2rem;
   background: white;
-  padding: 1.75rem 2rem;
-  border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-color);
-  animation: fadeInDown 0.4s ease;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .page-header h1 {
   margin: 0;
-  font-size: 2rem;
-  font-weight: 700;
-  background: var(--gradient-primary-alt);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #333;
 }
 
 /**
@@ -515,104 +247,15 @@ onMounted(() => {
  */
 .scene-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 1.5rem;
 }
 
-/**
- * 场景卡片样式
- * 单个场景的展示容器，采用卡片式设计
- *
- * 视觉设计：
- * - 白色背景，与整体主题保持一致
- * - 圆角边框，提供现代感
- * - 阴影效果，营造浮起感
- */
-.scene-card {
-  background: white;
-  padding: 1.75rem;
-  border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-sm);
-  transition: all var(--transition-base);
-  border: 1px solid var(--border-color);
-  position: relative;
-  overflow: hidden;
-  animation: scaleIn 0.3s ease;
-}
-
-.scene-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: var(--gradient-primary-alt);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--transition-base);
-}
-
-.scene-card:hover::before {
-  transform: scaleX(1);
-}
-
-.scene-card:hover {
-  box-shadow: var(--shadow-xl);
-  transform: translateY(-6px);
-  border-color: var(--primary-light);
-}
-
-/**
- * 场景卡片标题样式
- * 场景名称的展示样式
- */
-.scene-card h3 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.25rem;
-  color: #333;
-}
-
-/**
- * 场景卡片描述样式
- * 场景描述信息的展示样式
- */
-.scene-card p {
-  color: #666;
-  margin-bottom: 1rem;
-  line-height: 1.6;
-}
-
-.scene-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 4px;
-}
-
-.info-item {
-  display: flex;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.info-item .label {
-  color: #666;
-  font-weight: 500;
-  min-width: 80px;
-}
-
-.info-item .value {
-  color: #333;
-}
-
-.scene-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
+/* 响应式调整 */
+@media (max-width: 767px) {
+  .scene-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 按钮样式 */
@@ -620,49 +263,27 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
+  padding: 0.5rem 1rem;
+  border: 1px solid #e1e5e9;
+  border-radius: 4px;
   background: white;
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: all 0.2s ease;
   font-size: 0.9rem;
-  font-weight: 600;
-  position: relative;
-  overflow: hidden;
-}
-
-.btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity var(--transition-base);
-  z-index: -1;
 }
 
 .btn:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  background: #f8f9fa;
 }
 
 .btn-primary {
-  background: var(--gradient-primary-alt);
+  background: #007acc;
   color: white;
-  border: none;
-  box-shadow: var(--shadow-colored);
-}
-
-.btn-primary::before {
-  background: var(--gradient-info);
+  border-color: #007acc;
 }
 
 .btn-primary:hover {
-  box-shadow: var(--shadow-xl);
-}
-
-.btn-primary:hover::before {
-  opacity: 1;
+  background: #005999;
 }
 
 .btn-secondary {

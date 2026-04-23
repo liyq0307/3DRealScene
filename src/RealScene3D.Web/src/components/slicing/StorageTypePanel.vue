@@ -33,13 +33,6 @@
       />
       <small class="form-hint">名称或绝对路径或空，名称或者为空则切片保存到minio</small>
     </div>
-
-    <!-- 提交处理按钮 -->
-    <div class="form-item">
-      <button @click="emit('submit')" class="btn btn-success btn-block" type="button">
-        提交处理
-      </button>
-    </div>
   </div>
 </template>
 
@@ -57,7 +50,6 @@ interface Emits {
   (e: 'update:store3DTiles11', value: boolean): void
   (e: 'update:storageType', value: 'hash' | 'hierarchy'): void
   (e: 'update:outputPath', value: string): void
-  (e: 'submit'): void
 }
 
 const props = defineProps<Props>()
@@ -109,47 +101,8 @@ const localStore3DTiles11 = computed({
   border-color: #007acc;
 }
 
-.input-with-button {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.input-with-button .form-input {
-  flex: 1;
-}
-
-.btn {
-  padding: 0.5rem 1rem;
-  border: 1px solid #e1e5e9;
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-}
-
-.btn-primary {
-  background: #007acc;
-  color: white;
-  border-color: #007acc;
-}
-
-.btn-primary:hover {
-  background: #005999;
-}
-
-.btn-success {
-  background: #28a745;
-  color: white;
-  border-color: #28a745;
-}
-
-.btn-success:hover {
-  background: #218838;
-}
-
-.btn-block {
-  width: 100%;
-  margin-top: 0.5rem;
+.form-hint {
+  font-size: 0.8rem;
+  color: #999;
 }
 </style>

@@ -35,7 +35,6 @@
       <GeneralStorageTypePanel
         v-model:outputPath="localFormData.outputPath"
         v-model:generateTileset="localFormData.generateTileset"
-        @submit="handleSubmit"
       />
     </WorkflowStage>
   </div>
@@ -56,7 +55,6 @@ interface Props {
 
 interface Emits {
   (e: 'update:formData', value: GeneralSliceFormData): void
-  (e: 'submit'): void
 }
 
 const props = defineProps<Props>()
@@ -66,10 +64,6 @@ const localFormData = computed({
   get: () => props.formData,
   set: (val) => emit('update:formData', val)
 })
-
-const handleSubmit = () => {
-  emit('submit')
-}
 </script>
 
 <style scoped>

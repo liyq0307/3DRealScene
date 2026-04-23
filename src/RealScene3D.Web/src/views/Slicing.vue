@@ -47,68 +47,6 @@
                 <span class="label">模型类型:</span>
                 <span class="value model-type">{{ getModelTypeName(task.modelType) }}</span>
               </div>
-              <div class="info-item">
-                <span class="label">模型路径:</span>
-                <span class="value">{{ task.sourceModelPath }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">输出路径:</span>
-                <span class="value">{{ task.outputPath || '(MinIO存储)' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">输出格式:</span>
-                <span class="value">{{ (task.slicingConfig?.outputFormat || 'b3dm').toUpperCase() }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType !== 'ObliquePhotography'">
-                <span class="label">纹理策略:</span>
-                <span class="value">{{ getTextureStrategyName(task.slicingConfig?.textureStrategy) }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType !== 'ObliquePhotography'">
-                <span class="label">LOD层级:</span>
-                <span class="value">{{ task.slicingConfig?.lodLevels || 3 }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType !== 'ObliquePhotography'">
-                <span class="label">递归深度:</span>
-                <span class="value">{{ task.slicingConfig?.divisions || 2 }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography' && task.slicingConfig?.spatialReference">
-                <span class="label">空间参考:</span>
-                <span class="value">{{ task.slicingConfig.spatialReference }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography' && (task.slicingConfig?.centerX || task.slicingConfig?.centerY || task.slicingConfig?.centerZ)">
-                <span class="label">零点坐标:</span>
-                <span class="value">
-                  ({{ task.slicingConfig?.centerX?.toFixed(6) || '0' }}, 
-                  {{ task.slicingConfig?.centerY?.toFixed(6) || '0' }}, 
-                  {{ task.slicingConfig?.centerZ?.toFixed(2) || '0' }})
-                </span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
-                <span class="label">处理参数:</span>
-                <span class="value">
-                  顶层重建
-                </span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
-                <span class="label">纹理压缩:</span>
-                <span class="value">{{ task.slicingConfig?.enableTextureCompression ? '是' : '否' }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
-                <span class="label">顶点压缩:</span>
-                <span class="value">{{ task.slicingConfig?.enableMeshOptimization ? '是' : '否' }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
-                <span class="label">Draco压缩:</span>
-                <span class="value">{{ task.slicingConfig?.enableDracoCompression ? '是' : '否' }}</span>
-              </div>
-              <div class="info-item" v-if="task.modelType === 'ObliquePhotography'">
-                <span class="label">3D Tiles版本:</span>
-                <span class="value">{{ get3DTilesVersion(task.slicingConfig) }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">存储类型:</span>
-                <span class="value">{{ getStorageTypeName(task.slicingConfig?.storageLocation) }}</span>
-              </div>
               <div class="info-item" v-if="task.status === 'failed' && task.errorMessage">
                 <span class="label error-label">失败原因:</span>
                 <span class="value error-value">{{ task.errorMessage }}</span>
@@ -719,33 +657,6 @@ const getStorageTypeName = (storageLocation: number | string | undefined) => {
   return 'MinIO对象存储'
 }
 
-const getObliqueProcessingParams = (config: any) => {
-  const params: string[] = []
-  
-  // 倾斜摄影特有的处理参数
-  if (config?.enableTextureCompression) {
-    params.push('纹理压缩')
-  }
-  if (config?.enableMeshOptimization) {
-    params.push('顶点压缩')
-  }
-  if (config?.enableDracoCompression) {
-    params.push('Draco压缩')
-  }
-  
-  // 默认处理参数
-  if (params.length === 0) {
-    params.push('顶层重建')
-  }
-  
-  return params.join('、')
-}
-
-const get3DTilesVersion = (config: any) => {
-  // 3D Tiles版本，默认1.0
-  return config?.tilesVersion || '1.0'
-}
-
 const formatBoundingBox = (bbox: any): string => {
   try {
     const box = typeof bbox === 'string' ? JSON.parse(bbox) : bbox
@@ -848,22 +759,8 @@ const loadStrategies = async () => {
 
 // 任务操作
 const openCreateTaskDialog = () => {
-  taskForm.value = {
-    name: '',
-    description: '',
-    modelPath: '',
-    outputPath: '',
-    slicingStrategy: 0,  // TileGenerationPipeline
-    outputFormat: 'b3dm',  // 输出格式，默认b3dm
-    textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
-    lodLevels: 3,
-    divisions: 2,
-    enableCompression: true,
-    enableIncrementalUpdate: false,
-    enableMeshDecimation: true,  // 启用网格简化
-    generateTileset: true  // 生成 tileset.json
-  }
-  showCreateTaskDialog.value = true
+  // 从弹窗方式改为路由跳转到创建页面
+  router.push({ name: 'SlicingCreate' })
 }
 
 const closeCreateTaskDialog = () => {
@@ -912,21 +809,6 @@ const handleDialogSubmit = async (submitData: { type: string; data: any }) => {
     const errorMessage = error.response?.data?.message || error.message || '创建任务失败'
     alert(`创建任务失败: ${errorMessage}`)
   }
-}
-
-// 估算切片数量
-const estimateSliceCount = (lodLevels: number, divisions: number = 2): string => {
-  // 计算空间单元数：(2^divisions)² 个网格单元（2D分割）
-  const spatialCells = Math.pow(Math.pow(2, divisions), 2)
-  // 总切片数 = LOD级别数 × 空间单元数
-  const count = lodLevels * spatialCells
-
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}百万`
-  } else if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}千`
-  }
-  return count.toString()
 }
 
 const createTask = async () => {

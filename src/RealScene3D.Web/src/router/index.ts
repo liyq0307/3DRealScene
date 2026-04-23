@@ -48,6 +48,32 @@ const routes = [
   },
 
   /**
+   * 场景创建页面路由
+   * 路径：/scenes/create
+   * 组件：ScenesCreatePage.vue（场景创建页面组件）
+   * 用途：创建新的3D场景
+   */
+  {
+    path: '/scenes/create',
+    name: 'ScenesCreate',
+    component: () => import('../views/ScenesCreatePage.vue'),
+    meta: { requiresAuth: true, title: '创建场景' }
+  },
+
+  /**
+   * 场景编辑页面路由
+   * 路径：/scenes/:id/edit
+   * 组件：ScenesEditPage.vue（场景编辑页面组件）
+   * 用途：编辑现有3D场景
+   */
+  {
+    path: '/scenes/:id/edit',
+    name: 'ScenesEdit',
+    component: () => import('../views/ScenesEditPage.vue'),
+    meta: { requiresAuth: true, title: '编辑场景' }
+  },
+
+  /**
    * 场景预览页面路由
    * 路径：/scenes/:id/preview
    * 组件：ScenePreview.vue（场景预览组件）
@@ -113,6 +139,19 @@ const routes = [
   },
 
   /**
+   * 切片任务创建页面路由
+   * 路径：/slicing/create
+   * 组件：SlicingCreatePage.vue（切片任务创建页面组件）
+   * 用途：创建新的3D模型切片任务
+   */
+  {
+    path: '/slicing/create',
+    name: 'SlicingCreate',
+    component: () => import('../views/SlicingCreatePage.vue'),
+    meta: { requiresAuth: true, title: '创建切片任务' }
+  },
+
+  /**
    * 切片预览页面路由
    * 路径：/slicing/:taskId/preview
    * 组件：SlicePreviewPage.vue（切片预览页面组件）
@@ -149,6 +188,32 @@ const routes = [
     name: 'SceneObjects',
     component: () => import('../views/SceneObjects.vue'),
     meta: { requiresAuth: true, title: '场景对象管理' }
+  },
+
+  /**
+   * 场景对象添加页面路由
+   * 路径: /scene-objects/add
+   * 组件: SceneObjectsAddPage.vue (场景对象添加页面组件)
+   * 用途: 添加新的场景对象
+   */
+  {
+    path: '/scene-objects/add',
+    name: 'SceneObjectsAdd',
+    component: () => import('../views/SceneObjectsAddPage.vue'),
+    meta: { requiresAuth: true, title: '添加场景对象' }
+  },
+
+  /**
+   * 场景对象编辑页面路由
+   * 路径: /scene-objects/:id/edit
+   * 组件: SceneObjectsEditPage.vue (场景对象编辑页面组件)
+   * 用途: 编辑现有场景对象
+   */
+  {
+    path: '/scene-objects/:id/edit',
+    name: 'SceneObjectsEdit',
+    component: () => import('../views/SceneObjectsEditPage.vue'),
+    meta: { requiresAuth: true, title: '编辑场景对象' }
   },
 
   /**

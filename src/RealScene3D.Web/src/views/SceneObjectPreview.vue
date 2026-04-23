@@ -23,6 +23,14 @@
           <span class="icon">🔄</span>
           <span class="text">转换模型</span>
         </button>
+        <button
+          v-if="renderEngine === 'cesium'"
+          @click="toggleBasemap"
+          class="btn-action"
+          :title="showBasemap ? '隐藏底图' : '显示底图'"
+        >
+          <span class="icon">{{ showBasemap ? '🗺️' : '🌐' }}</span>
+        </button>
         <button @click="toggleFullscreen" class="btn-action" title="全屏">
           <span class="icon">{{ isFullscreen ? '🗗' : '🗖' }}</span>
         </button>
@@ -44,10 +52,13 @@
       <!-- Mars3D 3D地球查看器 (用于3D Tiles, GLTF等格式) -->
       <Mars3DViewer
         v-else-if="!loading && currentObject && renderEngine === 'cesium'"
+        ref="mars3dViewerRef"
         :show-info="true"
         :scene-objects="[currentObject]"
+        :show-basemap="showBasemap"
         @ready="onMars3DReady"
         @error="onMars3DError"
+        @basemapChange="onBasemapChange"
       />
     </div>
 
@@ -93,6 +104,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
+import { getBasemapPreference, setBasemapPreference } from '@/composables/useBasemapPreference'
 import Mars3DViewer from '@/components/Mars3DViewer.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
 
@@ -110,6 +122,8 @@ const currentObject = ref<any>(null)
 const currentScene = ref<any>(null)
 const sceneName = ref<string>('')
 const isFullscreen = ref(false)
+const showBasemap = ref(getBasemapPreference())
+const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
 
 // ==================== 计算属性 ====================
 
@@ -328,6 +342,23 @@ const onThreeJSReady = (model: any) => {
 const onThreeJSError = (err: Error) => {
   console.error('[SceneObjectPreview] Three.js加载失败:', err)
   showError('Three.js模型加载失败: ' + err.message)
+}
+
+/**
+ * 切换底图显示状态
+ */
+const toggleBasemap = async () => {
+  if (mars3dViewerRef.value) {
+    await mars3dViewerRef.value.toggleBasemap()
+  }
+}
+
+/**
+ * 底图状态变化处理
+ */
+const onBasemapChange = (visible: boolean) => {
+  showBasemap.value = visible
+  setBasemapPreference(visible)
 }
 
 /**

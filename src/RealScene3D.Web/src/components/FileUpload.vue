@@ -305,7 +305,7 @@ const handleRemove = () => {
 }
 
 .upload-area {
-  padding: 3rem 2rem;
+  padding: 1.5rem 2rem;
   cursor: pointer;
   transition: all var(--transition-base);
 }
@@ -323,12 +323,12 @@ const handleRemove = () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .upload-icon {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;

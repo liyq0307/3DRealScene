@@ -188,6 +188,16 @@ export const sceneObjectService = {
   },
 
   /**
+   * 获取单个场景对象
+   * @param id 对象ID
+   * @returns Promise<SceneObjectDto> 场景对象信息
+   */
+  async getObject(id: string) {
+    const response = await api.get(`/sceneobjects/${id}`)
+    return response.data
+  },
+
+  /**
    * 在场景中创建新的3D对象
    * @param data 对象创建数据，包含位置、旋转、缩放、模型路径等
    * @returns Promise<SceneObjectDto> 创建成功的对象信息

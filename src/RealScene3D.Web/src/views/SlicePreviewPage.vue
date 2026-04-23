@@ -20,6 +20,13 @@
       </div>
 
       <div class="header-actions">
+        <button
+          @click="toggleBasemap"
+          class="btn-action"
+          :title="showBasemap ? '隐藏底图' : '显示底图'"
+        >
+          <span class="icon">{{ showBasemap ? '🗺️' : '🌐' }}</span>
+        </button>
         <button @click="toggleStats" class="btn-action" :title="showStats ? '隐藏统计' : '显示统计'">
           <span class="icon">📊</span>
         </button>
@@ -67,11 +74,14 @@
     <div class="viewer-container">
       <Mars3DViewer
         v-if="!loading && sceneObject"
+        ref="mars3dViewerRef"
         :sceneObjects="[sceneObject]"
         :showInfo="true"
         :initialPosition="initialCameraPosition"
+        :showBasemap="showBasemap"
         @objectLoaded="onObjectLoaded"
         @error="onViewerError"
+        @basemapChange="onBasemapChange"
       />
 
       <!-- 加载状态 -->
@@ -128,6 +138,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { slicingService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
+import { getBasemapPreference, setBasemapPreference } from '@/composables/useBasemapPreference'
 import Mars3DViewer from '@/components/Mars3DViewer.vue'
 
 // ==================== 组合式API ====================
@@ -141,8 +152,10 @@ const { success: showSuccess, error: showError } = useMessage()
 const loading = ref(true)
 const error = ref<string | null>(null)
 const taskInfo = ref<any>(null)
-const showStats = ref(true)
+const showStats = ref(false)
 const isFullscreen = ref(false)
+const showBasemap = ref(getBasemapPreference())
+const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
 
 // ==================== 计算属性 ====================
 
@@ -293,6 +306,23 @@ const onObjectLoaded = (obj: any, success: boolean) => {
 const onViewerError = (err: Error) => {
   console.error('[SlicePreviewPage] Cesium查看器错误:', err)
   showError('查看器错误: ' + err.message)
+}
+
+/**
+ * 切换底图显示状态
+ */
+const toggleBasemap = async () => {
+  if (mars3dViewerRef.value) {
+    await mars3dViewerRef.value.toggleBasemap()
+  }
+}
+
+/**
+ * 底图状态变化处理
+ */
+const onBasemapChange = (visible: boolean) => {
+  showBasemap.value = visible
+  setBasemapPreference(visible)
 }
 
 /**

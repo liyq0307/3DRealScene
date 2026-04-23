@@ -124,6 +124,33 @@
   --z-index-modal: 1050;
   --z-index-popover: 1060;
   --z-index-tooltip: 1070;
+
+  /* ==================== 左侧菜单变量 ==================== */
+
+  /* 菜单尺寸 */
+  --menu-width-expanded: 200px;
+  --menu-width-collapsed: 56px;
+  --menu-item-height: 44px;
+  --menu-toggle-size: 28px;
+  
+  /* 菜单间距 */
+  --menu-padding: 0.875rem;
+  --menu-item-padding: 0.625rem 0.875rem;
+  --submenu-indent: 0.875rem;
+  
+  /* 菜单颜色 */
+  --menu-bg: rgba(255, 255, 255, 0.95);
+  --menu-border: rgba(229, 231, 235, 0.5);
+  --menu-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+  --menu-item-hover-bg: linear-gradient(90deg, var(--primary-lighter) 0%, transparent 100%);
+  --menu-item-active-bg: linear-gradient(90deg, var(--primary-light) 0%, var(--primary-lighter) 100%);
+  --menu-text-color: var(--gray-700);
+  --menu-text-active-color: var(--primary-color);
+  --menu-icon-size: 1.125rem;
+  
+  /* 菜单动画 */
+  --menu-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --menu-expand-transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ==================== 全局样式 ==================== */

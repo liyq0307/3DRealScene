@@ -37,7 +37,6 @@
         v-model:store3DTiles11="localFormData.store3DTiles11"
         v-model:storageType="localFormData.storageType"
         v-model:outputPath="localFormData.outputPath"
-        @submit="handleSubmit"
       />
     </WorkflowStage>
   </div>
@@ -58,7 +57,6 @@ interface Props {
 
 interface Emits {
   (e: 'update:formData', value: ObliqueSliceFormData): void
-  (e: 'submit'): void
   (e: 'publish'): void
 }
 
@@ -70,10 +68,6 @@ const localFormData = computed({
   get: () => props.formData,
   set: (val) => emit('update:formData', val)
 })
-
-const handleSubmit = () => {
-  emit('submit')
-}
 </script>
 
 <style scoped>

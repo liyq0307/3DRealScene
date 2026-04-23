@@ -104,6 +104,7 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
 import { DebugTilesPlugin } from '3d-tiles-renderer/src/three/plugins/DebugTilesPlugin.js'
+import fileHandleStore from '@/services/fileHandleStore'
 
 // ==================== 类型定义 ====================
 
@@ -750,8 +751,8 @@ const loadTileset = (
  * 加载单个场景对象
  */
 const loadSceneObject = async (obj: SceneObject): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const modelPath = obj.displayPath || obj.modelPath
+  return new Promise(async (resolve, reject) => {
+    let modelPath = obj.displayPath || obj.modelPath
     if (!modelPath) {
       reject(new Error('模型路径为空'))
       return
@@ -762,6 +763,45 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
     console.log(`[ThreeViewer] displayPath: ${obj.displayPath}`)
     console.log(`[ThreeViewer] modelPath: ${obj.modelPath}`)
     console.log(`[ThreeViewer] 使用路径: ${modelPath}`)
+
+    // 检查是否为文件句柄路径
+    if (modelPath.startsWith('local-file-handle://')) {
+      console.log('[ThreeViewer] 检测到文件句柄路径，尝试获取文件:', modelPath)
+      
+      try {
+        const uuid = modelPath.replace('local-file-handle://', '')
+        const handle = await fileHandleStore.getHandle<any>(uuid)
+        
+        if (handle) {
+          // 检查权限
+          const permission = await handle.queryPermission({ mode: 'read' })
+          if (permission === 'granted') {
+            const file = await handle.getFile()
+            // 创建临时URL用于预览
+            modelPath = URL.createObjectURL(file)
+            console.log('[ThreeViewer] 文件句柄转换成功:', { uuid, fileName: file.name, blobUrl: modelPath })
+          } else {
+            // 请求权限
+            const requestResult = await handle.requestPermission({ mode: 'read' })
+            if (requestResult === 'granted') {
+              const file = await handle.getFile()
+              modelPath = URL.createObjectURL(file)
+              console.log('[ThreeViewer] 文件句柄权限获取成功:', { uuid, fileName: file.name, blobUrl: modelPath })
+            } else {
+              reject(new Error('无法访问文件句柄，请重新选择文件'))
+              return
+            }
+          }
+        } else {
+          reject(new Error('文件句柄不存在，请重新选择文件'))
+          return
+        }
+      } catch (err) {
+        console.error('[ThreeViewer] 文件句柄处理失败:', err)
+        reject(new Error('文件句柄访问失败，请重新选择文件或使用MinIO上传'))
+        return
+      }
+    }
 
     // 获取文件扩展名
     const fileExt = modelPath.split('?')[0].split('.').pop()?.toLowerCase()

@@ -115,6 +115,7 @@ import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js'
 interface Props {
   modelUrl?: string
   modelFile?: File  // 直接传递File对象
+  modelFiles?: File[]  // 多文件（OBJ + MTL + 纹理）
   showControls?: boolean
   showInfo?: boolean
   autoRotate?: boolean
@@ -403,6 +404,143 @@ const loadModelFromFile = async (file: File) => {
   }
 }
 
+// 从多个File对象加载模型（支持 OBJ + MTL + 纹理）
+const loadModelFromFiles = async (files: File[]) => {
+  if (!files || files.length === 0) return
+
+  loading.value = true
+  loadingProgress.value = 0
+  error.value = null
+
+  try {
+    // 移除旧模型
+    if (currentModel) {
+      scene.remove(currentModel)
+      currentModel = null
+    }
+
+    // 查找主模型文件
+    const objFile = files.find(f => f.name.toLowerCase().endsWith('.obj'))
+    const glbFile = files.find(f => f.name.toLowerCase().endsWith('.glb'))
+    const gltfFile = files.find(f => f.name.toLowerCase().endsWith('.gltf'))
+    const fbxFile = files.find(f => f.name.toLowerCase().endsWith('.fbx'))
+    const daeFile = files.find(f => f.name.toLowerCase().endsWith('.dae'))
+
+    let model: THREE.Object3D
+
+    if (objFile) {
+      // OBJ + MTL + 纹理
+      model = await loadOBJWithFiles(objFile, files)
+    } else if (glbFile || gltfFile) {
+      const mainFile = glbFile || gltfFile!
+      const blobUrl = URL.createObjectURL(mainFile)
+      try {
+        model = await loadGLTF(blobUrl)
+      } finally {
+        URL.revokeObjectURL(blobUrl)
+      }
+    } else if (fbxFile) {
+      const blobUrl = URL.createObjectURL(fbxFile)
+      try {
+        model = await loadFBX(blobUrl)
+      } finally {
+        URL.revokeObjectURL(blobUrl)
+      }
+    } else if (daeFile) {
+      const blobUrl = URL.createObjectURL(daeFile)
+      try {
+        model = await loadCollada(blobUrl)
+      } finally {
+        URL.revokeObjectURL(blobUrl)
+      }
+    } else {
+      throw new Error('未找到支持的模型文件')
+    }
+
+    // 添加到场景
+    scene.add(model)
+    currentModel = model
+
+    // 自动调整相机
+    fitCameraToObject(model)
+
+    // 计算模型信息
+    calculateModelInfo(model)
+
+    emit('loaded', model)
+    loading.value = false
+  } catch (err: any) {
+    console.error('从多文件加载模型失败:', err)
+    error.value = err.message || '加载失败'
+    emit('error', err)
+    loading.value = false
+  }
+}
+
+// 使用文件列表加载 OBJ（支持 MTL 和纹理）
+const loadOBJWithFiles = async (objFile: File, allFiles: File[]): Promise<THREE.Object3D> => {
+  console.log('[ModelViewer] 加载 OBJ 及关联文件:', objFile.name)
+
+  // 创建文件映射（文件名 -> File对象）
+  const fileMap = new Map<string, File>()
+  allFiles.forEach(f => fileMap.set(f.name.toLowerCase(), f))
+
+  // 查找 MTL 文件
+  const mtlFileName = objFile.name.replace(/\.obj$/i, '.mtl').toLowerCase()
+  const mtlFile = fileMap.get(mtlFileName)
+
+  // 创建 LoadingManager 来处理纹理加载
+  const loadingManager = new THREE.LoadingManager()
+
+  // 设置自定义加载器，从文件映射中加载纹理
+  loadingManager.setURLModifier((url) => {
+    // 提取文件名
+    const fileName = url.split('/').pop()?.toLowerCase() || url.toLowerCase()
+    
+    // 如果文件映射中有这个文件，创建 blob URL
+    if (fileMap.has(fileName)) {
+      const file = fileMap.get(fileName)!
+      return URL.createObjectURL(file)
+    }
+    
+    return url
+  })
+
+  let materials: MTLLoader.MaterialCreator | null = null
+
+  // 加载 MTL 文件
+  if (mtlFile) {
+    console.log('[ModelViewer] 找到 MTL 文件:', mtlFile.name)
+    
+    const mtlText = await mtlFile.text()
+    const mtlLoader = new MTLLoader(loadingManager)
+    
+    // 解析 MTL 内容
+    materials = mtlLoader.parse(mtlText, '')
+    materials.preload()
+    
+    console.log('[ModelViewer] MTL 材质数:', Object.keys(materials.materials).length)
+  }
+
+  // 加载 OBJ 文件
+  const objText = await objFile.text()
+  const objLoader = new OBJLoader(loadingManager)
+  
+  if (materials) {
+    objLoader.setMaterials(materials)
+  }
+
+  const object = objLoader.parse(objText)
+  
+  console.log('[ModelViewer] ✅ OBJ 加载完成')
+
+  // 清理 blob URLs
+  // 注意：这里不立即清理，让 Three.js 有时间加载纹理
+  // 在组件卸载时会自动清理
+
+  return object
+}
+
 // 加载GLTF模型
 const loadGLTF = (url: string): Promise<THREE.Object3D> => {
   return new Promise((resolve, reject) => {
@@ -439,12 +577,35 @@ const loadOBJ = (url: string): Promise<THREE.Object3D> => {
   return new Promise((resolve, reject) => {
     console.log('[ModelViewer] 开始加载OBJ文件:', url)
 
+    // 检查是否是 blob URL
+    const isBlobUrl = url.startsWith('blob:')
+    
     // 将MinIO预签名URL转换为后端代理URL
     // 原始: http://localhost:9000/models-3d/folder/file.obj?X-Amz-...
     // 转换: /api/files/proxy/models-3d/folder/file.obj
     let proxyModelPath = url
     let baseURL = ''
     let fileName = ''
+
+    // 如果是 blob URL，直接加载 OBJ，不尝试加载 MTL
+    if (isBlobUrl) {
+      console.log('[ModelViewer] 检测到 blob URL，直接加载 OBJ')
+      
+      const objLoader = new OBJLoader()
+      objLoader.load(
+        url,
+        (object) => {
+          console.log('[ModelViewer] ✅ OBJ加载成功(blob)')
+          resolve(object)
+        },
+        undefined,
+        (error) => {
+          console.error('[ModelViewer] OBJ加载失败:', error)
+          reject(error)
+        }
+      )
+      return
+    }
 
     try {
       const urlObj = new URL(url, window.location.origin)
@@ -813,11 +974,19 @@ watch(() => props.modelFile, (newFile) => {
   }
 })
 
+watch(() => props.modelFiles, (newFiles) => {
+  if (newFiles && newFiles.length > 0) {
+    loadModelFromFiles(newFiles)
+  }
+})
+
 onMounted(() => {
   initScene()
 
-  // 优先使用File对象，其次使用URL
-  if (props.modelFile) {
+  // 优先级：多文件 > 单文件 > URL
+  if (props.modelFiles && props.modelFiles.length > 0) {
+    loadModelFromFiles(props.modelFiles)
+  } else if (props.modelFile) {
     loadModelFromFile(props.modelFile)
   } else if (props.modelUrl) {
     loadModel(props.modelUrl)

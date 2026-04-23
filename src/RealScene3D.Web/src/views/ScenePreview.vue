@@ -45,6 +45,7 @@
         v-else-if="!loading && sceneObjects.length > 0 && sceneRenderEngine === 'cesium'"
         :show-info="true"
         :scene-objects="sceneObjects"
+        :show-basemap="true"
         @ready="onMars3DReady"
         @error="onMars3DError"
       />

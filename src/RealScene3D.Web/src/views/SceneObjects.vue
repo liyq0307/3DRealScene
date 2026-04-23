@@ -29,8 +29,8 @@
       </select>
       <div v-if="selectedScene" class="scene-info">
         <span class="info-badge">{{ selectedScene.name }}</span>
-        <span class="info-badge" :class="selectedScene.renderEngine === 'ThreeJS' ? 'engine-threejs' : 'engine-cesium'">
-          {{ selectedScene.renderEngine === 'ThreeJS' ? '🎨 Three.js' : '🌍 Cesium' }}
+        <span class="info-badge engine-mars3d">
+          🌍 Mars3D
         </span>
         <span class="info-text">{{ objects.length }} 个对象</span>
       </div>
@@ -84,47 +84,54 @@
           @click="selectObject(obj)"
           :class="{ selected: selectedObject?.id === obj.id }"
         >
-          <div class="object-thumbnail">
+          <div class="object-header">
             <span class="object-type-icon">{{ getTypeIcon(obj.objectType) }}</span>
+            <span class="object-name" :title="obj.name">{{ obj.name }}</span>
           </div>
-          <div class="object-info">
-            <h4>{{ obj.name }}</h4>
-            <div class="object-meta">
-              <span class="meta-item">
-                <span class="meta-label">类型:</span>
-                {{ obj.objectType }}
-              </span>
-              <span class="meta-item" v-if="obj.modelPath">
-                <span class="meta-label">路径:</span>
-                {{ getShortPath(obj.modelPath) }}
-              </span>
-              <span class="meta-item" v-if="obj.slicingTaskStatus">
-                <span class="meta-label">切片状态:</span>
-                <span :class="getSlicingStatusClass(obj.slicingTaskStatus)">{{ getSlicingStatusText(obj.slicingTaskStatus) }}</span>
-              </span>
-            </div>
-            <div class="object-transform">
-              <span class="transform-item" title="位置">
-                📍 {{ formatVector(obj.position) }}
-              </span>
-            </div>
+          <div class="object-meta">
+            <span class="meta-item" v-if="obj.objectType">
+              <span class="meta-label">类型:</span>
+              {{ obj.objectType }}
+            </span>
+            <span class="meta-item path-item" v-if="obj.modelPath">
+              <span class="meta-label">路径:</span>
+              <span class="path-text" :title="obj.modelPath">{{ getShortPath(obj.modelPath) }}</span>
+            </span>
+            <span class="meta-item status-item" v-if="obj.slicingTaskStatus">
+              <span class="meta-label">切片状态:</span>
+              <Badge :variant="getSlicingStatusVariant(obj.slicingTaskStatus)" :label="getSlicingStatusText(obj.slicingTaskStatus)" size="sm" />
+            </span>
           </div>
-          <div class="object-actions" @click.stop>
-            <button @click="previewObject(obj)" class="btn-icon" title="预览">
-              <span>👁️</span>
+          <div class="object-footer" @click.stop>
+            <!-- 左侧：创建时间 -->
+            <span class="created-time" v-if="obj.createdAt">
+              {{ formatDateTime(obj.createdAt) }}
+            </span>
+            
+            <!-- 右侧：三点菜单按钮 -->
+            <button
+              class="menu-trigger"
+              @click="toggleMenu(obj.id)"
+              @keydown.enter="toggleMenu(obj.id)"
+              @keydown.space.prevent="toggleMenu(obj.id)"
+              aria-label="操作菜单"
+              :aria-expanded="activeMenuObjectId === obj.id"
+            >
+              <span class="dots">⋯</span>
             </button>
-            <button @click="editObject(obj)" class="btn-icon" title="编辑">
-              <span>✏️</span>
-            </button>
-            <button @click="duplicateObject(obj)" class="btn-icon" title="复制">
-              <span>📋</span>
-            </button>
-            <button @click="startSlicing(obj)" class="btn-icon" title="切片">
-              <span>🔪</span>
-            </button>
-            <button @click="deleteObject(obj.id)" class="btn-icon danger" title="删除">
-              <span>🗑️</span>
-            </button>
+
+            <!-- 三点菜单下拉 -->
+            <SceneObjectCardMenu
+              v-if="activeMenuObjectId === obj.id"
+              :preview-disabled="isPreviewDisabled(obj)"
+              :slicing-disabled="isSlicingDisabled(obj)"
+              :slicing-disabled-reason="getSlicingDisabledReason(obj)"
+              @preview="previewObject(obj); closeMenu()"
+              @edit="editObject(obj); closeMenu()"
+              @slicing="startSlicing(obj); closeMenu()"
+              @delete="deleteObject(obj.id); closeMenu()"
+              @close="closeMenu"
+            />
           </div>
         </div>
       </div>
@@ -170,9 +177,13 @@
               <td>{{ formatDateTime(obj.createdAt) }}</td>
               <td>
                 <div class="table-actions" @click.stop>
-                  <button @click="previewObject(obj)" class="btn-sm">预览</button>
+                  <button 
+                    @click="previewObject(obj)" 
+                    class="btn-sm"
+                    :disabled="isPreviewDisabled(obj)"
+                    :title="getPreviewTitle(obj)"
+                  >预览</button>
                   <button @click="editObject(obj)" class="btn-sm">编辑</button>
-                  <button @click="duplicateObject(obj)" class="btn-sm">复制</button>
                   <button @click="startSlicing(obj)" class="btn-sm">切片</button>
                   <button @click="deleteObject(obj.id)" class="btn-sm btn-danger">删除</button>
                 </div>
@@ -194,244 +205,6 @@
     <!-- 未选择场景提示 -->
     <div v-else class="empty-state">
       <p>请先选择一个场景</p>
-    </div>
-
-    <!-- 创建/编辑对象对话框 -->
-    <div v-if="showCreateDialog" class="modal-overlay" @click="closeCreateDialog">
-      <div class="modal-content large" @click.stop>
-        <h3>{{ editingObject ? '编辑对象' : '添加对象' }}</h3>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>对象名称 *</label>
-            <input
-              v-model="objectForm.name"
-              type="text"
-              class="form-input"
-              placeholder="输入对象名称"
-            />
-          </div>
-
-          <div class="form-group">
-            <label>对象类型 *</label>
-            <select v-model="objectForm.objectType" class="form-select">
-              <option value="Model3D">3D模型</option>
-              <option value="PointCloud">点云</option>
-              <option value="TileSet">瓦片集</option>
-              <option value="Marker">标记</option>
-            </select>
-          </div>
-
-          <div class="form-group full-width">
-            <label>模型路径</label>
-            <div class="model-path-selector">
-              <!-- 路径输入（只读显示） -->
-              <input
-                v-model="objectForm.modelPath"
-                type="text"
-                class="form-input"
-                placeholder="请选择本地文件或输入远程URL"
-                readonly
-                @click="objectForm.modelPath ? null : selectLocalFile()"
-                :title="localPreviewUrl ? localPreviewUrl : objectForm.modelPath"
-              />
-
-              <!-- 操作按钮组 -->
-              <div class="path-actions">
-                <button @click="selectLocalFile" class="btn-action" type="button" title="从本地选择文件">
-                  <span>📁</span>
-                  单个文件
-                </button>
-                <button @click="selectMultipleFiles" class="btn-action btn-batch" type="button" title="批量选择文件(OBJ+MTL+纹理)">
-                  <span>📦</span>
-                  批量上传
-                </button>
-                <button @click="openUrlDialog" class="btn-action" type="button" title="输入远程URL">
-                  <span>🌐</span>
-                  远程URL
-                </button>
-                <button
-                  v-if="objectForm.modelPath"
-                  @click="previewCurrentModel"
-                  class="btn-action btn-preview"
-                  type="button"
-                  title="预览当前模型"
-                >
-                  <span>👁️</span>
-                  预览
-                </button>
-              </div>
-            </div>
-
-            <!-- 单文件选择器（隐藏） -->
-            <input
-              ref="fileInputRef"
-              type="file"
-              accept=".gltf,.glb,.obj,.fbx,.dae,.3ds"
-              @change="handleFileSelect"
-              style="display: none"
-            />
-
-            <!-- 多文件选择器（隐藏） -->
-            <input
-              ref="multiFileInputRef"
-              type="file"
-              accept=".gltf,.glb,.obj,.fbx,.dae,.3ds,.mtl,.jpg,.jpeg,.png,.webp,.bmp"
-              multiple
-              @change="handleMultipleFilesSelect"
-              style="display: none"
-            />
-
-            <!-- 已选择单个文件信息 -->
-            <div v-if="selectedFile && !selectedFiles.length" class="file-info">
-              <span class="file-icon">📄</span>
-              <div class="file-details">
-                <div class="file-name">{{ selectedFile.name }}</div>
-                <div class="file-meta">
-                  <span>{{ formatFileSize(selectedFile.size) }}</span>
-                  <span>{{ getFileExtension(selectedFile.name) }}</span>
-                </div>
-              </div>
-              <button @click="clearFile" class="btn-clear" type="button">✕</button>
-            </div>
-
-            <!-- 批量选择文件列表 -->
-            <div v-if="selectedFiles.length > 0" class="files-list">
-              <div class="files-list-header">
-                <span class="files-count">已选择 {{ selectedFiles.length }} 个文件</span>
-                <button @click="clearAllFiles" class="btn-clear-all" type="button">清空全部</button>
-              </div>
-              <div class="files-grid">
-                <div v-for="(file, index) in selectedFiles" :key="index" class="file-item">
-                  <span class="file-icon">{{ getFileIcon(file.name) }}</span>
-                  <div class="file-details">
-                    <div class="file-name" :title="file.name">{{ file.name }}</div>
-                    <div class="file-size">{{ formatFileSize(file.size) }}</div>
-                  </div>
-                  <button @click="removeFile(index)" class="btn-remove" type="button">✕</button>
-                </div>
-              </div>
-              <!-- OBJ文件提示 -->
-              <div v-if="hasOBJFile" class="upload-hint success">
-                <span class="hint-icon">✓</span>
-                <div class="hint-content">
-                  <strong>OBJ模型上传提示</strong>
-                  <p>请确保已选择：OBJ文件 + MTL材质文件 + 纹理图片（.jpg/.png等）</p>
-                  <div class="file-check">
-                    <span :class="['check-item', { checked: hasOBJFile }]">
-                      {{ hasOBJFile ? '✓' : '○' }} OBJ文件 (.obj)
-                    </span>
-                    <span :class="['check-item', { checked: hasMTLFile }]">
-                      {{ hasMTLFile ? '✓' : '○' }} MTL材质 (.mtl)
-                    </span>
-                    <span :class="['check-item', { checked: hasTextureFiles }]">
-                      {{ hasTextureFiles ? '✓' : '○' }} 纹理图片
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-section full-width">
-            <h4>变换属性</h4>
-            <div class="transform-grid">
-              <!-- 位置 -->
-              <div class="transform-group">
-                <label>位置 (X, Y, Z)</label>
-                <div class="vector-input">
-                  <input
-                    v-model.number="objectForm.position.x"
-                    type="number"
-                    step="0.1"
-                    placeholder="X"
-                  />
-                  <input
-                    v-model.number="objectForm.position.y"
-                    type="number"
-                    step="0.1"
-                    placeholder="Y"
-                  />
-                  <input
-                    v-model.number="objectForm.position.z"
-                    type="number"
-                    step="0.1"
-                    placeholder="Z"
-                  />
-                </div>
-              </div>
-
-              <!-- 旋转 -->
-              <div class="transform-group">
-                <label>旋转 (X, Y, Z) 度</label>
-                <div class="vector-input">
-                  <input
-                    v-model.number="objectForm.rotation.x"
-                    type="number"
-                    step="1"
-                    placeholder="X"
-                  />
-                  <input
-                    v-model.number="objectForm.rotation.y"
-                    type="number"
-                    step="1"
-                    placeholder="Y"
-                  />
-                  <input
-                    v-model.number="objectForm.rotation.z"
-                    type="number"
-                    step="1"
-                    placeholder="Z"
-                  />
-                </div>
-              </div>
-
-              <!-- 缩放 -->
-              <div class="transform-group">
-                <label>缩放 (X, Y, Z)</label>
-                <div class="vector-input">
-                  <input
-                    v-model.number="objectForm.scale.x"
-                    type="number"
-                    step="0.1"
-                    min="0.01"
-                    placeholder="X"
-                  />
-                  <input
-                    v-model.number="objectForm.scale.y"
-                    type="number"
-                    step="0.1"
-                    min="0.01"
-                    placeholder="Y"
-                  />
-                  <input
-                    v-model.number="objectForm.scale.z"
-                    type="number"
-                    step="0.1"
-                    min="0.01"
-                    placeholder="Z"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-group full-width">
-            <label class="checkbox-label">
-              <input v-model="objectForm.isVisible" type="checkbox" />
-              <span>可见</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button @click="closeCreateDialog" class="btn btn-secondary">
-            取消
-          </button>
-          <button @click="saveObject" class="btn btn-primary">
-            保存
-          </button>
-        </div>
-      </div>
     </div>
 
     <!-- URL输入对话框 -->
@@ -486,103 +259,18 @@
       </div>
     </Modal>
 
-    <!-- 切片配置对话框 -->
-    <Modal
-      v-model="showSlicingDialog"
-      title="配置切片任务"
-      size="md"
-    >
-      <div class="slicing-dialog">
-        <div class="form-group">
-          <label>任务名称 *</label>
-          <input v-model="slicingForm.name" type="text" class="form-input" placeholder="输入任务名称" />
-        </div>
-
-        <div class="form-group">
-          <label>描述</label>
-          <textarea v-model="slicingForm.description" class="form-textarea" placeholder="输入任务描述"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>输出路径</label>
-          <input v-model="slicingForm.outputPath" type="text" class="form-input" placeholder="例如: F:/Data/3D/Output" />
-          <small class="form-hint">名称或绝对路径或空，名称或者为空则切片保存到minio</small>
-        </div>
-
-        <div class="form-group">
-          <label>LOD层级数（网格简化级别）*</label>
-          <input v-model.number="slicingForm.lodLevels" type="number" min="1" max="5" class="form-input" placeholder="默认3" />
-        </div>
-
-        <div class="form-group">
-          <label>输出格式 *</label>
-          <select v-model="slicingForm.outputFormat" class="form-select">
-            <option value="b3dm">B3DM - Batched 3D Model（默认，推荐）✨</option>
-            <option value="gltf">GLTF - GL Transmission Format</option>
-            <option value="i3dm">I3DM - Instanced 3D Model</option>
-            <option value="pnts">PNTS - Point Cloud</option>
-            <option value="cmpt">CMPT - Composite</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label>纹理策略 *</label>
-          <select v-model.number="slicingForm.textureStrategy" class="form-select">
-            <option :value="2">Repack - 重新打包纹理（PNG格式，推荐）✨</option>
-            <option :value="3">RepackCompressed - 打包+压缩（JPEG质量75）</option>
-            <option :value="1">Compress - 压缩纹理（保持原始分辨率）</option>
-            <option :value="0">KeepOriginal - 保持原样（不推荐）</option>
-          </select>
-        </div>
-
-        <div class="form-group" v-if="slicingForm.enableMeshDecimation">
-          <label>空间分割递归深度（Divisions）</label>
-          <input v-model.number="slicingForm.divisions" type="number" min="1" max="4" class="form-input" placeholder="默认2" />
-          <small class="form-hint" style="color: #2196F3; display: block; margin-top: 4px;">
-            📊 预估切片数：{{ estimateSliceCount(slicingForm.lodLevels, slicingForm.divisions) }} 个
-            （{{ slicingForm.lodLevels }} LOD × {{ Math.pow(2, slicingForm.divisions) }}×{{ Math.pow(2, slicingForm.divisions) }} 空间单元）
-          </small>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input v-model="slicingForm.enableMeshDecimation" type="checkbox" />
-            <span>启用网格简化（LOD生成）</span>
-          </label>
-          <small class="form-hint" v-if="slicingForm.enableMeshDecimation">
-            使用 Fast Quadric Mesh Simplification 算法生成多级 LOD
-          </small>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input v-model="slicingForm.enableIncrementalUpdate" type="checkbox" />
-            <span>启用增量更新</span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input v-model="slicingForm.enableCompression" type="checkbox" />
-            <span>启用几何压缩</span>
-          </label>
-        </div>
-      </div>
-      <template #footer>
-        <button @click="closeSlicingDialog" class="btn btn-secondary">取消</button>
-        <button @click="submitSlicingTask" class="btn btn-primary">开始切片</button>
-      </template>
-    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { sceneService, sceneObjectService, fileService, slicingService } from '@/services/api'
+import { sceneService, sceneObjectService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import Modal from '@/components/Modal.vue'
 import ModelViewer from '@/components/ModelViewer.vue'
+import SceneObjectCardMenu from '@/components/SceneObjectCardMenu.vue'
+import Badge from '@/components/Badge.vue'
 import { FileHandleStore } from '@/services/fileHandleStore'
 import authStore from '@/stores/auth'
 
@@ -635,52 +323,25 @@ const selectedObject = ref<any>(null)
 const viewMode = ref<'grid' | 'list'>('grid')
 const searchKeyword = ref('')
 const filterType = ref('')
-const showCreateDialog = ref(false)
 const showPreviewDialog = ref(false)
 const showUrlDialog = ref(false)  // URL输入对话框
-const showSlicingDialog = ref(false) // 新增：切片对话框
-const editingObject = ref<any>(null)
 const previewModelUrl = ref('')
 const previewModelFile = ref<File | undefined>(undefined)  // 用于预览的File对象
-const objectToSlice = ref<any>(null) // 新增：待切片的对象
+const activeMenuObjectId = ref<string | null>(null)  // 当前显示菜单的对象ID
 
-// 切片表单数据
-const slicingForm = ref({
-  name: '',
-  description: '',
-  modelType: 'Model3D',
-  outputPath: '',
-  slicingStrategy: 0,  // TileGenerationPipeline
-  outputFormat: 'b3dm',  // 输出格式，默认b3dm
-  textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
-  lodLevels: 3,
-  divisions: 2,  // 空间分割递归深度
-  enableCompression: true,
-  enableIncrementalUpdate: false,
-  enableMeshDecimation: true,  // 启用网格简化
-  generateTileset: true  // 生成 tileset.json
-})
-
-// 文件选择相关
-const fileInputRef = ref<HTMLInputElement>()
-const multiFileInputRef = ref<HTMLInputElement>()  // 多文件选择器
-const selectedFile = ref<File | null>(null)
-const selectedFiles = ref<File[]>([])  // 批量选择的文件列表
-const selectedFileHandle = ref<any | null>(null)
+// URL输入相关
 const urlInput = ref('')
-const localPreviewUrl = ref('')  // 存储本地文件的blob URL用于预览
-const selectedFileExtension = ref('')  // 存储文件扩展名
-//const realFilePath = ref('')  // 存储文件的真实路径
 
-// 批量文件检测
-const hasOBJFile = computed(() => selectedFiles.value.some(f => f.name.toLowerCase().endsWith('.obj')))
-const hasMTLFile = computed(() => selectedFiles.value.some(f => f.name.toLowerCase().endsWith('.mtl')))
-const hasTextureFiles = computed(() => {
-  const textureExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tga', '.dds']
-  return selectedFiles.value.some(f => textureExts.some(ext => f.name.toLowerCase().endsWith(ext)))
-})
+// 文件选择相关（用于URL对话框和预览功能）
+const fileInputRef = ref<HTMLInputElement>()
+const multiFileInputRef = ref<HTMLInputElement>()
+const selectedFile = ref<File | null>(null)
+const selectedFiles = ref<File[]>([])
+const selectedFileHandle = ref<any | null>(null)
+const localPreviewUrl = ref('')
+const selectedFileExtension = ref('')
 
-// 表单数据
+// 表单数据（用于文件选择功能）
 const objectForm = ref({
   name: '',
   objectType: 'Model3D',
@@ -753,39 +414,57 @@ const openCreateDialog = () => {
     showError('请先选择一个场景再添加对象')
     return
   }
-  editingObject.value = null
-  objectForm.value = {
-    name: '',
-    objectType: 'Model3D',
-    modelPath: '',
-    position: { x: 0, y: 0, z: 0 },
-    rotation: { x: 0, y: 0, z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
-    isVisible: true
-  }
-  selectedFile.value = null
-  selectedFiles.value = []  // 清除批量文件
-  selectedFileHandle.value = null
-  selectedFileExtension.value = ''
-  // 释放之前的blob URL
-  if (localPreviewUrl.value) {
-    URL.revokeObjectURL(localPreviewUrl.value)
-    localPreviewUrl.value = ''
-  }
-  showCreateDialog.value = true
+  // 从弹窗方式改为路由跳转到添加页面
+  // 通过query参数传递当前选中的场景ID
+  router.push({ 
+    name: 'SceneObjectsAdd', 
+    query: { sceneId: selectedSceneId.value } 
+  })
 }
 
-const closeCreateDialog = () => {
-  showCreateDialog.value = false
-  selectedFile.value = null
-  selectedFiles.value = []  // 清除批量文件选择
-  selectedFileHandle.value = null
-  selectedFileExtension.value = ''
-  // 释放blob URL
-  if (localPreviewUrl.value) {
-    URL.revokeObjectURL(localPreviewUrl.value)
-    localPreviewUrl.value = ''
+/**
+ * 判断预览按钮是否应禁用
+ * OBJ/FBX/DAE/STL/PLY 格式需要切片完成后才能预览（预览切片结果）
+ */
+const isPreviewDisabled = (obj: any): boolean => {
+  const path = obj.modelPath || ''
+  const threeJSExts = ['.obj', '.fbx', '.dae', '.stl', '.ply']
+  const lowerPath = path.toLowerCase()
+  const isThreeJS = threeJSExts.some(ext => lowerPath.includes(ext))
+  // Three.js 格式：切片未完成时禁用
+  if (isThreeJS) {
+    return obj.slicingTaskStatus?.toLowerCase() !== 'completed'
   }
+  return false
+}
+
+/**
+ * 获取预览按钮的提示文字
+ */
+const getPreviewTitle = (obj: any): string => {
+  if (isPreviewDisabled(obj)) {
+    return '需要切片完成后才能预览'
+  }
+  return '预览'
+}
+
+/**
+ * 判断切片按钮是否应禁用
+ * 文件句柄路径不支持切片（临时性，后端无法访问）
+ */
+const isSlicingDisabled = (obj: any): boolean => {
+  const modelPath = obj.modelPath || ''
+  return modelPath.startsWith('local-file-handle://')
+}
+
+/**
+ * 获取切片按钮的禁用原因提示
+ */
+const getSlicingDisabledReason = (obj: any): string => {
+  if (isSlicingDisabled(obj)) {
+    return '文件句柄不支持切片，请先上传到MinIO或使用其他路径'
+  }
+  return ''
 }
 
 /**
@@ -810,305 +489,8 @@ const previewObject = (obj: any) => {
   })
 }
 
-const editObject = async (obj: any) => {
-  editingObject.value = obj;
-  objectForm.value = {
-    name: obj.name,
-    objectType: obj.objectType || obj.type,  // 兼容不同字段名
-    modelPath: obj.modelPath || '',
-    position: obj.position ? (Array.isArray(obj.position)
-      ? { x: obj.position[0] || 0, y: obj.position[1] || 0, z: obj.position[2] || 0 }
-      : { ...obj.position })
-      : { x: 0, y: 0, z: 0 },
-    rotation: typeof obj.rotation === 'string'
-      ? JSON.parse(obj.rotation || '{"x":0,"y":0,"z":0}')
-      : { ...obj.rotation },
-    scale: typeof obj.scale === 'string'
-      ? JSON.parse(obj.scale || '{"x":1,"y":1,"z":1}')
-      : { ...obj.scale },
-    isVisible: obj.isVisible ?? true
-  };
-
-  // 清除之前的选择
-  selectedFile.value = null;
-  selectedFileHandle.value = null;
-
-  // 如果是本地文件句柄，尝试检索
-  if (obj.modelPath && obj.modelPath.startsWith('local-file-handle://')) {
-    try {
-      const uuid = obj.modelPath.replace('local-file-handle://', '');
-      const handle = await fileHandleStore.getHandle<any>(uuid);
-      if (handle) {
-        // 尝试验证权限，如果失败则请求权限
-        let permission = await handle.queryPermission({ mode: 'read' });
-        if (permission !== 'granted') {
-          // 尝试请求权限
-          permission = await handle.requestPermission({ mode: 'read' });
-        }
-
-        if (permission === 'granted') {
-          selectedFileHandle.value = handle;
-          const file = await handle.getFile();
-          selectedFile.value = file;
-          objectForm.value.modelPath = `本地文件: ${file.name} (已授权)`;
-          showSuccess('已加载本地文件访问权限。');
-        } else {
-          showError('无法获取文件权限，请重新选择文件。');
-          objectForm.value.modelPath = `本地文件: ${handle.name} (需要授权)`;
-        }
-      } else {
-        showError('在本地找不到对应的文件句柄，请重新选择文件。');
-      }
-    } catch (err) {
-      console.error('检索文件句柄失败:', err);
-      showError('加载本地文件句柄失败，请重新选择文件。');
-    }
-  }
-
-  showCreateDialog.value = true;
-}
-
-const saveObject = async () => {
-  try {
-    if (!objectForm.value.name) {
-      showError('请输入对象名称')
-      return
-    }
-
-    if (!editingObject.value && !selectedSceneId.value) {
-      showError('请先选择一个场景')
-      return
-    }
-
-    // ========== 格式兼容性验证 ==========
-    if (!editingObject.value && selectedScene.value && objectForm.value.modelPath) {
-      const sceneRenderEngine = selectedScene.value.renderEngine || 'Cesium'
-      const modelPath = objectForm.value.modelPath
-
-      // 获取文件扩展名
-      let fileExt = ''
-      if (modelPath.startsWith('批量上传:')) {
-        // 批量上传时，从selectedFiles中查找主模型文件
-        const mainModelFile = selectedFiles.value.find(f => {
-          const ext = f.name.split('.').pop()?.toLowerCase()
-          return ['obj', 'gltf', 'glb', 'fbx', 'dae', 'stl', '3ds', 'ply'].includes(ext || '')
-        })
-        if (mainModelFile) {
-          fileExt = mainModelFile.name.split('.').pop()?.toLowerCase() || ''
-        }
-      } else if (modelPath.startsWith('本地文件:')) {
-        fileExt = modelPath.split('.').pop()?.toLowerCase() || ''
-      } else if (selectedFile.value) {
-        fileExt = selectedFile.value.name.split('.').pop()?.toLowerCase() || ''
-      } else {
-        fileExt = modelPath.split('.').pop()?.toLowerCase() || ''
-      }
-
-      console.log('[SceneObjects] 验证格式兼容性:', { sceneRenderEngine, fileExt })
-
-      // Three.js支持的格式
-      const threeJSFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'gltf', 'glb']
-
-      // Cesium支持的格式
-      const cesiumFormats = ['gltf', 'glb', 'json', 'tiles', 'osgb', 'las', 'laz', 'e57']
-
-      let isCompatible = false
-      let errorMessage = ''
-
-      if (sceneRenderEngine === 'ThreeJS') {
-        isCompatible = threeJSFormats.includes(fileExt)
-        if (!isCompatible) {
-          errorMessage = `场景使用 Three.js 渲染引擎，不支持 ${fileExt.toUpperCase()} 格式。\n\n支持的格式: ${threeJSFormats.map(f => f.toUpperCase()).join(', ')}`
-        }
-      } else { // Cesium
-        isCompatible = cesiumFormats.includes(fileExt)
-        if (!isCompatible) {
-          errorMessage = `场景使用 Cesium 渲染引擎，不支持 ${fileExt.toUpperCase()} 格式。\n\n支持的格式: ${cesiumFormats.map(f => f.toUpperCase()).join(', ')}\n\n提示: 如需使用 ${fileExt.toUpperCase()} 格式，请创建使用 Three.js 渲染引擎的场景。`
-        }
-      }
-
-      if (!isCompatible) {
-        showError(errorMessage)
-        alert(`❌ 格式不兼容\n\n${errorMessage}`)
-        return
-      } else {
-        console.log('[SceneObjects] 格式验证通过')
-      }
-    }
-    // ========== 格式兼容性验证结束 ==========
-
-    let finalModelPath = objectForm.value.modelPath
-
-    // ========== 批量文件上传处理 ==========
-    if (selectedFiles.value.length > 0 && objectForm.value.modelPath.startsWith('批量上传:')) {
-      const shouldUpload = confirm(
-        `您选择了 ${selectedFiles.value.length} 个文件进行批量上传。\n\n` +
-        '点击"确定"将所有文件上传到服务器(推荐)。\n' +
-        '点击"取消"返回修改。'
-      )
-
-      if (!shouldUpload) {
-        return
-      }
-
-      try {
-        showSuccess(`正在批量上传 ${selectedFiles.value.length} 个文件...`)
-
-        // 打印上传的文件列表
-        console.log('[SceneObjects] 准备批量上传文件:', selectedFiles.value.map(f => ({
-          name: f.name,
-          size: f.size,
-          type: f.type
-        })))
-
-        // 使用批量上传API，传递对象名称作为文件夹名
-        const uploadResult = await fileService.uploadFilesBatch(
-          selectedFiles.value,
-          'models-3d',
-          objectForm.value.name  // 传递场景对象名称作为文件夹名
-        )
-
-        // 打印完整的上传结果
-        console.log('[SceneObjects] 批量上传API响应:', uploadResult)
-        console.log('[SceneObjects] success:', uploadResult.success)
-        console.log('[SceneObjects] totalFiles:', uploadResult.totalFiles)
-        console.log('[SceneObjects] successCount:', uploadResult.successCount)
-        console.log('[SceneObjects] failedCount:', uploadResult.failedCount)
-        console.log('[SceneObjects] results:', uploadResult.results)
-        console.log('[SceneObjects] errors:', uploadResult.errors)
-
-        if (!uploadResult.success) {
-          const errorMsg = uploadResult.errors && uploadResult.errors.length > 0
-            ? uploadResult.errors.join('\n')
-            : '未知错误'
-          showError(`批量上传失败: ${uploadResult.failedCount} 个文件上传失败\n\n${errorMsg}`)
-          console.error('上传失败的文件:', uploadResult.errors)
-          return
-        }
-
-        console.log(`[SceneObjects] 批量上传成功: ${uploadResult.successCount}/${uploadResult.totalFiles}`)
-
-        // 查找OBJ文件的上传结果，作为主模型路径
-        const objFile = selectedFiles.value.find(f => f.name.toLowerCase().endsWith('.obj'))
-        if (objFile) {
-          const objResult = uploadResult.results.find((r: any) => r.originalFileName === objFile.name)
-          if (objResult) {
-            finalModelPath = objResult.downloadUrl || objResult.filePath
-            showSuccess(`批量上传成功！主模型: ${objFile.name}`)
-            console.log('[SceneObjects] 主模型路径:', finalModelPath)
-          } else {
-            showError('未找到OBJ文件的上传结果')
-            return
-          }
-        } else {
-          // 如果没有OBJ文件，使用第一个文件
-          const firstResult = uploadResult.results[0]
-          if (firstResult) {
-            finalModelPath = firstResult.downloadUrl || firstResult.filePath
-            showSuccess(`批量上传成功！主模型: ${firstResult.originalFileName}`)
-          }
-        }
-      } catch (uploadError) {
-        console.error('批量上传失败:', uploadError)
-        showError('批量上传失败,请稍后重试')
-        return
-      }
-    }
-    // 如果选择了新的本地文件，询问用户是上传还是直接使用本地路径
-    else if (selectedFile.value && objectForm.value.modelPath.startsWith('本地文件:')) {
-      const shouldUpload = confirm(
-        '您选择了本地文件。\n\n' +
-        '点击"确定"将文件上传到服务器(推荐)。\n' +
-        '点击"取消"在本地保存文件访问权限(仅限本机、部分浏览器支持)。'
-      );
-
-      if (shouldUpload) {
-        // 用户选择上传
-        try {
-          showSuccess('正在上传文件...')
-          const uploadResult = await fileService.uploadFile(
-            selectedFile.value,
-            'models',  // 使用models存储桶
-            (percent) => {
-              console.log(`上传进度: ${percent}%`)
-            }
-          )
-          // 使用downloadUrl而不是filePath,因为downloadUrl是可访问的完整URL
-          finalModelPath = uploadResult.downloadUrl || uploadResult.filePath
-          showSuccess('文件上传成功')
-        } catch (uploadError) {
-          console.error('文件上传失败:', uploadError)
-          showError('文件上传失败,请稍后重试')
-          return
-        }
-      } else {
-        // 用户选择在本地保存句柄
-        if (selectedFileHandle.value) {
-          try {
-            const uuid = editingObject.value?.modelPath?.startsWith('local-file-handle://')
-              ? editingObject.value.modelPath.replace('local-file-handle://', '')
-              : generateUUID();
-            await fileHandleStore.saveHandle(uuid, selectedFileHandle.value);
-            finalModelPath = `local-file-handle://${uuid}`;
-            showSuccess('已在本地保存文件访问权限。');
-          } catch (handleError) {
-            console.error('保存文件句柄失败:', handleError);
-            showError('保存本地文件句柄失败，将仅保存文件名。');
-            finalModelPath = objectForm.value.modelPath;
-          }
-        } else {
-          // 对于不支持文件系统访问API的浏览器，回退处理
-          showError('您的浏览器不支持保存本地文件访问权限，仅保存文件名。');
-          finalModelPath = objectForm.value.modelPath;
-        }
-      }
-    } else if (editingObject.value && objectForm.value.modelPath.startsWith('local-file-handle://')) {
-      // 编辑模式且路径未改变，保持原有路径
-      finalModelPath = objectForm.value.modelPath.replace(' (已授权)', '').replace(' (需要授权)', '');
-    }
-
-    // 转换数据格式以匹配后端DTO
-    const data: any = {
-      name: objectForm.value.name,
-      type: objectForm.value.objectType,  // 后端期望 Type
-      position: [  // 后端期望数组格式 double[]
-        objectForm.value.position.x,
-        objectForm.value.position.y,
-        objectForm.value.position.z
-      ],
-      rotation: JSON.stringify(objectForm.value.rotation),  // 后端期望JSON字符串
-      scale: JSON.stringify(objectForm.value.scale),        // 后端期望JSON字符串
-      modelPath: finalModelPath || '',
-      materialData: '{}',  // 默认空材质数据
-      properties: '{}',    // 默认空属性数据
-    }
-
-    // 如果是创建操作，添加sceneId
-    if (!editingObject.value) {
-      data.sceneId = selectedSceneId.value;
-    }
-
-    // 调试日志
-    console.log('=== 保存场景对象数据 ===')
-    console.log('操作类型:', editingObject.value ? '更新' : '创建')
-    console.log('发送数据:', JSON.stringify(data, null, 2))
-
-    if (editingObject.value) {
-      // 更新对象
-      await sceneObjectService.updateObject(editingObject.value.id, data)
-      showSuccess('对象更新成功')
-    } else {
-      // 创建对象
-      await sceneObjectService.createObject(data)
-      showSuccess('对象创建成功')
-    }
-
-    await loadObjects()
-    closeCreateDialog()
-  } catch (error) {
-    console.error('保存对象失败:', error)
-    showError('保存对象失败')
-  }
+const editObject = (obj: any) => {
+  router.push({ name: 'SceneObjectsEdit', params: { id: obj.id } })
 }
 
 const duplicateObject = async (obj: any) => {
@@ -1169,129 +551,18 @@ const deleteObject = async (id: string) => {
   }
 }
 
-// 切片操作方法
+// 切片操作方法 - 跳转到切片任务创建页面
 const startSlicing = (obj: any) => {
   if (!obj.modelPath) {
     showError('该对象没有关联的模型文件，无法切片。');
     return;
   }
-  objectToSlice.value = obj;
-
-  // 初始化表单，匹配 Slicing.vue 的默认值
-  slicingForm.value = {
-    name: `切片任务 - ${obj.name}`,
-    description: '',
-    modelType: obj.objectType || obj.type,
-    outputPath: '',
-    slicingStrategy: 0,  // TileGenerationPipeline
-    outputFormat: 'b3dm',  // 输出格式，默认b3dm
-    textureStrategy: 2,  // Repack - 重新打包纹理（默认推荐）
-    lodLevels: 3,
-    divisions: 2,
-    enableCompression: true,
-    enableIncrementalUpdate: false,
-    enableMeshDecimation: true,  // 启用网格简化
-    generateTileset: true  // 生成 tileset.json
-  };
-
-  openSlicingDialog();
-};
-
-const openSlicingDialog = () => {
-  showSlicingDialog.value = true;
-};
-
-const closeSlicingDialog = () => {
-  showSlicingDialog.value = false;
-  objectToSlice.value = null;
-};
-
-// 估算切片数量
-const estimateSliceCount = (lodLevels: number, divisions: number = 2): string => {
-  // 计算空间单元数：(2^divisions)² 个网格单元（2D分割）
-  const spatialCells = Math.pow(Math.pow(2, divisions), 2)
-  // 总切片数 = LOD级别数 × 空间单元数
-  const count = lodLevels * spatialCells
-
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}百万`
-  } else if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}千`
-  }
-  return count.toString()
-};
-
-const submitSlicingTask = async () => {
-  if (!objectToSlice.value) {
-    showError('没有选择要切片的对象。');
-    return;
-  }
-
-  if (!slicingForm.value.name) {
-    showError('请输入切片任务名称。');
-    return;
-  }
-
-  // 验证参数范围
-  if (slicingForm.value.lodLevels > 5) {
-    showError('LOD级别建议不超过5，过高会导致生成时间过长。');
-    return;
-  }
-
-  if (slicingForm.value.divisions > 4) {
-    showError('空间分割深度建议不超过4（最多256个空间单元），过高会导致内存不足。');
-    return;
-  }
-
-  // 检查预估切片数量
-  const estimatedCount = slicingForm.value.lodLevels * Math.pow(Math.pow(2, slicingForm.value.divisions), 2)
-  if (estimatedCount > 1000) {
-    const confirmed = confirm(
-      `预估将生成 ${estimatedCount} 个切片，处理时间可能较长。是否继续？\n\n` +
-      `建议：减少 LOD 级别或降低空间分割深度`
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
-  try {
-    // 获取当前用户ID
-    const userId = authStore.currentUser.value?.id || '9055f06c-20d2-4e67-8a89-069887a2c4e8';
-
-    // 将前端表单数据映射到后端期望的格式
-    const requestData = {
-      name: slicingForm.value.name,
-      sourceModelPath: objectToSlice.value.modelPath,
-      modelType: 'General3DModel', // 默认模型类型
-      outputPath: slicingForm.value.outputPath || '', // 添加输出路径
-      sceneObjectId: objectToSlice.value.id, // 关联场景对象ID
-      slicingConfig: {
-        outputFormat: slicingForm.value.outputFormat,  // 使用用户选择的输出格式
-        coordinateSystem: 'EPSG:4326',  // 后端必需字段
-        customSettings: '{}',  // 后端必需字段
-        divisions: slicingForm.value.divisions,  // 空间分割递归深度
-        lodLevels: slicingForm.value.lodLevels,  // LOD级别数量
-        enableMeshDecimation: slicingForm.value.enableMeshDecimation,  // 启用网格简化
-        generateTileset: slicingForm.value.generateTileset,  // 生成tileset.json
-        compressOutput: slicingForm.value.enableCompression,  // 压缩输出
-        enableIncrementalUpdates: slicingForm.value.enableIncrementalUpdate,  // 启用增量更新
-        textureStrategy: slicingForm.value.textureStrategy  // 纹理策略枚举
-      }
-    };
-
-    console.log('发送的切片任务请求数据:', JSON.stringify(requestData, null, 2))
-    await slicingService.createSlicingTask(requestData, userId);
-    showSuccess('切片任务已成功创建！');
-    closeSlicingDialog();
-    await loadObjects(); // 刷新对象列表以显示切片状态
-  } catch (error: any) {
-    console.error('创建切片任务失败:', error);
-    console.error('错误详情:', error.response?.data)
-    console.error('错误状态:', error.response?.status)
-    const errorMessage = error.response?.data?.message || error.message || '创建任务失败'
-    showError(`创建切片任务失败: ${errorMessage}`);
-  }
+  
+  // 跳转到切片任务创建页面，通过 query 参数传递场景对象 ID
+  router.push({ 
+    name: 'SlicingCreate', 
+    query: { sceneObjectId: obj.id } 
+  });
 };
 
 // 预览3D模型
@@ -1615,6 +886,18 @@ const getSlicingStatusClass = (status: string): string => {
   }
 };
 
+const getSlicingStatusVariant = (status: string): 'primary' | 'warning' | 'success' | 'danger' | 'gray' => {
+  const variantMap: Record<string, 'primary' | 'warning' | 'success' | 'danger' | 'gray'> = {
+    created: 'primary',
+    queued: 'primary',
+    processing: 'warning',
+    completed: 'success',
+    failed: 'danger',
+    cancelled: 'gray'
+  }
+  return variantMap[status?.toLowerCase()] || 'gray'
+};
+
 const getSlicingStatusText = (status: string): string => {
   switch (status?.toLowerCase()) {
     case 'created': return '已创建';
@@ -1667,10 +950,40 @@ const formatDateTime = (dateStr: string): string => {
   return new Date(dateStr).toLocaleString('zh-CN')
 }
 
+// 菜单操作方法
+const toggleMenu = (objId: string): void => {
+  activeMenuObjectId.value = activeMenuObjectId.value === objId ? null : objId
+}
+
+const closeMenu = (): void => {
+  activeMenuObjectId.value = null
+}
+
+const handleOutsideClick = (event: MouseEvent): void => {
+  const target = event.target as HTMLElement
+  const menuElements = document.querySelectorAll('.object-card')
+  let clickedInside = false
+
+  menuElements.forEach(el => {
+    if (el.contains(target)) {
+      clickedInside = true
+    }
+  })
+
+  if (!clickedInside) {
+    closeMenu()
+  }
+}
+
 // 生命周期钩子
 onMounted(async () => {
   console.log('[SceneObjects] 组件已挂载，开始加载场景...')
   await loadScenes()
+  document.addEventListener('click', handleOutsideClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleOutsideClick)
 })
 </script>
 
@@ -1752,6 +1065,12 @@ onMounted(async () => {
   border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
+.info-badge.engine-mars3d {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.2) 100%);
+  color: #1e40af;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 .info-text {
   color: #666;
   font-size: 0.9rem;
@@ -1827,41 +1146,47 @@ onMounted(async () => {
 }
 
 .object-card {
-  border: 2px solid #e1e5e9;
+  border: 1px solid #e1e5e9;
   border-radius: 8px;
   padding: 1rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .object-card:hover {
   border-color: #007acc;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.15);
+  transform: translateY(-2px);
 }
 
 .object-card.selected {
   border-color: #007acc;
-  background: #f0f8ff;
+  background: linear-gradient(135deg, rgba(0, 122, 204, 0.03) 0%, rgba(0, 122, 204, 0.05) 100%);
+  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.2);
 }
 
-.object-thumbnail {
-  height: 80px;
-  background: #f8f9fa;
-  border-radius: 6px;
+/* Logo和名称同行布局 */
+.object-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 1rem;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .object-type-icon {
-  font-size: 2.5rem;
+  font-size: 1.5rem;
+  flex-shrink: 0;
 }
 
-.object-info h4 {
-  margin: 0 0 0.5rem 0;
+.object-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 1.1rem;
+  font-weight: 600;
   color: #333;
 }
 
@@ -1875,47 +1200,96 @@ onMounted(async () => {
 .meta-item {
   font-size: 0.85rem;
   color: #666;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .meta-label {
   font-weight: 500;
   color: #999;
+  flex-shrink: 0;
 }
 
-.object-transform {
-  font-size: 0.8rem;
-  color: #999;
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #f0f0f0;
+/* 路径项样式 */
+.path-item {
+  align-items: flex-start;
 }
 
-.object-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e1e5e9;
-}
-
-.btn-icon {
+.path-text {
   flex: 1;
-  padding: 0.5rem;
-  border: 1px solid #e1e5e9;
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.8rem;
+  color: #555;
+  background: #f8f9fa;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  cursor: help;
   transition: all 0.2s ease;
 }
 
-.btn-icon:hover {
-  background: #f8f9fa;
-  border-color: #007acc;
+.path-text:hover {
+  background: #e9ecef;
+  color: #333;
 }
 
-.btn-icon.danger:hover {
-  background: #ffebee;
-  border-color: #dc3545;
+/* 卡片底部区域 */
+.object-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f0f0f0;
+  position: relative;
+}
+
+/* 创建时间 */
+.created-time {
+  font-size: 0.75rem;
+  color: #999;
+  white-space: nowrap;
+}
+
+/* 三点菜单按钮 */
+.menu-trigger {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.menu-trigger:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.menu-trigger:focus {
+  outline: 2px solid rgba(0, 122, 204, 0.5);
+  outline-offset: 2px;
+}
+
+.dots {
+  font-size: 1.25rem;
+  line-height: 1;
+  letter-spacing: 0.05em;
+}
+
+.btn-sm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #f5f5f5;
 }
 
 /* 列表视图 */
@@ -2337,28 +1711,6 @@ onMounted(async () => {
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 500;
-}
-
-/* 切片状态样式 */
-.status-pending {
-  color: #ffc107;
-  font-weight: 600;
-}
-
-.status-processing {
-  color: #17a2b8;
-  font-weight: 600;
-}
-
-.status-completed {
-  color: #28a745;
-  font-weight: 600;
-}
-
-.status-failed,
-.status-cancelled {
-  color: #dc3545;
-  font-weight: 600;
 }
 
 /* 批量文件上传样式 */
