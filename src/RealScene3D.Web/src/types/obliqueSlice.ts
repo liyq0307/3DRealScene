@@ -32,12 +32,12 @@ export interface ObliqueSliceFormData {
   
   // 存储类型配置
   store3DTiles11: boolean    // 存储3DTiles1.1
-  storageType: 'hash' | 'hierarchy'  // 存储类型
+  storageType: 'hash' | 'hierarchy'  // 存储类型（瓦片索引方式）
   outputPath: string         // 输出路径
 }
 
 /**
- * 通用表单数据（现有）
+ * 通用表单数据
  */
 export interface GeneralSliceFormData {
   name: string

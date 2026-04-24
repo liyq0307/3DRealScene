@@ -20,10 +20,21 @@ export function detectDataType(filePath: string): DataType {
     return DataType.General
   }
   
-  const extension = filePath.toLowerCase().split('.').pop()
+  const lowerPath = filePath.toLowerCase()
+  const extension = lowerPath.split('.').pop()
   
-  // OSGB格式识别为倾斜摄影
+  // 1. 优先检查明确的扩展名
   if (extension === 'osgb') {
+    return DataType.Oblique
+  }
+  
+  // 2. 检查路径中是否包含倾斜摄影关键字
+  // 倾斜摄影通常包含 osgb, tilt, reconstruction, photogrammetry, Production 等关键字
+  if (lowerPath.includes('osgb') || 
+      lowerPath.includes('tilt') || 
+      lowerPath.includes('reconstruction') || 
+      lowerPath.includes('photogrammetry') ||
+      (lowerPath.includes('production') && !lowerPath.includes('obj'))) {
     return DataType.Oblique
   }
   
@@ -134,14 +145,23 @@ export function validateObliqueForm(data: ObliqueSliceFormData): Map<string, str
  */
 export function mapObliqueFormDataToRequest(
   formData: ObliqueSliceFormData,
-  userId: string
+  userId: string,
+  sceneObjectId?: string
 ): ObliqueSlicingRequest {
+  // ✅ 彻底解决存储位置判定逻辑
+  const outputPathRaw = (formData.outputPath || '').trim()
+  const isRelative = outputPathRaw && !outputPathRaw.includes(':') && !outputPathRaw.startsWith('/')
+  const targetStorage = isRelative ? 'MinIO' : 'LocalFileSystem'
+  const finalOutputPath = outputPathRaw.replace(/\\/g, '/')
+
   return {
     name: formData.name,
     sourceModelPath: formData.dataPath,
     modelType: 'ObliquePhotography',
-    outputPath: formData.outputPath,
+    outputPath: finalOutputPath,
+    storageLocation: targetStorage, // 顶层
     userId: userId,
+    sceneObjectId: sceneObjectId,
     slicingConfig: {
       // 倾斜摄影特有配置
       spatialReference: formData.spatialReference,
@@ -152,7 +172,7 @@ export function mapObliqueFormDataToRequest(
       textureCompression: formData.textureCompression,
       vertexCompression: formData.vertexCompression,
       store3DTiles11: formData.store3DTiles11,
-      storageType: formData.storageType,
+      storageType: formData.storageType, // 保持原本的 hash/hierarchy
       
       // 通用配置
       outputFormat: 'b3dm',

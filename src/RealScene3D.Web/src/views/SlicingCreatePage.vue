@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import ObliqueWorkflowLayout from '@/components/slicing/ObliqueWorkflowLayout.vue'
 import GeneralWorkflowLayout from '@/components/slicing/GeneralWorkflowLayout.vue'
@@ -119,7 +119,8 @@ import {
   getDefaultObliqueFormData, 
   getDefaultGeneralFormData,
   validateObliqueForm,
-  mapObliqueFormDataToRequest
+  mapObliqueFormDataToRequest,
+  detectDataType
 } from '@/composables/useObliqueSlice'
 import { slicingService, sceneObjectService } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
@@ -253,11 +254,39 @@ onMounted(async () => {
       
       // 预填充表单数据
       if (sceneObject.value) {
-        generalFormData.value.name = `切片任务 - ${sceneObject.value.name}`
-        const modelPath = sceneObject.value.modelPath || ''
+        const modelPath = (sceneObject.value.modelPath || '').trim()
         
-        // ✅ 异步解析主模型路径
-        generalFormData.value.modelPath = await resolveMainModelPath(modelPath)
+        // ✅ 1. 自动识别数据类型
+        const detectedType = detectDataType(modelPath)
+        
+        // ✅ 2. 准备基础数据 (恢复 slices/ 前缀，方便 MinIO 分类)
+        const taskName = `切片任务 - ${sceneObject.value.name}`
+        const defaultOutputPath = `slices/${sceneObject.value.name}_${Date.now()}`
+
+        // ✅ 3. 切换数据类型（内部会重置表单）
+        dataType.value = detectedType
+        if (detectedType === DataType.Oblique) {
+          obliqueFormData.value = getDefaultObliqueFormData()
+        } else {
+          generalFormData.value = getDefaultGeneralFormData()
+        }
+
+        // ✅ 4. 强制延迟填充，确保响应式状态已更新
+        await nextTick()
+        
+        // 设置通用字段
+        currentFormData.value.name = taskName
+        currentFormData.value.outputPath = defaultOutputPath
+
+        if (detectedType === DataType.Oblique) {
+          obliqueFormData.value.dataPath = modelPath
+        } else {
+          // 异步解析主模型路径
+          const resolvedPath = await resolveMainModelPath(modelPath)
+          generalFormData.value.modelPath = resolvedPath
+        }
+        
+        console.log(`[SlicingCreate] 已完成自动化初始化: ${detectedType}, 输出路径: ${defaultOutputPath}`)
       }
     } catch (error) {
       console.error('加载场景对象失败:', error)
@@ -275,9 +304,10 @@ const handleBack = () => {
 
 // 选择数据类型
 const selectDataType = (type: DataType) => {
-  // 保存通用字段
+  // 保存当前已有的关键字段
   const preservedName = currentFormData.value.name
   const preservedDescription = currentFormData.value.description
+  const preservedOutputPath = currentFormData.value.outputPath
   
   // 切换数据类型
   dataType.value = type
@@ -289,9 +319,12 @@ const selectDataType = (type: DataType) => {
     generalFormData.value = getDefaultGeneralFormData()
   }
   
-  // 恢复通用字段
+  // 恢复保存的字段
   currentFormData.value.name = preservedName
   currentFormData.value.description = preservedDescription
+  if (preservedOutputPath) {
+    currentFormData.value.outputPath = preservedOutputPath
+  }
 }
 
 // 更新倾斜摄影表单数据
@@ -332,7 +365,7 @@ const handleSubmit = async () => {
         return
       }
       
-      requestData = mapObliqueFormDataToRequest(obliqueFormData.value, userId)
+      requestData = mapObliqueFormDataToRequest(obliqueFormData.value, userId, sceneObjectId.value)
     } else {
       // 通用模型验证
       if (!generalFormData.value.modelPath?.trim()) {
@@ -365,13 +398,24 @@ const handleSubmit = async () => {
         console.log('[SlicingCreate] 路径补全结果:', finalModelPath)
       }
       
+      // ✅ 彻底解决存储位置判定逻辑
+      const outputPathRaw = (generalFormData.value.outputPath || '').trim()
+      const isRelative = outputPathRaw && !outputPathRaw.includes(':') && !outputPathRaw.startsWith('/')
+      
+      // 确定存储位置关键字
+      const targetStorage = isRelative ? 'MinIO' : 'LocalFileSystem'
+      // 标准化路径（MinIO 必须使用正斜杠）
+      const finalOutputPath = outputPathRaw.replace(/\\/g, '/')
+
       requestData = {
         name: generalFormData.value.name,
         sourceModelPath: finalModelPath,
         modelType: 'General3DModel',
-        outputPath: generalFormData.value.outputPath || '',
-        sceneObjectId: sceneObjectId.value || undefined, // 关联场景对象ID
+        outputPath: finalOutputPath,
+        storageLocation: targetStorage, // 顶层标识
+        sceneObjectId: sceneObjectId.value || undefined,
         slicingConfig: {
+          storageLocation: targetStorage, // 配置层标识（关键）
           outputFormat: generalFormData.value.outputFormat,
           coordinateSystem: 'EPSG:4326',
           customSettings: '{}',

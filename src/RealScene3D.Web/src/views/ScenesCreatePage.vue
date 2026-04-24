@@ -179,34 +179,19 @@
           </div>
         </div>
 
-        <!-- 变换属性 -->
+        <!-- 位置设置 -->
         <div class="transform-section">
-          <h3 class="transform-title">变换属性</h3>
-          <div class="transform-grid">
-            <div class="transform-group">
-              <label>位置 (X, Y, Z)</label>
-              <div class="vector-input">
-                <input v-model.number="objectForm.position.x" type="number" step="0.1" placeholder="X" />
-                <input v-model.number="objectForm.position.y" type="number" step="0.1" placeholder="Y" />
-                <input v-model.number="objectForm.position.z" type="number" step="0.1" placeholder="Z" />
-              </div>
+          <h3 class="transform-title">位置设置</h3>
+          <div class="form-group">
+            <label>位置 (经度, 纬度, 高度)</label>
+            <div class="vector-input">
+              <input v-model.number="objectForm.position.x" type="number" step="0.0001" placeholder="经度" />
+              <input v-model.number="objectForm.position.y" type="number" step="0.0001" placeholder="纬度" />
+              <input v-model.number="objectForm.position.z" type="number" step="0.1" placeholder="高度(米)" />
             </div>
-            <div class="transform-group">
-              <label>旋转 (X, Y, Z) 度</label>
-              <div class="vector-input">
-                <input v-model.number="objectForm.rotation.x" type="number" step="1" placeholder="X" />
-                <input v-model.number="objectForm.rotation.y" type="number" step="1" placeholder="Y" />
-                <input v-model.number="objectForm.rotation.z" type="number" step="1" placeholder="Z" />
-              </div>
-            </div>
-            <div class="transform-group">
-              <label>缩放 (X, Y, Z)</label>
-              <div class="vector-input">
-                <input v-model.number="objectForm.scale.x" type="number" step="0.1" min="0.01" placeholder="X" />
-                <input v-model.number="objectForm.scale.y" type="number" step="0.1" min="0.01" placeholder="Y" />
-                <input v-model.number="objectForm.scale.z" type="number" step="0.1" min="0.01" placeholder="Z" />
-              </div>
-            </div>
+            <p class="form-hint">
+              💡 提示：位置使用 WGS84 坐标系。对于 3D Tiles 模型，通常使用默认位置 (0, 0, 0) 即可。
+            </p>
           </div>
         </div>
       </div>
