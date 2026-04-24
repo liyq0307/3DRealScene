@@ -12,9 +12,9 @@ import { useMessage } from '@/composables/useMessage'
 /**
  * API基础URL配置
  * 从环境变量VITE_API_URL获取，支持开发和生产环境切换
- * 默认值：http://localhost:5000/api（开发环境）
+ * 默认值：/api（开发环境，通过Vite代理转发到http://localhost:5000）
  */
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 /**
  * Axios实例配置

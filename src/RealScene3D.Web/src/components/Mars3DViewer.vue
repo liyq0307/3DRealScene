@@ -212,7 +212,7 @@ const basemapVisible = ref(props.showBasemap)
 // ==================== 计算属性 ====================
 
 const apiBaseUrl = computed(() => {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+  const baseUrl = import.meta.env.VITE_API_URL || '/api'
   return baseUrl.replace('/api', '')
 })
 
@@ -300,6 +300,44 @@ watch(
 const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; originalFileName?: string }> => {
   let fullPath = displayPath
 
+  // ✅ 检查是否为已编码的 API 路径（数据库中可能存储了编码后的路径）
+  if (fullPath.includes('/api/files/local/')) {
+    // 提取编码后的路径部分
+    const encodedPathMatch = fullPath.match(/\/api\/files\/local\/(.+)$/)
+    if (encodedPathMatch) {
+      const encodedPath = encodedPathMatch[1]
+      // 解码路径
+      const decodedPath = decodeURIComponent(encodedPath)
+      // 标准化路径：将反斜杠转换为正斜杠
+      const normalizedPath = decodedPath.replace(/\\/g, '/')
+
+      // 分离盘符和后续路径
+      const driveMatch = normalizedPath.match(/^([A-Za-z]:)(.*)/)
+      if (driveMatch) {
+        const drive = driveMatch[1].replace(':', '%3A')
+        const rest = driveMatch[2]
+        // 对剩余部分进行编码，但保留正斜杠 /
+        const encodedRest = rest
+          .replace(/\s/g, '%20')
+          .replace(/#/g, '%23')
+          .replace(/\?/g, '%3F')
+
+        fullPath = `${apiBaseUrl.value}/api/files/local/${drive}${encodedRest}`
+      } else {
+        // 降级方案：常规全量替换
+        fullPath = `${apiBaseUrl.value}/api/files/local/${normalizedPath.replace(/:/g, '%3A')}`
+      }
+
+      console.log('[Mars3DViewer] 修复已编码的 API 路径:', {
+        original: displayPath,
+        decoded: decodedPath,
+        normalized: normalizedPath,
+        converted: fullPath
+      })
+      return { url: fullPath }
+    }
+  }
+
   // 检查是否为Windows本地文件路径 (例如 F:/Data/3D/test/tileset.json 或 F:\Data\3D\test\tileset.json)
   const isWindowsPath = /^[A-Za-z]:[\\/]/.test(fullPath)
 
@@ -308,22 +346,29 @@ const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; ori
     // 传递完整的绝对路径，让后端处理
     // 例如: E:\Data\3D\test\tileset.json -> /api/files/local/E:/Data/3D/test/tileset.json
 
-    // 标准化路径：将反斜杠转换为正斜杠
+    // 标准化路径：将所有反斜杠转换为正斜杠
     const normalizedPath = fullPath.replace(/\\/g, '/')
 
-    // ✅ 使用自定义编码：编码冒号和特殊字符，但保留路径分隔符 /
-    // 这样既能处理 Windows 路径的冒号，又能让 Cesium 正确解析相对路径
-    const encodedPath = normalizedPath
-      .replace(/:/g, '%3A')  // 编码冒号
-      .replace(/\s/g, '%20')  // 编码空格
-      .replace(/#/g, '%23')   // 编码井号
-      .replace(/\?/g, '%3F')  // 编码问号
-
-    fullPath = `${apiBaseUrl.value}/api/files/local/${encodedPath}`
+    // ✅ 分离盘符和后续路径
+    // 例如: E:/Data/3D/tileset.json -> drive='E%3A', rest='/Data/3D/tileset.json'
+    const driveMatch = normalizedPath.match(/^([A-Za-z]:)(.*)/)
+    if (driveMatch) {
+      const drive = driveMatch[1].replace(':', '%3A')
+      const rest = driveMatch[2]
+      // 对剩余部分进行编码，但保留正斜杠 /
+      const encodedRest = rest
+        .replace(/\s/g, '%20')
+        .replace(/#/g, '%23')
+        .replace(/\?/g, '%3F')
+      
+      fullPath = `${apiBaseUrl.value}/api/files/local/${drive}${encodedRest}`
+    } else {
+      // 降级方案：常规全量替换
+      fullPath = `${apiBaseUrl.value}/api/files/local/${normalizedPath.replace(/:/g, '%3A')}`
+    }
     console.log('[Mars3DViewer] 本地文件路径转换:', {
       original: displayPath,
       normalized: normalizedPath,
-      encoded: encodedPath,
       converted: fullPath
     })
     return { url: fullPath }

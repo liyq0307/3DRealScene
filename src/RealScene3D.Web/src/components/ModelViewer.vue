@@ -275,12 +275,12 @@ const loadModel = async (url: string) => {
     if (url.startsWith('/')) {
       // 相对路径格式: /bucket/filename.ext
       // 转换为代理URL: /api/files/proxy/bucket/filename.ext
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+      const apiBaseUrl = import.meta.env.VITE_API_URL || '/api'
       fullUrl = `${apiBaseUrl}/files/proxy${url}`
       console.log(`Converting relative path to proxy URL: ${url} -> ${fullUrl}`)
     } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
       // 如果是MinIO对象名称（没有协议且不是相对路径），使用代理URL
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+      const apiBaseUrl = import.meta.env.VITE_API_URL || '/api'
       fullUrl = `${apiBaseUrl}/files/proxy/models-3d/${url}`
       console.log(`Converting MinIO object name to proxy URL: ${url} -> ${fullUrl}`)
     }

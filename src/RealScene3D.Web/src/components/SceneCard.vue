@@ -81,8 +81,8 @@ interface Props {
   id: string              // 场景唯一标识
   name: string            // 场景名称
   description?: string    // 场景描述（可选）
-  createdAt: string       // 创建时间 (ISO 8601)
-  updatedAt: string       // 更新时间 (ISO 8601)
+  createdAt?: string      // 创建时间 (ISO 8601)
+  updatedAt?: string      // 更新时间 (ISO 8601)
   previewImage?: string   // 预览图URL（可选）
 }
 

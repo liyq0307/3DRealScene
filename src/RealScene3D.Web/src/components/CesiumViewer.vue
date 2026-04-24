@@ -336,7 +336,7 @@ const cameraInfo = ref<CameraInfo>({
 
 /** API基础URL */
 const apiBaseUrl = computed(() => {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+  const baseUrl = import.meta.env.VITE_API_URL || '/api'
   return baseUrl.replace('/api', '')
 })
 
@@ -502,22 +502,28 @@ const resolveObjectUrl = (displayPath: string): string => {
     // 传递完整的绝对路径，让后端处理
     // 例如: E:\Data\3D\test\tileset.json -> /api/files/local/E:/Data/3D/test/tileset.json
 
-    // 标准化路径：将反斜杠转换为正斜杠
+    // 标准化路径：将所有反斜杠转换为正斜杠
     const normalizedPath = fullPath.replace(/\\/g, '/')
 
-    // ✅ 使用自定义编码：编码冒号和特殊字符，但保留路径分隔符 /
-    // 这样既能处理 Windows 路径的冒号，又能让 Cesium 正确解析相对路径
-    const encodedPath = normalizedPath
-      .replace(/:/g, '%3A')  // 编码冒号
-      .replace(/\s/g, '%20')  // 编码空格
-      .replace(/#/g, '%23')   // 编码井号
-      .replace(/\?/g, '%3F')  // 编码问号
+    // ✅ 分离盘符和后续路径
+    const driveMatch = normalizedPath.match(/^([A-Za-z]:)(.*)/)
+    if (driveMatch) {
+      const drive = driveMatch[1].replace(':', '%3A')
+      const rest = driveMatch[2]
+      // 对剩余部分进行编码，但保留正斜杠 /
+      const encodedRest = rest
+        .replace(/\s/g, '%20')
+        .replace(/#/g, '%23')
+        .replace(/\?/g, '%3F')
+      
+      fullPath = `${apiBaseUrl.value}/api/files/local/${drive}${encodedRest}`
+    } else {
+      fullPath = `${apiBaseUrl.value}/api/files/local/${normalizedPath.replace(/:/g, '%3A')}`
+    }
 
-    fullPath = `${apiBaseUrl.value}/api/files/local/${encodedPath}`
     console.log('[CesiumViewer] 本地文件路径转换:', {
       original: displayPath,
       normalized: normalizedPath,
-      encoded: encodedPath,
       converted: fullPath
     })
     return fullPath
