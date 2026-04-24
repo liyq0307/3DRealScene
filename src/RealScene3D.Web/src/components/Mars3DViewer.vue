@@ -394,14 +394,17 @@ const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; ori
     const pathParts = fullPath.split('/').filter((p: string) => p)
     const firstPart = pathParts[0]
 
-    // ✅ 核心修复：如果是相对路径且不包含盘符(如 E:)，则认为它存储在 MinIO 上
-    if (APP_CONFIG.MINIO_BUCKETS.includes(firstPart) || !fullPath.includes(':')) {
+    // ✅ 核心修复：判断路径是否为 MinIO bucket 路径
+    // 1. 如果第一部分是已知的 MinIO bucket（如 models-3d, slices），直接使用
+    // 2. 否则，默认添加 slices bucket 前缀
+    if (APP_CONFIG.MINIO_BUCKETS.includes(firstPart)) {
+      // 路径已经包含 bucket 名称，直接使用
       fullPath = `${apiBaseUrl.value}/api/files/proxy/${fullPath.replace(/^\//, '')}`
-      console.log('[Mars3DViewer] MinIO 路径转换:', { original: displayPath, converted: fullPath })
+      console.log('[Mars3DViewer] MinIO bucket 路径转换:', { original: displayPath, converted: fullPath })
     } else {
-      // 切片输出路径，默认放在 slices bucket
+      // 路径不包含 bucket，默认添加 slices bucket
       fullPath = `${apiBaseUrl.value}/api/files/proxy/slices/${fullPath.replace(/^\//, '')}`
-      console.log('[Mars3DViewer] 切片路径转换:', {
+      console.log('[Mars3DViewer] MinIO slices 路径转换:', {
         original: displayPath,
         converted: fullPath
       })
