@@ -259,9 +259,9 @@ onMounted(async () => {
         // ✅ 1. 自动识别数据类型
         const detectedType = detectDataType(modelPath)
         
-        // ✅ 2. 准备基础数据 (恢复 slices/ 前缀，方便 MinIO 分类)
+        // ✅ 2. 准备基础数据 （任务名称、输出路径）
         const taskName = `切片任务 - ${sceneObject.value.name}`
-        const defaultOutputPath = `slices/${sceneObject.value.name}_${Date.now()}`
+        const defaultOutputPath = `${sceneObject.value.name}_${Date.now()}`
 
         // ✅ 3. 切换数据类型（内部会重置表单）
         dataType.value = detectedType

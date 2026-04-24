@@ -122,9 +122,8 @@ export function validateObliqueForm(data: ObliqueSliceFormData): Map<string, str
     errors.set('dataPath', '请选择数据路径')
   }
   
-  if (!data.outputPath?.trim()) {
-    errors.set('outputPath', '请选择输出路径')
-  }
+  // ✅ 输出路径可选：为空时自动存储到 MinIO
+  // 不再验证输出路径是否为空
   
   // 格式验证
   if (data.spatialReference && !isValidCoordinateSystem(data.spatialReference)) {
@@ -148,10 +147,16 @@ export function mapObliqueFormDataToRequest(
   userId: string,
   sceneObjectId?: string
 ): ObliqueSlicingRequest {
-  // ✅ 彻底解决存储位置判定逻辑
+  // ✅ 修复存储位置判定逻辑
   const outputPathRaw = (formData.outputPath || '').trim()
+  
+  // 判断存储位置：
+  // 1. 空路径 → MinIO
+  // 2. 相对路径 → MinIO
+  // 3. 绝对路径 → LocalFileSystem
+  const isEmpty = !outputPathRaw
   const isRelative = outputPathRaw && !outputPathRaw.includes(':') && !outputPathRaw.startsWith('/')
-  const targetStorage = isRelative ? 'MinIO' : 'LocalFileSystem'
+  const targetStorage = (isEmpty || isRelative) ? 'MinIO' : 'LocalFileSystem'
   const finalOutputPath = outputPathRaw.replace(/\\/g, '/')
 
   return {
