@@ -505,10 +505,13 @@ const resolveObjectUrl = (displayPath: string): string => {
     // 标准化路径：将反斜杠转换为正斜杠
     const normalizedPath = fullPath.replace(/\\/g, '/')
 
-    // 使用 encodeURI 而非 encodeURIComponent，保留路径分隔符
-    // 这样 Cesium 可以正确解析相对路径（如 LOD-2/Mesh.b3dm）
-    // encodeURI 只编码特殊字符如空格、中文等，但保留 /、: 等路径相关字符
-    const encodedPath = encodeURI(normalizedPath)
+    // ✅ 使用自定义编码：编码冒号和特殊字符，但保留路径分隔符 /
+    // 这样既能处理 Windows 路径的冒号，又能让 Cesium 正确解析相对路径
+    const encodedPath = normalizedPath
+      .replace(/:/g, '%3A')  // 编码冒号
+      .replace(/\s/g, '%20')  // 编码空格
+      .replace(/#/g, '%23')   // 编码井号
+      .replace(/\?/g, '%3F')  // 编码问号
 
     fullPath = `${apiBaseUrl.value}/api/files/local/${encodedPath}`
     console.log('[CesiumViewer] 本地文件路径转换:', {

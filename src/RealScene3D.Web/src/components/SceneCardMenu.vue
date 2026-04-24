@@ -1,19 +1,9 @@
 <template>
   <!--
     场景卡片三点菜单组件
-    提供查看、编辑、删除操作选项
+    提供编辑、删除操作选项
   -->
   <div class="scene-card-menu" @click.stop role="menu" aria-label="场景操作菜单">
-    <button
-      class="menu-item"
-      @click="handleView"
-      @keydown.enter="handleView"
-      role="menuitem"
-    >
-      <span class="item-icon">👁️</span>
-      <span class="item-text">查看场景</span>
-    </button>
-
     <button
       class="menu-item"
       @click="handleEdit"
@@ -41,7 +31,7 @@
  * 场景卡片三点菜单组件 - Vue 3 组合式API实现
  *
  * 功能说明：
- * - 提供查看、编辑、删除三个操作选项
+ * - 提供编辑、删除两个操作选项
  * - 支持键盘操作
  * - 点击菜单项后自动关闭
  *
@@ -58,20 +48,12 @@ import { onMounted, onUnmounted } from 'vue'
  * 组件Emits接口定义
  */
 const emit = defineEmits<{
-  (e: 'view'): void      // 查看场景
   (e: 'edit'): void      // 编辑场景
   (e: 'delete'): void    // 删除场景
   (e: 'close'): void     // 关闭菜单
 }>()
 
 // ==================== 事件处理 ====================
-
-/**
- * 处理查看场景
- */
-const handleView = (): void => {
-  emit('view')
-}
 
 /**
  * 处理编辑场景

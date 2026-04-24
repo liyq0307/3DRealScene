@@ -11,10 +11,6 @@
           <span class="icon">🔄</span>
           刷新
         </button>
-        <button @click="openCreateDialog" class="btn btn-success">
-          <span class="icon">➕</span>
-          添加对象
-        </button>
       </div>
     </header>
 
@@ -194,10 +190,7 @@
 
       <!-- 空状态 -->
       <div v-if="filteredObjects.length === 0" class="empty-state">
-        <p>{{ searchKeyword || filterType ? '没有符合条件的对象' : '此场景暂无对象' }}</p>
-        <button @click="openCreateDialog" class="btn btn-primary">
-          添加第一个对象
-        </button>
+        <p>{{ searchKeyword || filterType ? '没有符合条件的对象' : '此场景暂无对象，请在场景编辑页面中添加' }}</p>
       </div>
     </div>
 
@@ -406,19 +399,6 @@ const handleSceneChange = async () => {
 // 对象操作方法
 const selectObject = (obj: any) => {
   selectedObject.value = obj
-}
-
-const openCreateDialog = () => {
-  if (!selectedSceneId.value) {
-    showError('请先选择一个场景再添加对象')
-    return
-  }
-  // 从弹窗方式改为路由跳转到添加页面
-  // 通过query参数传递当前选中的场景ID
-  router.push({ 
-    name: 'SceneObjectsAdd', 
-    query: { sceneId: selectedSceneId.value } 
-  })
 }
 
 /**

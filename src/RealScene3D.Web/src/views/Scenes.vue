@@ -82,6 +82,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
+import authStore from '@/stores/auth'
 import SearchFilter from '@/components/SearchFilter.vue'
 import Pagination from '@/components/Pagination.vue'
 import SceneCard from '@/components/SceneCard.vue'
@@ -146,12 +147,9 @@ const loadScenes = async () => {
 }
 
 /**
- * 查看场景详情
+ * 查看场景详情（点击卡片）
  *
  * @param id 场景唯一标识符
- *
- * 功能描述：
- * - 跳转到独立的场景预览页面
  */
 const viewScene = (id: string) => {
   console.log('[Scenes] viewScene() called with id:', id)
@@ -180,8 +178,8 @@ const editScene = (id: string) => {
 const deleteScene = async (id: string) => {
   if (confirm('确定要删除此场景吗?')) {
     try {
-      // 获取当前用户ID (使用已注册的管理员用户ID作为默认值)
-      const userId = '9055f06c-20d2-4e67-8a89-069887a2c4e8'
+      // 获取当前用户ID
+      const userId = authStore.currentUser.value?.id || '00000000-0000-0000-0000-000000000001'
       await sceneService.deleteScene(id, userId)
       showSuccess('场景删除成功')
       await loadScenes()

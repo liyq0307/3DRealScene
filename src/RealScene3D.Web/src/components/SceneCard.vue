@@ -44,7 +44,6 @@
       <!-- 三点菜单下拉 -->
       <SceneCardMenu
         v-if="menuVisible"
-        @view="handleView"
         @edit="handleEdit"
         @delete="handleDelete"
         @close="closeMenu"
@@ -61,7 +60,7 @@
  * - 现代化图像背景卡片设计
  * - 背景图像展示（场景预览图或占位图）
  * - 底部叠加半透明信息栏
- * - 三点菜单操作（查看、编辑、删除）
+ * - 三点菜单操作（编辑、删除）
  * - 悬停动画效果
  * - 响应式布局适配
  *
@@ -93,7 +92,7 @@ const props = defineProps<Props>()
  * 组件Emits接口定义
  */
 const emit = defineEmits<{
-  (e: 'view', id: string): void      // 查看场景
+  (e: 'view', id: string): void      // 查看场景（点击卡片）
   (e: 'edit', id: string): void      // 编辑场景
   (e: 'delete', id: string): void    // 删除场景
 }>()
@@ -196,14 +195,6 @@ const handleCardClick = (): void => {
   if (!menuVisible.value) {
     emit('view', props.id)
   }
-}
-
-/**
- * 处理查看场景
- */
-const handleView = (): void => {
-  emit('view', props.id)
-  closeMenu()
 }
 
 /**

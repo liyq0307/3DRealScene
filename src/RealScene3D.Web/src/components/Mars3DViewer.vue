@@ -311,10 +311,13 @@ const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; ori
     // 标准化路径：将反斜杠转换为正斜杠
     const normalizedPath = fullPath.replace(/\\/g, '/')
 
-    // 使用 encodeURI 而非 encodeURIComponent，保留路径分隔符
-    // 这样 Cesium 可以正确解析相对路径（如 LOD-2/Mesh.b3dm）
-    // encodeURI 只编码特殊字符如空格、中文等，但保留 /、: 等路径相关字符
-    const encodedPath = encodeURI(normalizedPath)
+    // ✅ 使用自定义编码：编码冒号和特殊字符，但保留路径分隔符 /
+    // 这样既能处理 Windows 路径的冒号，又能让 Cesium 正确解析相对路径
+    const encodedPath = normalizedPath
+      .replace(/:/g, '%3A')  // 编码冒号
+      .replace(/\s/g, '%20')  // 编码空格
+      .replace(/#/g, '%23')   // 编码井号
+      .replace(/\?/g, '%3F')  // 编码问号
 
     fullPath = `${apiBaseUrl.value}/api/files/local/${encodedPath}`
     console.log('[Mars3DViewer] 本地文件路径转换:', {
@@ -413,19 +416,33 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     const token = authStore.token.value
     const isSignedUrl = url.includes('X-Amz-Signature')
 
+    // ✅ 创建 Cesium.Resource 对象，正确处理相对路径
+    // 对于本地文件路径，需要提取基础目录作为 baseUrl
+    let resource: any = url
+    if (url.includes('/api/files/local/')) {
+      // 提取 tileset.json 所在的目录作为 baseUrl
+      const baseUrl = url.substring(0, url.lastIndexOf('/') + 1)
+      console.log('[loadTileset] 设置 baseUrl:', baseUrl)
+
+      resource = new Cesium.Resource({
+        url: url,
+        headers: token && !isSignedUrl ? { Authorization: `Bearer ${token}` } : undefined
+      })
+    } else if (token && !isSignedUrl) {
+      resource = new Cesium.Resource({
+        url: url,
+        headers: { Authorization: `Bearer ${token}` }
+      })
+    }
+
     // 构建Mars3D TilesetLayer配置
     const layerConfig: any = {
-      url: url,
+      url: resource,  // ✅ 使用 Resource 对象而不是字符串
       maximumScreenSpaceError: 16, // 默认值，平衡性能和质量
       maximumMemoryUsage: 512, // 限制内存使用 (MB)
       show: true,
       debugShowBoundingVolume: boundingBoxVisible.value,
       debugShowContentBoundingVolume: boundingBoxVisible.value
-    }
-
-    // 如果需要Authorization header且不是签名URL
-    if (token && !isSignedUrl) {
-      layerConfig.headers = { Authorization: `Bearer ${token}` }
     }
 
     // 解析旋转和缩放参数
