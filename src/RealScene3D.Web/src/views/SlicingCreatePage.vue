@@ -123,6 +123,7 @@ import {
 } from '@/composables/useObliqueSlice'
 import { slicingService, sceneObjectService } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import fileHandleStore from '@/services/fileHandleStore'
 
 const router = useRouter()
 const route = useRoute()
@@ -148,6 +149,97 @@ const currentFormData = computed(() => {
   return generalFormData.value
 })
 
+/**
+ * 扫描目录并定位主模型文件
+ * 针对本地文件句柄执行真实扫描，针对服务器路径执行启发式识别
+ */
+const resolveMainModelPath = async (path: string): Promise<string> => {
+  if (!path || !path.trim()) return ''
+  
+  // 1. 处理本地文件句柄 (local-file-handle://uuid)
+  if (path.startsWith('local-file-handle://')) {
+    try {
+      const uuid = path.replace('local-file-handle://', '')
+      const handle = await fileHandleStore.getHandle<any>(uuid)
+      
+      if (handle && handle.kind === 'directory') {
+        console.log('[SlicingCreate] 正在扫描本地目录句柄:', handle.name)
+        
+        // 检查权限
+        let permission = await handle.queryPermission({ mode: 'read' })
+        if (permission !== 'granted') {
+          permission = await handle.requestPermission({ mode: 'read' })
+        }
+        
+        if (permission !== 'granted') return path
+
+        const modelFiles: { name: string; size: number }[] = []
+        
+        // 遍历目录
+        for await (const entry of (handle as any).values()) {
+          if (entry.kind === 'file') {
+            const lowerName = entry.name.toLowerCase()
+            if (lowerName.endsWith('.obj') || lowerName.endsWith('.fbx') || 
+                lowerName.endsWith('.gltf') || lowerName.endsWith('.glb') ||
+                lowerName.endsWith('.ifc') || lowerName.endsWith('.dae')) {
+              const file = await entry.getFile()
+              modelFiles.push({ name: entry.name, size: file.size })
+            }
+          }
+        }
+
+        if (modelFiles.length > 0) {
+          // 查找优先级：同名 OBJ > odm_textured_model_geo.obj > 任意 OBJ > 最大文件
+          const folderName = handle.name.toLowerCase()
+          let target = modelFiles.find(f => f.name.toLowerCase() === `${folderName}.obj`)
+          if (!target) target = modelFiles.find(f => f.name.toLowerCase() === 'odm_textured_model_geo.obj')
+          if (!target) target = modelFiles.find(f => f.name.toLowerCase() === 'odm_textured_model.obj')
+          if (!target) target = modelFiles.find(f => f.name.toLowerCase().endsWith('.obj'))
+          if (!target) target = modelFiles.sort((a, b) => b.size - a.size)[0]
+
+          if (target) {
+            console.log(`[SlicingCreate] 已通过扫描自动定位主模型: ${target.name}`)
+            return `${path}/${target.name}`
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[SlicingCreate] 扫描本地目录失败:', err)
+    }
+    return path
+  }
+
+  // 2. 处理物理路径 (启发式识别)
+  // 标准化路径：将所有正斜杠转换为反斜杠（针对 Windows 路径）
+  let normalizedPath = path.replace(/\//g, '\\')
+  const parts = normalizedPath.split('\\')
+  const lastPart = parts.pop() || ''
+  
+  if (lastPart && !lastPart.includes('.')) {
+    console.log('[SlicingCreate] 检测到物理文件夹路径，执行启发式识别')
+    const lowerPart = lastPart.toLowerCase()
+    
+    // 基础路径（去除末尾斜杠）
+    const basePath = normalizedPath.replace(/[\\\/]?$/, '')
+    
+    // 如果文件夹名包含特定关键字，尝试追加标准入口文件名
+    if (lowerPart.includes('obj')) {
+      // 检查是否可能是 ODM 文件夹
+      if (lowerPart.includes('odm')) {
+        return `${basePath}\\odm_textured_model_geo.obj`
+      }
+      // 默认尝试 同名.obj
+      return `${basePath}\\${lastPart}.obj`
+    } else if (lowerPart.includes('fbx')) {
+      return `${basePath}\\${lastPart}.fbx`
+    } else if (lowerPart.includes('gltf') || lowerPart.includes('glb')) {
+      return `${basePath}\\${lastPart}.gltf`
+    }
+  }
+
+  return path
+}
+
 // 加载场景对象数据（如果通过 query 参数传递了 sceneObjectId）
 onMounted(async () => {
   const querySceneObjectId = route.query.sceneObjectId as string
@@ -162,7 +254,10 @@ onMounted(async () => {
       // 预填充表单数据
       if (sceneObject.value) {
         generalFormData.value.name = `切片任务 - ${sceneObject.value.name}`
-        generalFormData.value.modelPath = sceneObject.value.modelPath || ''
+        const modelPath = sceneObject.value.modelPath || ''
+        
+        // ✅ 异步解析主模型路径
+        generalFormData.value.modelPath = await resolveMainModelPath(modelPath)
       }
     } catch (error) {
       console.error('加载场景对象失败:', error)
@@ -245,9 +340,34 @@ const handleSubmit = async () => {
         return
       }
       
+      // ✅ 修复：如果路径指向文件夹（无扩展名），尝试自动补全主模型路径
+      let finalModelPath = generalFormData.value.modelPath.trim()
+      const lastPart = finalModelPath.split(/[\\\/]/).pop() || ''
+      
+      // 简单判断是否有扩展名
+      if (lastPart && !lastPart.includes('.')) {
+        console.log('[SlicingCreate] 检测到文件夹路径，尝试自动补全主模型文件')
+        const lowerPart = lastPart.toLowerCase()
+        
+        // 根据文件夹名称猜测入口文件
+        if (lowerPart.includes('obj')) {
+          finalModelPath = finalModelPath.replace(/[\\\/]?$/, '') + `/${lastPart}.obj`
+        } else if (lowerPart.includes('fbx')) {
+          finalModelPath = finalModelPath.replace(/[\\\/]?$/, '') + `/${lastPart}.fbx`
+        } else if (lowerPart.includes('gltf') || lowerPart.includes('glb')) {
+          finalModelPath = finalModelPath.replace(/[\\\/]?$/, '') + `/${lastPart}.gltf`
+        } else if (lowerPart.includes('ifc')) {
+          finalModelPath = finalModelPath.replace(/[\\\/]?$/, '') + `/${lastPart}.ifc`
+        } else if (lowerPart.includes('dae')) {
+          finalModelPath = finalModelPath.replace(/[\\\/]?$/, '') + `/${lastPart}.dae`
+        }
+        
+        console.log('[SlicingCreate] 路径补全结果:', finalModelPath)
+      }
+      
       requestData = {
         name: generalFormData.value.name,
-        sourceModelPath: generalFormData.value.modelPath,
+        sourceModelPath: finalModelPath,
         modelType: 'General3DModel',
         outputPath: generalFormData.value.outputPath || '',
         sceneObjectId: sceneObjectId.value || undefined, // 关联场景对象ID

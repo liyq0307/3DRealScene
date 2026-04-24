@@ -235,8 +235,19 @@ const getFileExtension = (filePath: string): string => {
   if (!filePath || typeof filePath !== 'string') {
     return ''
   }
+  // 移除查询参数
   const pathWithoutQuery = filePath.split('?')[0]
-  return pathWithoutQuery.split('.').pop()?.toLowerCase() || ''
+  // 获取路径的最后一部分（文件名）
+  const parts = pathWithoutQuery.split(/[\\\/]/)
+  const lastPart = parts[parts.length - 1]
+  
+  // 如果没有点，或者点是第一个字符（隐藏文件），则没有扩展名
+  const lastDotIndex = lastPart.lastIndexOf('.')
+  if (lastDotIndex <= 0) {
+    return ''
+  }
+  
+  return lastPart.substring(lastDotIndex + 1).toLowerCase()
 }
 
 const isAbsoluteUrl = (url: string): boolean => {
@@ -405,7 +416,16 @@ const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; ori
 }
 
 const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
-  const fileExt = getFileExtension(obj.displayPath)
+  let fileExt = getFileExtension(obj.displayPath)
+  
+  // ✅ 如果是文件夹，尝试从路径名中识别格式
+  if (!fileExt) {
+    const lowerPath = obj.displayPath.toLowerCase()
+    if (lowerPath.includes('obj')) fileExt = 'obj'
+    else if (lowerPath.includes('fbx')) fileExt = 'fbx'
+    else if (lowerPath.includes('las') || lowerPath.includes('laz')) fileExt = 'las'
+    else fileExt = '文件夹'
+  }
 
   if (obj.slicingTaskId && obj.slicingTaskStatus === 'Completed' && obj.slicingOutputPath) {
     let tilesetPath = obj.slicingOutputPath
@@ -660,39 +680,11 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
 
 /**
  * 使用 Three.js 叠加渲染模型
- * 参考: https://github.com/CesiumGS/cesium-threejs-experiment
+ * 目前统一使用 handleConvertibleFormat 显示占位点，提示用户切片
  */
 const loadThreeJSModel = async (obj: SceneObject, url: string): Promise<boolean> => {
-  if (!map || !viewer) return false
-
-  console.log('[loadThreeJSModel] Three.js 格式模型暂不支持直接预览，请先进行切片:', url)
-  
-  // 在地图上添加一个标记点，提示用户需要切片
-  const position = obj.position.every(coord => coord === 0)
-    ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, 100]
-    : obj.position
-
-  const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2] || 100)
-  loadedModels.set(obj.id, { 
-    type: 'model', 
-    object: null, 
-    position: cartesian
-  })
-  loadedObjectsCount.value = loadedModels.size
-
-  // 飞向位置
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(position[0], position[1], (position[2] || 100) + 500),
-    orientation: {
-      heading: Cesium.Math.toRadians(0),
-      pitch: Cesium.Math.toRadians(-45),
-      roll: 0
-    },
-    duration: 2
-  })
-
-  emit('objectLoaded', obj, true)
-  return true
+  console.log('[loadThreeJSModel] 原始模型格式暂不支持直接预览，请先进行切片:', url)
+  return await handleConvertibleFormat(obj)
 }
 
 /**
@@ -782,11 +774,32 @@ const normalizeObjectPosition = (obj: SceneObject): [number, number, number] => 
 }
 
 const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | 'gltf' | 'threejs' | 'convertible' | null => {
-  if (APP_CONFIG.SUPPORTED_FORMATS.convertible.includes(fileExt)) return 'convertible'
-  if (APP_CONFIG.SUPPORTED_FORMATS.threejsSupported.includes(fileExt)) return 'threejs'
-  if (!APP_CONFIG.SUPPORTED_FORMATS.nativelySupported.includes(fileExt)) return null
-  if (fullPath.endsWith('tileset.json') || fullPath.includes('/tileset.json')) return 'tileset'
-  if (['gltf', 'glb'].includes(fileExt)) return 'gltf'
+  // 1. 优先检查是否明确是 tileset.json
+  if (fullPath.toLowerCase().endsWith('tileset.json') || fullPath.toLowerCase().includes('/tileset.json')) {
+    return 'tileset'
+  }
+
+  // 2. 根据扩展名判定
+  if (fileExt) {
+    if (APP_CONFIG.SUPPORTED_FORMATS.convertible.includes(fileExt)) return 'convertible'
+    if (APP_CONFIG.SUPPORTED_FORMATS.threejsSupported.includes(fileExt)) return 'threejs'
+    if (['gltf', 'glb'].includes(fileExt)) return 'gltf'
+    if (fileExt === 'json') return 'tileset'
+    if (!APP_CONFIG.SUPPORTED_FORMATS.nativelySupported.includes(fileExt)) return null
+  }
+
+  // 3. 处理文件夹（无扩展名）
+  if (!fileExt) {
+    const lowerPath = fullPath.toLowerCase()
+    // 包含模型关键字的文件夹判定为需转换
+    if (lowerPath.includes('obj') || lowerPath.includes('fbx') || lowerPath.includes('dae') || 
+        lowerPath.includes('las') || lowerPath.includes('laz') || lowerPath.includes('e57')) {
+      return 'convertible'
+    }
+    // 默认假设是瓦片集文件夹
+    return 'tileset'
+  }
+  
   return null
 }
 
@@ -894,14 +907,26 @@ const loadSceneObject = async (obj: SceneObject): Promise<void> => {
 
     // 解析URL（非文件句柄路径）
     const resolved = await resolveObjectUrl(obj.displayPath)
-    const fullPath = resolved.url
+    let fullPath = resolved.url
     console.log('[Mars3DViewer] fullPath:', fullPath)
 
     // 检查文件格式
-    // 如果有原始文件名，使用原始文件名提取扩展名；否则使用URL
-    const fileExt = resolved.originalFileName 
+    let fileExt = resolved.originalFileName 
       ? getFileExtension(resolved.originalFileName)
       : getFileExtension(fullPath)
+      
+    // ✅ 修复文件夹逻辑：根据策略决定是否追加 tileset.json
+    if (!fileExt && !fullPath.toLowerCase().includes('tileset.json')) {
+      const strategy = determineLoadStrategy(fullPath, fileExt)
+      if (strategy === 'tileset') {
+        console.log('[Mars3DViewer] 判定为 3D Tiles 文件夹，尝试追加 tileset.json')
+        fullPath = fullPath.replace(/\/?$/, '/tileset.json')
+        fileExt = 'json'
+      } else {
+        console.log(`[Mars3DViewer] 判定文件夹策略为: ${strategy}`)
+      }
+    }
+    
     console.log('[Mars3DViewer] fileExt:', fileExt)
 
     // 确定加载策略
