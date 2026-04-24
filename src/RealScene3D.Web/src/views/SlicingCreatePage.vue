@@ -415,7 +415,6 @@ const handleSubmit = async () => {
         storageLocation: targetStorage, // 顶层标识
         sceneObjectId: sceneObjectId.value || undefined,
         slicingConfig: {
-          storageLocation: targetStorage, // 配置层标识（关键）
           outputFormat: generalFormData.value.outputFormat,
           coordinateSystem: 'EPSG:4326',
           customSettings: '{}',
