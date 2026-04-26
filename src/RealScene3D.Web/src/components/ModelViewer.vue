@@ -111,6 +111,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js'
+import { TilesRenderer } from '3d-tiles-renderer'
 
 interface Props {
   modelUrl?: string
@@ -153,6 +154,7 @@ let mixer: THREE.AnimationMixer | null = null
 let clock: THREE.Clock
 let grid: THREE.GridHelper
 let currentModel: THREE.Object3D | null = null
+let tilesRenderer: TilesRenderer | null = null  // 3D Tiles渲染器实例
 
 // 模型信息
 const modelInfo = ref<{
@@ -229,6 +231,11 @@ const animate = () => {
     mixer.update(delta)
   }
 
+  // 更新3D Tiles
+  if (tilesRenderer) {
+    tilesRenderer.update()
+  }
+
   // 渲染
   renderer.render(scene, camera)
 }
@@ -246,6 +253,11 @@ const loadModel = async (url: string) => {
     if (currentModel) {
       scene.remove(currentModel)
       currentModel = null
+    }
+
+    // 清除旧的 TilesRenderer
+    if (tilesRenderer) {
+      tilesRenderer = null
     }
 
     // 根据文件扩展名选择加载器
@@ -272,7 +284,15 @@ const loadModel = async (url: string) => {
 
     // 处理相对路径 - 转换为代理URL
     let fullUrl = url
-    if (url.startsWith('/')) {
+    if (url.startsWith('/api/files/local/')) {
+      // 本地文件代理路径，直接使用
+      fullUrl = url
+      console.log(`Local file proxy path, using directly: ${url}`)
+    } else if (url.startsWith('/api/')) {
+      // 已经是API路径，直接使用
+      fullUrl = url
+      console.log(`API path, using directly: ${url}`)
+    } else if (url.startsWith('/')) {
       // 相对路径格式: /bucket/filename.ext
       // 转换为代理URL: /api/files/proxy/bucket/filename.ext
       const apiBaseUrl = import.meta.env.VITE_API_URL || '/api'
@@ -301,8 +321,16 @@ const loadModel = async (url: string) => {
       case 'dae':
         model = await loadCollada(fullUrl)
         break
+      case 'json':
+        // 检查是否为 tileset.json (3D Tiles)
+        if (fullUrl.includes('tileset')) {
+          model = await loadTileset(fullUrl)
+        } else {
+          throw new Error(`不支持的JSON文件: ${fullUrl}`)
+        }
+        break
       default:
-        throw new Error(`不支持的文件格式: ${ext}。支持的格式: GLTF, GLB, OBJ, FBX, DAE`)
+        throw new Error(`不支持的文件格式: ${ext}。支持的格式: GLTF, GLB, OBJ, FBX, DAE, 3D Tiles (tileset.json)`)
     }
 
     // 添加到场景
@@ -821,6 +849,86 @@ const loadCollada = (url: string): Promise<THREE.Object3D> => {
       },
       reject
     )
+  })
+}
+
+// 加载3D Tiles
+const loadTileset = (url: string): Promise<THREE.Object3D> => {
+  return new Promise((resolve, reject) => {
+    console.log('[ModelViewer] 开始加载3D Tiles:', url)
+
+    if (!scene || !camera || !renderer) {
+      reject(new Error('Three.js场景未初始化'))
+      return
+    }
+
+    try {
+      // 清除旧的 TilesRenderer
+      if (tilesRenderer) {
+        tilesRenderer = null
+      }
+
+      tilesRenderer = new TilesRenderer(url)
+
+      // 设置相机和场景，TilesRenderer 需要这些来更新瓦片
+      tilesRenderer.setCamera(camera)
+      tilesRenderer.setResolutionFromRenderer(camera, renderer)
+
+      // 监听 tileset 加载完成事件来调整相机
+      tilesRenderer.addEventListener('load-tile-set', () => {
+        console.log('[ModelViewer] 3D Tiles 加载成功')
+
+        // 获取包围盒并调整相机
+        const box = new THREE.Box3()
+        const sphere = new THREE.Sphere()
+        tilesRenderer!.getBoundingBox(box)
+        tilesRenderer!.getBoundingSphere(sphere)
+
+        console.log('[ModelViewer] 包围盒信息:', {
+          boxMin: box.min.toArray(),
+          boxMax: box.max.toArray(),
+          sphereCenter: sphere.center.toArray(),
+          sphereRadius: sphere.radius
+        })
+
+        if (!box.isEmpty() && sphere.radius > 0) {
+          // 使用包围球来定位相机
+          const center = sphere.center
+          const radius = sphere.radius
+
+          // 设置相机位置：从中心沿(1,1,1)方向移动到合适距离
+          const distance = radius * 2.5
+          const direction = new THREE.Vector3(1, 1, 1).normalize()
+          camera.position.copy(center).add(direction.multiplyScalar(distance))
+          camera.lookAt(center)
+
+          // 设置轨道控制器目标
+          if (controls) {
+            controls.target.copy(center)
+            controls.update()
+          }
+
+          // 调整near/far平面
+          camera.near = radius / 100
+          camera.far = radius * 10
+          camera.updateProjectionMatrix()
+
+          console.log('[ModelViewer] 相机已调整:', {
+            position: camera.position.toArray(),
+            target: center.toArray(),
+            distance
+          })
+        }
+      })
+
+      console.log('[ModelViewer] TilesRenderer 创建成功，返回 group')
+
+      // 直接返回 group，TilesRenderer 会在动画循环中自动更新
+      resolve(tilesRenderer.group)
+    } catch (err) {
+      console.error('[ModelViewer] 创建 TilesRenderer 失败:', err)
+      reject(err)
+    }
   })
 }
 

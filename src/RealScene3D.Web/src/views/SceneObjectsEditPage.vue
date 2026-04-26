@@ -62,7 +62,7 @@
                   <span>📦</span> 批量选择
                 </button>
                 <button 
-                  v-if="objectForm.modelPath" 
+                  v-if="objectForm.modelPath && isPreviewSupported" 
                   @click="previewCurrentModel" 
                   class="btn-action btn-preview" 
                   type="button"
@@ -309,6 +309,37 @@ const hasTextureFiles = computed(() => selectedFiles.value.some(f => {
   const ext = f.name.toLowerCase()
   return ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png') || ext.endsWith('.webp') || ext.endsWith('.bmp')
 }))
+
+/**
+ * 判断当前模型是否支持预览
+ * ThreeViewer.vue 支持的格式：.gltf, .glb, .obj, .fbx, .stl, .ply, .dae, .json (3D Tiles)
+ * 不支持的格式应该隐藏预览按钮
+ */
+const isPreviewSupported = computed(() => {
+  // 如果有选中的文件，检查文件扩展名
+  if (selectedFiles.value.length > 0) {
+    // 检查是否有支持的格式
+    const supportedExts = ['.gltf', '.glb', '.obj', '.fbx', '.stl', '.ply', '.dae', '.json']
+    return selectedFiles.value.some(f => {
+      const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+      return supportedExts.includes(ext)
+    })
+  }
+
+  if (selectedFile.value) {
+    const supportedExts = ['.gltf', '.glb', '.obj', '.fbx', '.stl', '.ply', '.dae', '.json']
+    const ext = '.' + selectedFile.value.name.split('.').pop()?.toLowerCase()
+    return supportedExts.includes(ext)
+  }
+
+  // 检查 modelPath
+  const path = objectForm.value.modelPath
+  if (!path) return false
+
+  const lowerPath = path.toLowerCase()
+  const supportedExts = ['.gltf', '.glb', '.obj', '.fbx', '.stl', '.ply', '.dae', '.json']
+  return supportedExts.some(ext => lowerPath.includes(ext))
+})
 
 // 加载对象数据
 const loadObject = async () => {
@@ -638,9 +669,36 @@ const previewCurrentModel = async () => {
       return
     }
     
-    // 如果是本地文件路径（包含盘符或以/开头），提示用户
-    if (path.match(/^[A-Za-z]:\\/) || path.startsWith('/')) {
-      showError('本地文件路径需要在预览时通过文件选择器重新选择文件')
+    // 如果是本地文件路径（Windows路径如 E:\Data\... 或 Linux路径如 /home/user/...）
+    // 转换为后端代理URL进行预览
+    if (path.match(/^[A-Za-z]:[\\\/]/) || path.match(/^\/[^\/]/)) {
+      // 标准化路径：将反斜杠转换为正斜杠
+      const normalizedPath = path.replace(/\\/g, '/')
+
+      // 处理Windows路径：E:/Data/3D/model.glb -> /api/files/local/E:/Data/3D/model.glb
+      const driveMatch = normalizedPath.match(/^([A-Za-z]:)(.*)/)
+      if (driveMatch) {
+        const drive = driveMatch[1].replace(':', '%3A')
+        const rest = driveMatch[2]
+        // 对剩余部分进行编码，但保留正斜杠
+        const encodedRest = rest
+          .replace(/\s/g, '%20')
+          .replace(/#/g, '%23')
+          .replace(/\?/g, '%3F')
+
+        const proxyUrl = `/api/files/local/${drive}${encodedRest}`
+        console.log('[SceneObjectsEditPage] 本地文件路径转换为代理URL:', { original: path, proxyUrl })
+
+        previewModelUrl.value = proxyUrl
+        showPreviewDialog.value = true
+      } else {
+        // Linux路径：/home/user/model.glb -> /api/files/local/home/user/model.glb
+        const proxyUrl = `/api/files/local${normalizedPath}`
+        console.log('[SceneObjectsEditPage] Linux本地文件路径转换为代理URL:', { original: path, proxyUrl })
+
+        previewModelUrl.value = proxyUrl
+        showPreviewDialog.value = true
+      }
       return
     }
     
