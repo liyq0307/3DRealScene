@@ -95,7 +95,7 @@
             </span>
             <span class="meta-item status-item">
               <span class="meta-label">切片状态:</span>
-              <Badge :variant="getSlicingStatusVariant(obj.slicingTaskStatus)" :label="getSlicingStatusText(obj.slicingTaskStatus)" size="sm" />
+              <Badge :variant="getSlicingStatusVariant(getEffectiveSlicingStatus(obj))" :label="getSlicingStatusText(getEffectiveSlicingStatus(obj))" size="sm" />
             </span>
           </div>
           <div class="object-footer" @click.stop>
@@ -120,6 +120,7 @@
             <SceneObjectCardMenu
               v-if="activeMenuObjectId === obj.id"
               :preview-disabled="isPreviewDisabled(obj)"
+              :slicing-supported="isSlicingSupported(obj)"
               :slicing-disabled="isSlicingDisabled(obj)"
               :slicing-disabled-reason="getSlicingDisabledReason(obj)"
               @preview="previewObject(obj); closeMenu()"
@@ -165,21 +166,27 @@
               <td>{{ formatVector(obj.rotation) }}</td>
               <td>{{ formatVector(obj.scale) }}</td>
               <td>
-                <span :class="getSlicingStatusClass(obj.slicingTaskStatus)">
-                  {{ getSlicingStatusText(obj.slicingTaskStatus) }}
+                <span :class="getSlicingStatusClass(getEffectiveSlicingStatus(obj))">
+                  {{ getSlicingStatusText(getEffectiveSlicingStatus(obj)) }}
                 </span>
               </td>
               <td>{{ formatDateTime(obj.createdAt) }}</td>
               <td>
                 <div class="table-actions" @click.stop>
-                  <button 
-                    @click="previewObject(obj)" 
+                  <button
+                    @click="previewObject(obj)"
                     class="btn-sm"
                     :disabled="isPreviewDisabled(obj)"
                     :title="getPreviewTitle(obj)"
                   >预览</button>
                   <button @click="editObject(obj)" class="btn-sm">编辑</button>
-                  <button @click="startSlicing(obj)" class="btn-sm">切片</button>
+                  <button
+                    v-if="isSlicingSupported(obj)"
+                    @click="startSlicing(obj)"
+                    class="btn-sm"
+                    :disabled="isSlicingDisabled(obj)"
+                    :title="getSlicingDisabledReason(obj) || '切片'"
+                  >切片</button>
                   <button @click="deleteObject(obj.id)" class="btn-sm btn-danger">删除</button>
                 </div>
               </td>
@@ -434,6 +441,25 @@ const getPreviewTitle = (obj: any): string => {
 const isSlicingDisabled = (obj: any): boolean => {
   const modelPath = obj.modelPath || ''
   return modelPath.startsWith('local-file-handle://')
+}
+
+/**
+ * 判断是否需要显示切片按钮
+ * 3D Tiles (tileset.json) 已经是切片数据，不需要再切片
+ * 其他格式都需要显示切片按钮（即使已完成切片，也可以重新切片）
+ */
+const isSlicingSupported = (obj: any): boolean => {
+  const path = obj.modelPath || ''
+  if (!path) return false
+
+  const lowerPath = path.toLowerCase()
+
+  // 3D Tiles 不需要切片（本身就是切片数据）
+  if (lowerPath.includes('tileset.json') || (lowerPath.endsWith('.json') && lowerPath.includes('tileset'))) {
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -846,6 +872,23 @@ const getTypeIcon = (type: string): string => {
     Marker: '📍'
   }
   return iconMap[type] || '📦'
+}
+
+/**
+ * 获取对象的有效切片状态
+ * 对于 3D Tiles 格式，直接返回 'completed'
+ */
+const getEffectiveSlicingStatus = (obj: any): string => {
+  const path = obj.modelPath || ''
+  const lowerPath = path.toLowerCase()
+
+  // 如果是 3D Tiles 格式，直接返回已完成状态
+  if (lowerPath.includes('tileset.json') || (lowerPath.endsWith('.json') && lowerPath.includes('tileset'))) {
+    return 'completed'
+  }
+
+  // 否则返回实际的切片状态
+  return obj.slicingTaskStatus || ''
 }
 
 const getSlicingStatusClass = (status: string): string => {

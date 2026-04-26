@@ -154,6 +154,7 @@ interface SceneObject {
   slicingTaskStatus?: string
   slicingOutputPath?: string
   modelPath?: string
+  isVisible?: boolean
 }
 
 /**
@@ -803,6 +804,11 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     const cartesian = center
     loadedModels.set(obj.id, { type: '3dtiles', object: tileset, position: cartesian })
 
+    // 设置初始可见性
+    if (obj.isVisible === false) {
+      tileset.show = false
+    }
+
     // 更新对象计数和切片计数
     loadedObjectsCount.value = loadedModels.size
     tilesCount.value = Array.from(loadedModels.values()).filter(item => item.type === '3dtiles').length
@@ -974,9 +980,9 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
       await waitForModelReady(model)
       console.log('[loadGltfModel] 模型已就绪')
 
-      // 确保模型始终可见
-      model.show = true
-      console.log('[loadGltfModel] 设置模型可见性: true')
+      // 设置初始可见性
+      model.show = obj.isVisible !== false
+      console.log('[loadGltfModel] 设置模型可见性:', model.show)
 
       // 添加相机移动监听，确保模型始终可见
       addModelCameraListener(model)
@@ -1139,7 +1145,15 @@ const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | '
  */
 const loadSceneObject = async (obj: SceneObject): Promise<void> => {
   try {
-    console.log('[CesiumViewer] 开始加载场景对象:', obj.name)
+    console.log('[CesiumViewer] 开始加载场景对象:', obj.name, 'isVisible:', obj.isVisible)
+
+    // 检查对象是否可见
+    if (obj.isVisible === false) {
+      console.log('[CesiumViewer] 对象设置为不可见，跳过加载:', obj.name)
+      showSuccess(`对象 "${obj.name}" 已设置为不可见，跳过加载`)
+      emit('objectLoaded', obj, true)
+      return
+    }
 
     // 验证对象
     const validation = validateSceneObject(obj)
@@ -1282,7 +1296,26 @@ const loadSceneObjects = async (objects: SceneObject[]): Promise<void> => {
  * 为已加载的对象调整相机视角
  */
 const adjustCameraForLoadedObjects = async (): Promise<void> => {
-  if (!viewer || loadedModels.size === 0) return
+  if (!viewer) return
+
+  // 如果没有加载任何对象，飞向默认位置
+  if (loadedModels.size === 0) {
+    console.log('[adjustCameraForLoadedObjects] 没有加载任何对象，飞向默认位置')
+    await viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(
+        APP_CONFIG.DEFAULT_POSITION.longitude,
+        APP_CONFIG.DEFAULT_POSITION.latitude,
+        10000 // 10公里高度，可以看到底图
+      ),
+      orientation: {
+        heading: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading),
+        pitch: Cesium.Math.toRadians(APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch),
+        roll: 0
+      },
+      duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration
+    })
+    return
+  }
 
   if (loadedModels.size === 1) {
     // 单个对象已经通过flyTo处理过了
@@ -1307,6 +1340,31 @@ const adjustCameraForLoadedObjects = async (): Promise<void> => {
 /**
  * 清除已加载的对象
  */
+/**
+ * 设置对象可见性
+ * @param objectId 对象ID
+ * @param visible 是否可见
+ */
+const setObjectVisibility = (objectId: string, visible: boolean): void => {
+  const item = loadedModels.get(objectId)
+  if (!item) {
+    console.warn('[setObjectVisibility] 未找到对象:', objectId)
+    return
+  }
+
+  if (item.type === '3dtiles') {
+    const tileset = item.object as Cesium.Cesium3DTileset
+    tileset.show = visible
+  } else {
+    const model = item.object as Cesium.Model
+    model.show = visible
+  }
+
+  if (viewer) {
+    viewer.scene.requestRender()
+  }
+}
+
 const clearLoadedObjects = (): void => {
   if (!viewer) return
 
@@ -1909,6 +1967,12 @@ onUnmounted(() => {
     viewer.destroy()
     viewer = null
   }
+})
+
+defineExpose({
+  flyToPosition,
+  clearLoadedObjects,
+  setObjectVisibility
 })
 </script>
 

@@ -127,7 +127,7 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials()  // 允许发送凭据（Cookie）
-              .WithExposedHeaders("Content-Disposition", "Content-Type");  // 暴露响应头
+              .WithExposedHeaders("Content-Disposition", "Content-Type", "Content-Length", "X-File-Name");  // 暴露响应头
     });
 });
 
@@ -499,6 +499,8 @@ if (app.Environment.IsDevelopment())
 
 // 禁用HTTPS重定向，方便本地开发
 // app.UseHttpsRedirection();
+
+// ✅ CORS 必须在认证之前，确保预检请求不被拦截
 app.UseCors("AllowAll");
 
 // 启用认证和授权中间件

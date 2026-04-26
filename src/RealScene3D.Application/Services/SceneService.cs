@@ -535,6 +535,7 @@ public class SceneService : ISceneService
                     ModelPath = so.ModelPath,
                     MaterialData = so.MaterialData,
                     Properties = so.Properties,
+                    IsVisible = so.IsVisible,
                     CreatedAt = so.CreatedAt,
                     SlicingTaskId = so.SlicingTask?.Id,
                     SlicingTaskStatus = so.SlicingTask?.Status.ToString(),

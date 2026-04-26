@@ -197,7 +197,7 @@ public class SlicingAppService : ISlicingAppService
             // 判断存储位置的优先级：
             // 1. 如果用户在 SlicingConfig 中明确指定了 StorageLocation，使用用户指定的
             // 2. 如果任务的 OutputPath 是绝对路径（Path.IsPathRooted），判定为本地文件系统
-            // 3. 如果任务的 OutputPath 是相对路径或未提供路径，默认使用 MinIO
+            // 3. 如果任务的 OutputPath 是相对路径或为空，默认使用 MinIO
 
             // 关键修复：对于增量更新，应该使用 task.OutputPath 而不是 request.OutputPath
             // 因为增量更新时 task 可能来自 existingTask，其 OutputPath 已经确定
@@ -221,9 +221,20 @@ public class SlicingAppService : ISlicingAppService
             }
             else
             {
-                // 默认使用 MinIO
+                // ✅ 修改：相对路径或空路径时，使用 MinIO
                 domainConfig.StorageLocation = StorageLocationType.MinIO;
-                _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为MinIO路径。", task.Id, task.OutputPath!);
+                
+                // 如果 OutputPath 为空或相对路径，生成 MinIO 路径
+                if (string.IsNullOrEmpty(task.OutputPath))
+                {
+                    // 为 MinIO 生成一个唯一的路径
+                    task.OutputPath = GenerateOutputPathFromSource(request.SourceModelPath);
+                    _logger.LogInformation("切片任务 {TaskId} 输出路径为空，自动生成 MinIO 路径：{OutputPath}", task.Id, task.OutputPath);
+                }
+                else
+                {
+                    _logger.LogInformation("切片任务 {TaskId} 的输出路径 {OutputPath} 被识别为 MinIO 路径。", task.Id, task.OutputPath);
+                }
             }
 
             // 序列化更新后的配置

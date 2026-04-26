@@ -26,6 +26,7 @@
     </button>
 
     <button
+      v-if="slicingSupported"
       class="menu-item"
       @click="handleSlicing"
       @keydown.enter="handleSlicing"
@@ -69,11 +70,14 @@ import { onMounted, onUnmounted } from 'vue'
 
 interface Props {
   previewDisabled?: boolean
+  slicingSupported?: boolean  // 是否支持切片（3D Tiles不支持）
   slicingDisabled?: boolean
   slicingDisabledReason?: string
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  slicingSupported: true  // 默认支持切片
+})
 
 // ==================== Emits定义 ====================
 

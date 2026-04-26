@@ -98,6 +98,7 @@ interface SceneObject {
   slicingTaskStatus?: string
   slicingOutputPath?: string
   modelPath?: string
+  isVisible?: boolean
 }
 
 interface CameraInfo {
@@ -571,6 +572,11 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
 
     loadedModels.set(obj.id, { type: '3dtiles', object: tilesetLayer, position: center })
 
+    // 设置初始可见性
+    if (obj.isVisible === false) {
+      tilesetLayer.show = false
+    }
+
     loadedObjectsCount.value = loadedModels.size
     tilesCount.value = Array.from(loadedModels.values()).filter(item => item.type === '3dtiles').length
 
@@ -660,7 +666,8 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
       }
     })
 
-    model.show = true
+    // 设置初始可见性
+    model.show = obj.isVisible !== false
 
     loadedModels.set(obj.id, { type: 'model', object: model, position: cartesian })
     loadedObjectsCount.value = loadedModels.size
@@ -804,7 +811,15 @@ const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | '
 
 const loadSceneObject = async (obj: SceneObject): Promise<void> => {
   try {
-    console.log('[Mars3DViewer] 开始加载场景对象:', obj.name, obj)
+    console.log('[Mars3DViewer] 开始加载场景对象:', obj.name, 'isVisible:', obj.isVisible)
+
+    // 检查对象是否可见
+    if (obj.isVisible === false) {
+      console.log('[Mars3DViewer] 对象设置为不可见，跳过加载:', obj.name)
+      showSuccess(`对象 "${obj.name}" 已设置为不可见，跳过加载`)
+      emit('objectLoaded', obj, true)
+      return
+    }
 
     // 验证对象
     const validation = validateSceneObject(obj)
@@ -999,7 +1014,20 @@ const loadSceneObjects = async (objects: SceneObject[]): Promise<void> => {
  * 飞向所有已加载的对象（统一视角定位）
  */
 const flyToAllObjects = async (): Promise<void> => {
-  if (!map || loadedModels.size === 0) return
+  if (!map) return
+
+  // 如果没有加载任何对象，飞向默认位置
+  if (loadedModels.size === 0) {
+    console.log('[flyToAllObjects] 没有加载任何对象，飞向默认位置')
+    map.setCameraView({
+      lng: APP_CONFIG.DEFAULT_POSITION.longitude,
+      lat: APP_CONFIG.DEFAULT_POSITION.latitude,
+      alt: 10000, // 10公里高度，可以看到底图
+      heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
+      pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
+    }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+    return
+  }
 
   try {
     if (loadedModels.size === 1) {
@@ -1059,6 +1087,32 @@ const flyToAllObjects = async (): Promise<void> => {
     }
   } catch (error) {
     console.warn('[flyToAllObjects] 飞向对象失败:', error)
+  }
+}
+
+/**
+ * 设置对象可见性
+ * @param objectId 对象ID
+ * @param visible 是否可见
+ */
+const setObjectVisibility = (objectId: string, visible: boolean): void => {
+  const item = loadedModels.get(objectId)
+  if (!item) {
+    console.warn('[setObjectVisibility] 未找到对象:', objectId)
+    return
+  }
+
+  if (item.type === '3dtiles') {
+    const layer = item.object as mars3d.layer.TilesetLayer
+    layer.show = visible
+  } else {
+    // Cesium.Model
+    const model = item.object as Cesium.Model
+    model.show = visible
+  }
+
+  if (viewer) {
+    viewer.scene.requestRender()
   }
 }
 
@@ -1617,7 +1671,8 @@ onUnmounted(() => {
 defineExpose({
   toggleBasemap,
   setBasemapVisible,
-  getBasemapVisible
+  getBasemapVisible,
+  setObjectVisibility
 })
 </script>
 

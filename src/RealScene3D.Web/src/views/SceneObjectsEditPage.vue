@@ -152,6 +152,34 @@
               </ul>
             </div>
           </div>
+          
+          <!-- 切片对象 -->
+          <div v-if="showSlicingInfo" class="form-group">
+            <label><span class="title-icon">✂️</span> 切片数据</label>
+            <div class="slicing-objects-list">
+              <div class="slicing-object-item">
+                <div class="slicing-info">
+                  <span class="slicing-icon">📦</span>
+                  <div class="slicing-details">
+                    <h4 class="slicing-name">{{ getSlicingName() }}</h4>
+                    <p v-if="originalObject?.slicingOutputPath" class="slicing-path" :title="originalObject.slicingOutputPath">
+                      {{ getShortPath(originalObject.slicingOutputPath) }}
+                    </p>
+                  </div>
+                  <div class="slicing-actions">
+                    <button
+                      @click="deleteSlicing"
+                      class="btn-delete-slicing"
+                      title="删除切片"
+                      type="button"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 变换属性 -->
@@ -254,13 +282,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { sceneObjectService, fileService } from '@/services/api'
+import { sceneObjectService, fileService, slicingService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
+import { useAuthStore } from '@/stores/auth'
 import Modal from '@/components/Modal.vue'
 import ModelViewer from '@/components/ModelViewer.vue'
 import { FileHandleStore } from '@/services/fileHandleStore'
 
 const { success: showSuccess, error: showError } = useMessage()
+const { currentUser } = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -271,6 +301,7 @@ const fileHandleStore = new FileHandleStore()
 const isLoading = ref(true)
 const isSubmitting = ref(false)
 const objectId = ref<string>('')
+const originalObject = ref<any>(null)
 
 // 预览状态
 const showPreviewDialog = ref(false)
@@ -341,6 +372,11 @@ const isPreviewSupported = computed(() => {
   return supportedExts.some(ext => lowerPath.includes(ext))
 })
 
+// 计算属性：是否显示切片信息
+const showSlicingInfo = computed(() => {
+  return originalObject.value?.slicingOutputPath && originalObject.value?.slicingOutputPath.trim() !== ''
+})
+
 // 加载对象数据
 const loadObject = async () => {
   const id = route.params.id as string
@@ -355,7 +391,10 @@ const loadObject = async () => {
   try {
     isLoading.value = true
     const obj = await sceneObjectService.getObject(id)
-    
+
+    // 保存原始对象数据（用于切片信息显示）
+    originalObject.value = obj
+
     // 解析位置数据
     let position = { x: 0, y: 0, z: 0 }
     if (obj.position) {
@@ -758,6 +797,77 @@ const generateUUID = (): string => {
   })
 }
 
+// 获取切片名称
+const getSlicingName = (): string => {
+  if (!originalObject.value) return '切片数据'
+  return originalObject.value.slicingName || originalObject.value.name || '切片数据'
+}
+
+// 获取短路径（用于显示）
+const getShortPath = (path: string): string => {
+  if (!path) return ''
+  const maxLength = 50
+  if (path.length <= maxLength) return path
+
+  // 尝试保留文件名
+  const lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  if (lastSlash !== -1) {
+    const fileName = path.substring(lastSlash + 1)
+    const directory = path.substring(0, lastSlash)
+    if (fileName.length >= maxLength - 3) {
+      return '...' + fileName.substring(fileName.length - maxLength + 3)
+    }
+    return directory.substring(0, maxLength - fileName.length - 4) + '/.../' + fileName
+  }
+
+  return path.substring(0, maxLength - 3) + '...'
+}
+
+// 删除切片
+const deleteSlicing = async () => {
+  if (!originalObject.value?.slicingTaskId) {
+    showError('没有可删除的切片数据')
+    return
+  }
+
+  const confirmed = confirm('确定要删除切片数据吗？此操作将删除切片任务及其生成的所有切片文件，不可撤销。')
+  if (!confirmed) return
+
+  try {
+    isSubmitting.value = true
+
+    // 获取当前用户ID
+    const userId = currentUser.value?.id
+    if (!userId) {
+      showError('无法获取用户信息，请重新登录')
+      return
+    }
+
+    // 调用切片任务删除 API
+    await slicingService.deleteSlicingTask(
+      originalObject.value.slicingTaskId,
+      userId
+    )
+
+    // 更新本地状态
+    originalObject.value = {
+      ...originalObject.value,
+      slicingTaskId: null,
+      slicingTaskStatus: null,
+      slicingOutputPath: null,
+      displayPath: objectForm.value.modelPath
+    }
+
+    showSuccess('切片数据已删除')
+  } catch (error: any) {
+    console.error('删除切片失败:', error)
+    const errorMessage = error.response?.data?.message || error.message || '删除切片失败'
+    showError(`删除切片失败: ${errorMessage}`)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
 // 保存对象
 const saveObject = async () => {
   if (isSubmitting.value) return
@@ -947,9 +1057,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 遵循项目设计规范 - 浅色主题，主色调 #6366f1 */
+
 .scene-objects-edit-page {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: linear-gradient(to bottom, #f9fafb 0%, #ffffff 100%);
   display: flex;
   flex-direction: column;
 }
@@ -957,12 +1069,15 @@ onMounted(() => {
 /* 页面头部 */
 .page-header {
   background: white;
-  border-bottom: 1px solid #e1e5e9;
-  padding: 1rem 2rem;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1.25rem 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .header-left {
@@ -976,37 +1091,39 @@ onMounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  border: 1px solid #e1e5e9;
-  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   background: white;
   cursor: pointer;
-  font-size: 0.9rem;
-  color: #666;
-  transition: all 0.2s ease;
+  font-size: 0.875rem;
+  color: #6b7280;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 500;
 }
 
 .btn-back:hover {
-  border-color: #1890ff;
-  color: #1890ff;
-  background: #f0f7ff;
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #f5f7ff;
 }
 
 .back-icon {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .page-header h1 {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
-  color: #333;
+  color: #1f2937;
+  letter-spacing: -0.02em;
 }
 
 /* 页面内容 */
 .page-content {
   flex: 1;
-  padding: 1.5rem;
-  max-width: 1000px;
+  padding: 2rem;
+  max-width: 900px;
   margin: 0 auto;
   width: 100%;
 }
@@ -1015,25 +1132,27 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 300px;
-  color: #999;
+  min-height: 400px;
+  color: #9ca3af;
 }
 
 .loading-state p {
   font-size: 1rem;
 }
 
+/* 表单容器 */
 .form-container {
   background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
   overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 /* 表单区域 */
 .form-section {
-  padding: 1.5rem;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 1.75rem 2rem;
+  border-bottom: 1px solid #f3f4f6;
 }
 
 .form-section:last-of-type {
@@ -1042,16 +1161,17 @@ onMounted(() => {
 
 .section-title {
   margin: 0 0 1.25rem 0;
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: #333;
+  color: #374151;
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .title-icon {
-  font-size: 1.1rem;
+  font-size: 1rem;
+  color: #6366f1;
 }
 
 /* 表单行 */
@@ -1064,7 +1184,7 @@ onMounted(() => {
 
 /* 表单组 */
 .form-group {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .form-group:last-child {
@@ -1075,43 +1195,74 @@ onMounted(() => {
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
-  font-size: 0.9rem;
-  color: #333;
+  font-size: 0.875rem;
+  color: #374151;
 }
 
 .required {
-  color: #ff4d4f;
+  color: #ef4444;
+  margin-left: 2px;
 }
 
+/* 输入框 */
 .form-input {
   width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
+  padding: 0.625rem 1rem;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: white;
+  color: #1f2937;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.form-input::placeholder {
+  color: #9ca3af;
+}
+
+.form-input:hover {
+  border-color: #d1d5db;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #1890ff;
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 .form-input[readonly] {
-  background-color: #f8f9fa;
+  background: #f9fafb;
   cursor: pointer;
-  color: #495057;
+  color: #6b7280;
 }
 
 .form-input[readonly]:hover {
-  background-color: #e9ecef;
+  background: #f3f4f6;
+}
+
+/* 下拉选择框 */
+select.form-input {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  padding-right: 2.5rem;
+}
+
+select.form-input option {
+  background: white;
+  color: #1f2937;
 }
 
 .field-hint {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: #666;
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #f5f7ff;
+  border-radius: 8px;
+  border-left: 3px solid #6366f1;
+  font-size: 0.8rem;
+  color: #4b5563;
 }
 
 .field-hint p {
@@ -1119,16 +1270,22 @@ onMounted(() => {
 }
 
 .field-hint ul {
-  margin: 0.25rem 0;
+  margin: 0.5rem 0;
   padding-left: 1.25rem;
 }
 
 .field-hint li {
-  margin: 0.15rem 0;
+  margin: 0.25rem 0;
 }
 
 .field-hint strong {
-  color: #333;
+  color: #374151;
+}
+
+.form-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #6b7280;
 }
 
 /* 模型路径选择器 */
@@ -1138,69 +1295,71 @@ onMounted(() => {
   gap: 0.75rem;
 }
 
-.model-path-selector .form-input {
-  flex: 1;
-}
-
 .path-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
+/* 操作按钮 */
 .btn-action {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 1rem;
-  background: #007acc;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   white-space: nowrap;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
 }
 
 .btn-action:hover {
-  background: #005999;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .btn-action.btn-preview {
-  background: #28a745;
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 }
 
 .btn-action.btn-preview:hover {
-  background: #218838;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
 }
 
 .btn-action.btn-batch {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+  box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
 }
 
 .btn-action.btn-batch:hover {
-  background: linear-gradient(135deg, #5a67d8 0%, #6b42ad 100%);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
 }
 
 .btn-action span {
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 /* 文件信息显示 */
 .file-info {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  background: #f8f9fa;
-  border: 1px solid #e1e5e9;
-  border-radius: 6px;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: #f5f7ff;
+  border: 1px solid #e0e7ff;
+  border-radius: 10px;
+  margin-top: 0.75rem;
 }
 
 .file-icon {
-  font-size: 2rem;
+  font-size: 1.75rem;
 }
 
 .file-details {
@@ -1210,42 +1369,43 @@ onMounted(() => {
 
 .file-name {
   font-weight: 600;
-  color: #333;
+  color: #1f2937;
   margin-bottom: 0.25rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.9rem;
 }
 
 .file-meta {
   display: flex;
   gap: 1rem;
-  font-size: 0.85rem;
-  color: #666;
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .btn-clear {
-  padding: 0.25rem 0.5rem;
-  background: #dc3545;
-  color: white;
+  padding: 0.35rem 0.6rem;
+  background: #fee2e2;
+  color: #ef4444;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.85rem;
   transition: all 0.2s;
 }
 
 .btn-clear:hover {
-  background: #c82333;
+  background: #fecaca;
 }
 
 /* 批量文件上传样式 */
 .files-list {
   margin-top: 1rem;
-  padding: 1rem;
-  background: #f8f9fa;
-  border: 1px solid #e1e5e9;
-  border-radius: 6px;
+  padding: 1.25rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
 }
 
 .files-list-header {
@@ -1254,71 +1414,71 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
-  border-bottom: 2px solid #e1e5e9;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .files-count {
   font-weight: 600;
-  color: #333;
-  font-size: 0.95rem;
+  color: #374151;
+  font-size: 0.875rem;
 }
 
 .btn-clear-all {
-  padding: 0.4rem 0.8rem;
-  background: #dc3545;
+  padding: 0.4rem 0.875rem;
+  background: #ef4444;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .btn-clear-all:hover {
-  background: #c82333;
+  background: #dc2626;
   transform: translateY(-1px);
 }
 
 .files-grid {
   display: grid;
-  gap: 0.75rem;
-  max-height: 300px;
+  gap: 0.5rem;
+  max-height: 280px;
   overflow-y: auto;
   padding-right: 0.5rem;
 }
 
 .files-grid::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .files-grid::-webkit-scrollbar-thumb {
-  background: #cbd5e0;
-  border-radius: 3px;
+  background: #d1d5db;
+  border-radius: 2px;
 }
 
 .files-grid::-webkit-scrollbar-track {
-  background: #f7fafc;
+  background: #f3f4f6;
 }
 
 .file-item {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem;
+  padding: 0.75rem 1rem;
   background: white;
-  border: 1px solid #e1e5e9;
-  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   transition: all 0.2s;
 }
 
 .file-item:hover {
-  border-color: #007acc;
-  box-shadow: 0 2px 4px rgba(0, 122, 204, 0.1);
+  border-color: #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
 }
 
 .file-item .file-icon {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   flex-shrink: 0;
 }
 
@@ -1328,54 +1488,53 @@ onMounted(() => {
 }
 
 .file-item .file-name {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
 }
 
 .file-item .file-size {
-  font-size: 0.8rem;
-  color: #666;
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .btn-remove {
   padding: 0.25rem 0.5rem;
-  background: #f8f9fa;
-  color: #dc3545;
-  border: 1px solid #e1e5e9;
+  background: #f3f4f6;
+  color: #ef4444;
+  border: 1px solid #e5e7eb;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   font-weight: 600;
   transition: all 0.2s;
   flex-shrink: 0;
 }
 
 .btn-remove:hover {
-  background: #dc3545;
-  color: white;
-  border-color: #dc3545;
+  background: #fee2e2;
+  border-color: #fca5a5;
 }
 
 /* OBJ文件上传提示 */
 .upload-hint {
   margin-top: 1rem;
-  padding: 1rem;
-  border-radius: 6px;
-  border-left: 4px solid;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  border-left: 3px solid;
   display: flex;
-  gap: 0.75rem;
+  gap: 1rem;
   animation: fadeIn 0.3s ease;
 }
 
 .upload-hint.success {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%);
-  border-left-color: #22c55e;
+  background: #d1fae5;
+  border-left-color: #10b981;
 }
 
 .hint-icon {
   font-size: 1.25rem;
-  color: #22c55e;
+  color: #10b981;
   flex-shrink: 0;
 }
 
@@ -1386,44 +1545,44 @@ onMounted(() => {
 .hint-content strong {
   display: block;
   margin-bottom: 0.5rem;
-  color: #15803d;
-  font-size: 0.95rem;
+  color: #065f46;
+  font-size: 0.875rem;
 }
 
 .hint-content p {
   margin: 0 0 0.75rem 0;
-  color: #166534;
-  font-size: 0.85rem;
+  color: #047857;
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
 .file-check {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 .check-item {
-  padding: 0.4rem 0.75rem;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  border-radius: 4px;
-  font-size: 0.85rem;
-  color: #666;
+  padding: 0.35rem 0.75rem;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #6b7280;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .check-item.checked {
-  background: rgba(34, 197, 94, 0.15);
-  border-color: #22c55e;
-  color: #15803d;
+  background: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
@@ -1439,17 +1598,17 @@ onMounted(() => {
 }
 
 .transform-group {
-  background: #fafafa;
+  background: #f9fafb;
   padding: 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .transform-group label {
   display: block;
   margin-bottom: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: #666;
+  color: #6b7280;
 }
 
 .vector-input {
@@ -1460,81 +1619,98 @@ onMounted(() => {
 
 .vector-input input {
   width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #d9d9d9;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e5e7eb;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   text-align: center;
+  background: white;
+  color: #1f2937;
   transition: all 0.2s ease;
   box-sizing: border-box;
 }
 
 .vector-input input:focus {
   outline: none;
-  border-color: #1890ff;
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
 /* 复选框 */
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   cursor: pointer;
   font-weight: 500;
-  font-size: 0.9rem;
-  color: #333;
+  font-size: 0.875rem;
+  color: #374151;
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s;
+}
+
+.checkbox-label:hover {
+  border-color: #6366f1;
+  background: #f5f7ff;
 }
 
 .checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   cursor: pointer;
+  accent-color: #6366f1;
 }
 
-/* 操作按钮 */
+/* 操作按钮区域 */
 .form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-  padding: 1rem 1.5rem;
-  background: #fafafa;
-  border-top: 1px solid #f0f0f0;
+  padding: 1.5rem 2rem;
+  background: #f9fafb;
+  border-top: 1px solid #e5e7eb;
 }
 
 .btn {
-  padding: 0.5rem 1.5rem;
-  border-radius: 6px;
+  padding: 0.625rem 1.5rem;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-primary {
-  background: #1890ff;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: white;
   border: none;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #40a9ff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
 }
 
 .btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
 
 .btn-secondary {
   background: white;
-  color: #666;
-  border: 1px solid #d9d9d9;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
 }
 
 .btn-secondary:hover {
-  border-color: #1890ff;
-  color: #1890ff;
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #f5f7ff;
 }
 
 /* URL对话框样式 */
@@ -1544,16 +1720,16 @@ onMounted(() => {
 
 .url-hints {
   margin-top: 1rem;
-  padding: 0.75rem;
-  background: #f8f9fa;
-  border-radius: 4px;
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
 }
 
 .hint-title {
-  margin: 0 0 0.5rem 0;
-  font-size: 0.85rem;
+  margin: 0 0 0.75rem 0;
+  font-size: 0.8rem;
   font-weight: 600;
-  color: #666;
+  color: #6b7280;
 }
 
 .format-tags {
@@ -1563,12 +1739,93 @@ onMounted(() => {
 }
 
 .format-tags .tag {
-  padding: 0.25rem 0.75rem;
-  background: #007acc;
+  padding: 0.35rem 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border-radius: 12px;
-  font-size: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
   font-weight: 500;
+}
+
+/* 切片对象样式 */
+.slicing-objects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.slicing-object-item {
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.slicing-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.slicing-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.slicing-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.slicing-name {
+  margin: 0 0 0.35rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.slicing-path {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'SFMono-Regular', 'Consolas', monospace;
+}
+
+.slicing-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-delete-slicing {
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid #ef4444;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.btn-delete-slicing:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.empty-slicing {
+  padding: 2.5rem;
+  text-align: center;
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 12px;
+  color: #9ca3af;
+}
+
+.empty-slicing p {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 /* 响应式设计 */
@@ -1582,7 +1839,7 @@ onMounted(() => {
   }
 
   .form-section {
-    padding: 1rem;
+    padding: 1.25rem 1.5rem;
   }
 
   .form-row {
@@ -1593,6 +1850,10 @@ onMounted(() => {
   .vector-input {
     grid-template-columns: 1fr;
     gap: 0.5rem;
+  }
+
+  .form-actions {
+    padding: 1rem 1.5rem;
   }
 }
 </style>

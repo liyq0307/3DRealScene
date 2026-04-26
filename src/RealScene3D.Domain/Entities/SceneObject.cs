@@ -71,6 +71,12 @@ public class SceneObject : BaseEntity
     public string Properties { get; set; } = "{}";
 
     /// <summary>
+    /// 对象是否可见，默认为true
+    /// 用于控制对象在场景中的显示状态
+    /// </summary>
+    public bool IsVisible { get; set; } = true;
+
+    /// <summary>
     /// 所属场景导航属性
     /// 与Scene3D实体建立多对一关联关系
     /// 用于获取场景的完整信息和相关对象

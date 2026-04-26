@@ -395,7 +395,7 @@ public class FilesController : ControllerBase
                     {
                         stream = System.IO.File.OpenRead(localPath);
                         fileFound = true;
-                        _logger.LogInformation("从本地文件系统加载文件成功：{LocalPath}", localPath);
+                        _logger.LogDebug("从本地文件系统加载文件成功：{LocalPath}", localPath);
                     }
                 }
                 else
@@ -408,7 +408,7 @@ public class FilesController : ControllerBase
                     {
                         stream = System.IO.File.OpenRead(fullLocalPath);
                         fileFound = true;
-                        _logger.LogInformation("从slices目录加载文件成功：{LocalPath}", fullLocalPath);
+                        _logger.LogDebug("从slices目录加载文件成功：{LocalPath}", fullLocalPath);
                     }
                 }
             }
@@ -424,7 +424,8 @@ public class FilesController : ControllerBase
 
             // 检查是否是b3dm文件且已gzip压缩
             var extension = Path.GetExtension(decodedObjectPath).ToLowerInvariant();
-            if (extension == ".b3dm" || extension == ".pnts" || extension == ".i3dm" || extension == ".cmpt")
+            var is3DTilesTile = extension == ".b3dm" || extension == ".pnts" || extension == ".i3dm" || extension == ".cmpt";
+            if (is3DTilesTile)
             {
                 // 读取文件头部，检查是否是gzip压缩
                 var header = new byte[2];
@@ -433,7 +434,7 @@ public class FilesController : ControllerBase
                 // 检查gzip魔数 (0x1f 0x8b)
                 if (bytesRead == 2 && header[0] == 0x1f && header[1] == 0x8b)
                 {
-                    _logger.LogInformation("检测到gzip压缩的3D Tiles文件，进行解压: {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
+                    _logger.LogDebug("检测到gzip压缩的3D Tiles文件，进行解压: {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
 
                     // 重置流位置
                     stream.Position = 0;
@@ -445,7 +446,7 @@ public class FilesController : ControllerBase
                         await gzipStream.CopyToAsync(decompressedData);
                         decompressedData.Position = 0;
 
-                        _logger.LogInformation("成功解压3D Tiles文件: {Bucket}/{ObjectPath}, 解压后大小: {DecompressedSize}",
+                        _logger.LogDebug("成功解压3D Tiles文件: {Bucket}/{ObjectPath}, 解压后大小: {DecompressedSize}",
                             bucket, decodedObjectPath, decompressedData.Length);
 
                         stream = decompressedData;
@@ -502,7 +503,7 @@ public class FilesController : ControllerBase
                 }
             }
 
-            _logger.LogInformation("代理访问文件成功: {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
+            _logger.LogDebug("代理访问文件成功: {Bucket}/{ObjectPath}", bucket, decodedObjectPath);
 
             // 设置CORS头，允许Cesium跨域访问
             Response.Headers["Access-Control-Allow-Origin"] = "*";
@@ -549,7 +550,7 @@ public class FilesController : ControllerBase
                 return BadRequest(new { message = "路径必须是绝对路径", path = decodedPath });
             }
 
-            _logger.LogInformation("访问本地文件: {FilePath}", fullPath);
+            _logger.LogDebug("访问本地文件: {FilePath}", fullPath);
 
             // 安全检查：验证路径根目录有效性
             var pathRoot = Path.GetPathRoot(fullPath);
@@ -581,7 +582,7 @@ public class FilesController : ControllerBase
                     // 检查gzip魔数 (0x1f 0x8b)
                     if (bytesRead == 2 && header[0] == 0x1f && header[1] == 0x8b)
                     {
-                        _logger.LogInformation("检测到gzip压缩的b3dm文件，进行解压: {FilePath}", fullPath);
+                        _logger.LogDebug("检测到gzip压缩的b3dm文件，进行解压: {FilePath}", fullPath);
 
                         // 重新打开文件并解压
                         using (var compressedStream = System.IO.File.OpenRead(fullPath))
@@ -595,7 +596,7 @@ public class FilesController : ControllerBase
                             Response.Headers["Content-Disposition"] = "inline";
                             Response.Headers["Cache-Control"] = "public, max-age=3600";
 
-                            _logger.LogInformation("成功解压并返回本地文件: {FilePath}, 原始大小: {CompressedSize}, 解压后大小: {DecompressedSize}",
+                            _logger.LogDebug("成功解压并返回本地文件: {FilePath}, 原始大小: {CompressedSize}, 解压后大小: {DecompressedSize}",
                                 fullPath, new FileInfo(fullPath).Length, decompressedData.Length);
 
                             return File(decompressedData.ToArray(), contentType);
@@ -613,7 +614,7 @@ public class FilesController : ControllerBase
             // 添加缓存控制
             Response.Headers["Cache-Control"] = "public, max-age=3600";
 
-            _logger.LogInformation("成功返回本地文件: {FilePath}, ContentType: {ContentType}", fullPath, contentType);
+            _logger.LogDebug("成功返回本地文件: {FilePath}, ContentType: {ContentType}", fullPath, contentType);
             return File(fileStream, contentType);
         }
         catch (Exception ex)

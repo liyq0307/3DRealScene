@@ -297,6 +297,11 @@ public class SceneDtos
         /// 对象属性数据JSON格式，可选项
         /// </summary>
         public string? Properties { get; set; }
+
+        /// <summary>
+        /// 对象是否可见，可选项
+        /// </summary>
+        public bool? IsVisible { get; set; }
     }
 
     /// <summary>
@@ -354,6 +359,11 @@ public class SceneDtos
         /// 对象属性数据JSON字符串
         /// </summary>
         public string Properties { get; set; } = "{}";
+
+        /// <summary>
+        /// 对象是否可见
+        /// </summary>
+        public bool IsVisible { get; set; } = true;
 
         /// </summary>
         public DateTime CreatedAt { get; set; }

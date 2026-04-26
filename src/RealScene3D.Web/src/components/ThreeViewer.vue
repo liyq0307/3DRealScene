@@ -128,6 +128,7 @@ interface SceneObject {
   rotation: TransformParams | string
   scale: TransformParams | string
   modelPath?: string
+  isVisible?: boolean
 }
 
 // ==================== Props 定义 ====================

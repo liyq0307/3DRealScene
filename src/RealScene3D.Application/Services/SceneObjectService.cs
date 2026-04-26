@@ -5,6 +5,7 @@ using NetTopologySuite.Geometries;
 using RealScene3D.Application.DTOs;
 using RealScene3D.Application.Interfaces;
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Infrastructure.Data;
 using RealScene3D.Infrastructure.MinIO;
@@ -175,6 +176,11 @@ public class SceneObjectService : ISceneObjectService
         if (request.Properties != null)
         {
             sceneObject.Properties = request.Properties;
+        }
+
+        if (request.IsVisible.HasValue)
+        {
+            sceneObject.IsVisible = request.IsVisible.Value;
         }
 
         sceneObject.UpdatedAt = DateTime.UtcNow;
@@ -531,6 +537,35 @@ public class SceneObjectService : ISceneObjectService
     /// <returns>场景对象DTO，包含前端所需的所有信息</returns>
     private static SceneDtos.SceneObjectDto MapToDto(SceneObject obj)
     {
+        // 从关联的切片任务获取输出路径
+        var slicingOutputPath = obj.SlicingTask?.Status == SlicingTaskStatus.Completed
+            ? obj.SlicingTask.OutputPath
+            : null;
+
+        // 如果切片任务完成，displayPath应该指向tileset.json
+        string? displayPath = null;
+        if (!string.IsNullOrEmpty(slicingOutputPath) && obj.SlicingTask?.Status == SlicingTaskStatus.Completed)
+        {
+            // 构建tileset.json路径
+            if (slicingOutputPath.EndsWith("tileset.json", StringComparison.OrdinalIgnoreCase))
+            {
+                displayPath = slicingOutputPath;
+            }
+            else if (slicingOutputPath.EndsWith('/') || slicingOutputPath.EndsWith('\\'))
+            {
+                displayPath = slicingOutputPath + "tileset.json";
+            }
+            else
+            {
+                displayPath = slicingOutputPath + "/tileset.json";
+            }
+        }
+        else
+        {
+            // 如果没有切片输出或切片未完成，使用原始模型路径
+            displayPath = obj.ModelPath;
+        }
+
         return new SceneDtos.SceneObjectDto
         {
             Id = obj.Id,
@@ -545,9 +580,12 @@ public class SceneObjectService : ISceneObjectService
             ModelPath = obj.ModelPath,
             MaterialData = obj.MaterialData,
             Properties = obj.Properties,
+            IsVisible = obj.IsVisible,
             CreatedAt = obj.CreatedAt,
             SlicingTaskId = obj.SlicingTask?.Id,
-            SlicingTaskStatus = obj.SlicingTask?.Status.ToString()
+            SlicingTaskStatus = obj.SlicingTask?.Status.ToString(),
+            SlicingOutputPath = slicingOutputPath,
+            DisplayPath = displayPath
         };
     }
 }
