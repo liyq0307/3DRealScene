@@ -31,7 +31,7 @@
 static bool m_bUseKtx2Compression = true;
 
 // 使用Basis Universal将图像数据压缩为KTX2的函数
-bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, int nWidth, int nHeight, std::vector<unsigned char>& ktx2Data)
+bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, int nWidth, int nHeight, std::vector<unsigned char>& ktx2Data, int  nTexFormat)
 {
 	try
 	{
@@ -62,9 +62,9 @@ bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, i
 		// - cFlagKTX2: 输出KTX2格式
 		// - cFlagGenMipsWrap: 生成mipmap并包装
 		unsigned int nCompressionFlags = 64 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap;
-
+		auto format = static_cast<basist::basis_tex_format>(nTexFormat);
 		void* pCompressedData = basisu::basis_compress(
-			basist::basis_tex_format::cUASTC4x4,
+			format,
 			sourceImages,
 			static_cast<uint32_t>(nCompressionFlags),
 			1.0f,

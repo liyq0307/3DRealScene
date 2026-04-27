@@ -149,10 +149,11 @@ private:
 	 * @param nWidth 图像宽度
 	 * @param nHeight 图像高度
 	 * @param ktx2Data 输出的KTX2压缩数据
+	 * @param nTexFormat 输出的KTX2格式
 	 * @return true=成功, false=失败
 	 */
 	static bool CompressToKtx2(const std::vector<unsigned char>& rgbaData, int nWidth, int nHeight,
-		std::vector<unsigned char>& ktx2Data);
+		std::vector<unsigned char>& ktx2Data, int  nTexFormat = 1);
 
 	/**
 	 * @brief 使用 meshoptimizer 优化和简化网格数据
