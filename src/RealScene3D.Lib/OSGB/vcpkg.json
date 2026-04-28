@@ -30,6 +30,10 @@
     "coordinate-transform": {
       "description": "Enable coordinate transformation (PROJ-based, lightweight)",
       "dependencies": ["proj"]
+    },
+    "minio-storage": {
+      "description": "Enable MinIO object storage support",
+      "dependencies": ["minio-cpp", "curl", "openssl"]
     }
   }
 }
