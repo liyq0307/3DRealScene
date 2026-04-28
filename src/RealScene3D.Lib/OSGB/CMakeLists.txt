@@ -22,11 +22,13 @@ option(BUILD_PROJ_WITH_VCPKG "Build PROJ library with vcpkg" ON)
 option(BUILD_BASISU_WITH_VCPKG "Build Basis Universal with vcpkg" ON)
 option(BUILD_MESHOPT_WITH_VCPKG "Build meshoptimizer with vcpkg" ON)
 option(BUILD_DRACO_WITH_VCPKG "Build Draco with vcpkg" ON)
+option(BUILD_MINIO_WITH_VCPKG "Build MinIO client with vcpkg" ON)
 
 # 功能启用开关（控制是否查找和使用库，默认启用）
 option(ENABLE_TEXTURE_COMPRESSION "Enable KTX2 texture compression" ON)
 option(ENABLE_MESH_OPTIMIZATION "Enable mesh optimization" ON)
 option(ENABLE_DRACO_COMPRESSION "Enable Draco mesh compression" ON)
+option(ENABLE_MINIO_STORAGE "Enable MinIO object storage" ON)
 
 # 根据选项配置vcpkg manifest features（必须在vcpkg工具链加载前设置）
 set(VCPKG_MANIFEST_FEATURES "")
@@ -48,6 +50,9 @@ if(BUILD_MESHOPT_WITH_VCPKG)
 endif()
 if(BUILD_DRACO_WITH_VCPKG)
     list(APPEND VCPKG_MANIFEST_FEATURES "draco-compression")
+endif()
+if(BUILD_MINIO_WITH_VCPKG AND ENABLE_MINIO_STORAGE)
+    list(APPEND VCPKG_MANIFEST_FEATURES "minio-storage")
 endif()
 
 # 将features设置为CACHE变量（vcpkg需要，必须无条件设置）
@@ -420,6 +425,18 @@ else()
     message(FATAL_ERROR "PROJ is REQUIRED but not found. Please install it via vcpkg or check BUILD_PROJ_WITH_VCPKG option.")
 endif()
 
+# MinIO (对象存储) - 可选库
+if(ENABLE_MINIO_STORAGE)
+    find_package(miniocpp CONFIG)
+    if(miniocpp_FOUND)
+        message(STATUS "Found miniocpp - MinIO storage enabled")
+        target_link_libraries(${PROJECT_NAME} PRIVATE miniocpp::miniocpp)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_MINIO)
+    else()
+        message(WARNING "miniocpp not found, MinIO storage disabled. Install via vcpkg: vcpkg install minio-cpp:x64-windows")
+    endif()
+endif()
+
 # 拷贝 proj.db 数据文件到输出目录
 if(WIN32)
     # 获取 PROJ 安装路径并查找 proj.db
@@ -503,6 +520,11 @@ target_include_directories(OSGB23dTilesTest PRIVATE
 # 链接主库
 target_link_libraries(OSGB23dTilesTest PRIVATE ${PROJECT_NAME})
 
+# 传递 ENABLE_MINIO 定义到测试
+if(ENABLE_MINIO_STORAGE AND miniocpp_FOUND)
+    target_compile_definitions(OSGB23dTilesTest PRIVATE ENABLE_MINIO)
+endif()
+
 # Windows特定配置
 if(WIN32)
     # 添加编译选项：UTF-8编码
@@ -559,6 +581,7 @@ message(STATUS "    BUILD_PROJ_WITH_VCPKG:    ${BUILD_PROJ_WITH_VCPKG}")
 message(STATUS "    BUILD_BASISU_WITH_VCPKG:  ${BUILD_BASISU_WITH_VCPKG}")
 message(STATUS "    BUILD_MESHOPT_WITH_VCPKG: ${BUILD_MESHOPT_WITH_VCPKG}")
 message(STATUS "    BUILD_DRACO_WITH_VCPKG:   ${BUILD_DRACO_WITH_VCPKG}")
+message(STATUS "    BUILD_MINIO_WITH_VCPKG:   ${BUILD_MINIO_WITH_VCPKG}")
 message(STATUS "")
 message(STATUS "  Optional Features:")
 message(STATUS "    Texture Compression: ${ENABLE_TEXTURE_COMPRESSION}")

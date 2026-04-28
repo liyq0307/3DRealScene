@@ -365,7 +365,7 @@ const handleSubmit = async () => {
         return
       }
       
-      requestData = mapObliqueFormDataToRequest(obliqueFormData.value, userId, sceneObjectId.value)
+      requestData = mapObliqueFormDataToRequest(obliqueFormData.value, userId, sceneObjectId.value || undefined)
     } else {
       // 通用模型验证
       if (!generalFormData.value.modelPath?.trim()) {

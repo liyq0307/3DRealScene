@@ -204,14 +204,29 @@ public class SlicingAppService : ISlicingAppService
             bool hasRootedPath = !string.IsNullOrEmpty(task.OutputPath) && Path.IsPathRooted(task.OutputPath);
 
             StorageLocationType specifiedLocation = request.SlicingConfig.StorageLocation;
-            bool userSpecifiedStorage =
-            specifiedLocation == StorageLocationType.LocalFileSystem || specifiedLocation != StorageLocationType.MinIO;
+            
+            _logger.LogInformation("切片任务 {TaskId} 存储位置判断：specifiedLocation={Specified}, OutputPath={OutputPath}, hasRootedPath={HasRooted}",
+                task.Id, specifiedLocation, task.OutputPath ?? "(null)", hasRootedPath);
 
-            if (userSpecifiedStorage)
+            // 判断优先级：
+            // 1. 用户明确指定 MinIO → MinIO
+            // 2. 用户明确指定 LocalFileSystem → LocalFileSystem  
+            // 3. OutputPath 是绝对路径 → LocalFileSystem
+            // 4. 其他情况 → MinIO
+            bool userSpecifiedMinio = specifiedLocation == StorageLocationType.MinIO;
+            bool userSpecifiedLocal = specifiedLocation == StorageLocationType.LocalFileSystem;
+
+            if (userSpecifiedMinio)
             {
-                // 用户明确指定了存储位置，使用用户指定的
-                domainConfig.StorageLocation = specifiedLocation;
-                _logger.LogInformation("切片任务 {TaskId} 使用用户指定的存储位置：{StorageLocation}", task.Id, domainConfig.StorageLocation);
+                // 用户明确指定 MinIO
+                domainConfig.StorageLocation = StorageLocationType.MinIO;
+                _logger.LogInformation("切片任务 {TaskId} 用户指定存储到 MinIO", task.Id);
+            }
+            else if (userSpecifiedLocal)
+            {
+                // 用户明确指定本地文件系统
+                domainConfig.StorageLocation = StorageLocationType.LocalFileSystem;
+                _logger.LogInformation("切片任务 {TaskId} 用户指定存储到本地文件系统", task.Id);
             }
             else if (hasRootedPath)
             {
@@ -221,7 +236,7 @@ public class SlicingAppService : ISlicingAppService
             }
             else
             {
-                // ✅ 修改：相对路径或空路径时，使用 MinIO
+                // 相对路径或空路径时，使用 MinIO
                 domainConfig.StorageLocation = StorageLocationType.MinIO;
                 
                 // 如果 OutputPath 为空或相对路径，生成 MinIO 路径

@@ -125,6 +125,53 @@ public class SlicingDtos
         /// 存储位置
         /// </summary>
         public StorageLocationType StorageLocation { get; set; }
+
+        // ========== 倾斜摄影特有配置 ==========
+
+        /// <summary>
+        /// 空间参考系统（倾斜摄影）
+        /// </summary>
+        public string? SpatialReference { get; set; }
+
+        /// <summary>
+        /// 零点坐标（倾斜摄影）
+        /// </summary>
+        public string? ZeroPoint { get; set; }
+
+        /// <summary>
+        /// 高质量重建（倾斜摄影）
+        /// </summary>
+        public bool HighQualityReconstruction { get; set; } = true;
+
+        /// <summary>
+        /// 强制双面渲染（倾斜摄影）
+        /// </summary>
+        public bool ForceDoubleSided { get; set; }
+
+        /// <summary>
+        /// 无光照（倾斜摄影）
+        /// </summary>
+        public bool NoLighting { get; set; } = true;
+
+        /// <summary>
+        /// 纹理压缩（倾斜摄影）
+        /// </summary>
+        public bool TextureCompression { get; set; } = true;
+
+        /// <summary>
+        /// 顶点压缩（倾斜摄影）
+        /// </summary>
+        public bool VertexCompression { get; set; } = true;
+
+        /// <summary>
+        /// 存储3D Tiles 1.1格式（倾斜摄影）
+        /// </summary>
+        public bool Store3DTiles11 { get; set; } = true;
+
+        /// <summary>
+        /// 存储类型：hash 或 hierarchy（倾斜摄影）
+        /// </summary>
+        public string? StorageType { get; set; }
     }
 
     /// <summary>

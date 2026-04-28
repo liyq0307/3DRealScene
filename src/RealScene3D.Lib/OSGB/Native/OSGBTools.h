@@ -162,6 +162,44 @@ struct LODPipelineSettings
 	std::vector<LODLevelSettings> levels;
 };
 
+#ifdef ENABLE_MINIO
+/**
+ * @brief MinIO客户端包装类（复用连接）
+ */
+class MinioClient
+{
+public:
+	MinioClient(const std::string& endpoint,
+		const std::string& accessKey,
+		const std::string& secretKey,
+		const std::string& bucket,
+		const std::string& prefix = "",
+		bool useSSL = false);
+
+	~MinioClient();
+
+	bool Write(const std::string& objectName, const char* data, size_t size);
+
+	bool MakeBucket();
+
+	bool IsValid() const 
+	{ 
+		return client_ptr != nullptr;
+	}
+
+	const std::string& GetPrefix() const 
+	{ 
+		return object_prefix; 
+	}
+
+private:
+	void* client_ptr;  // minio::s3::Client*
+	std::string bucket_name;
+	std::string object_prefix;  // 对象前缀
+};
+
+#endif
+
 /**
  * @brief 工具类，主要用于坐标转换和矩阵计算等
  */
@@ -345,6 +383,51 @@ public:
 		const SimplificationParams& simplifyTemplate,
 		const DracoCompressionParams& dracoTemplate,
 		bool bDracoForLOD0 = false);
+
+	/**
+	 * @brief 获取系统临时目录
+	 * @return 临时目录路径
+	 */
+	static std::string GetTempDirectory();
+
+	/**
+	 * @brief 递归列出目录下所有文件
+	 * @param dir 目录路径
+	 * @param files 输出文件列表
+	 */
+	static void ListFilesRecursive(const std::string& dir, std::vector<std::string>& files);
+
+	/**
+	 * @brief 递归删除目录
+	 * @param dir 目录路径
+	 * @return 是否成功
+	 */
+	static bool RemoveDirectory(const std::string& dir);
+
+	/**
+	 * @brief 设置当前线程的MinIO客户端（用于WriteFile路由）
+	 * @param client MinIO客户端指针（nullptr表示写本地文件）
+	 */
+	static void SetMinioWriter(MinioClient* client)
+	{
+		std::lock_guard<std::mutex> lock(g_minio_mutex);
+		g_minio_client = client;
+	}
+
+	/**
+	 * @brief 获取当前线程的MinIO客户端
+	 */
+	static MinioClient* GetMinioWriter()
+	{
+		std::lock_guard<std::mutex> lock(g_minio_mutex);
+		return g_minio_client;
+	}
+
+private:
+	static inline MinioClient* g_minio_client = nullptr;
+
+	// MinIO客户端访问需要线程安全，使用互斥锁保护
+	static inline std::mutex g_minio_mutex;
 };
 
 #endif // !OSGBTOOLS_H

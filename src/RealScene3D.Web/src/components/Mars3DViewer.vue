@@ -1723,31 +1723,29 @@ defineExpose({
 /* 信息面板 */
 .info-panel {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.7);
-  padding: 0.75rem 1rem;
-  border-radius: 4px;
-  color: white;
-  font-size: 0.85rem;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 16px;
+  color: #ffffff;
+  font-size: 13px;
   z-index: 10;
-  min-width: 200px;
+  display: flex;
+  gap: 1.5rem;
 }
 
 .info-item {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-}
-
-.info-item:last-child {
-  margin-bottom: 0;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .info-label {
   color: #999;
-  margin-right: 1rem;
 }
 
 .info-value {

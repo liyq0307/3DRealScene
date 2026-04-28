@@ -239,6 +239,7 @@ namespace RealScene3D.Infrastructure.Migrations
                     ModelPath = table.Column<string>(type: "text", nullable: false),
                     MaterialData = table.Column<string>(type: "text", nullable: false),
                     Properties = table.Column<string>(type: "text", nullable: false),
+                    IsVisible = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false)

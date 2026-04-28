@@ -1257,32 +1257,31 @@ onUnmounted(() => {
 /* 信息面板 */
 .info-panel {
   position: absolute;
-  top: 20px;
-  left: 20px;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(10px);
-  padding: 1rem;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
-  color: white;
+  padding: 8px 16px;
+  color: #ffffff;
   font-family: 'Courier New', monospace;
-  min-width: 200px;
+  font-size: 13px;
   z-index: 10;
+  display: flex;
+  gap: 1.5rem;
 }
 
 .info-item {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.9rem;
-}
-
-.info-item:last-child {
-  margin-bottom: 0;
 }
 
 .info-label {
   color: rgba(255, 255, 255, 0.7);
-  margin-right: 1rem;
 }
 
 .info-value {
@@ -1346,10 +1345,10 @@ onUnmounted(() => {
   }
 
   .info-panel {
-    top: 10px;
-    left: 10px;
-    padding: 0.75rem;
-    min-width: 180px;
+    bottom: 5px;
+    padding: 6px 12px;
+    font-size: 12px;
+    gap: 1rem;
   }
 
   .info-item {

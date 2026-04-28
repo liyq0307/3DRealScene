@@ -6,6 +6,7 @@
 %module(directors="1") OSGB23dTilesCS
 
 %{
+#define ENABLE_MINIO
 #include "Native/OSGB23dTiles.h"
 #include "Native/Tileset.h"
 #include <string>
@@ -85,17 +86,8 @@ namespace std {
 %ignore OSGB23dTiles::WriteOsgGeometry;
 
 /* ============================================================================
- * 包含C++头文件
- * ============================================================================ */
-
-// 包含 Tileset.h（获取 TileBox 等定义）
-%include "Native/Tileset.h"
-
-// 包含 OSGB23dTiles.h（获取所有结构体和类定义）
-%include "Native/OSGB23dTiles.h"
-
-/* ============================================================================
  * 自定义 C# 辅助类 - 提供更友好的 API
+ * 必须在 %include 头文件之前定义才能生效
  * ============================================================================ */
 
 %pragma(csharp) imclassimports=%{
@@ -227,6 +219,38 @@ using System.Runtime.InteropServices;
                 enableDracoCompression);
         }
 
+        /// <summary>
+        /// 批量转换倾斜摄影数据集并直接写入MinIO
+        /// </summary>
+        public bool ConvertToB3DMBatchToMinIO(
+            string dataDir,
+            string minioPath,
+            string minioEndpoint,
+            string accessKey,
+            string secretKey,
+            bool useSSL,
+            double centerX = 0.0,
+            double centerY = 0.0,
+            int maxLevel = 0,
+            bool enableTextureCompression = false,
+            bool enableMeshOptimization = false,
+            bool enableDracoCompression = false)
+        {
+            return reader.ToB3DMBatchToMinIO(
+                dataDir,
+                minioPath,
+                minioEndpoint,
+                accessKey,
+                secretKey,
+                useSSL,
+                centerX,
+                centerY,
+                maxLevel,
+                enableTextureCompression,
+                enableMeshOptimization,
+                enableDracoCompression);
+        }
+
         public void Dispose()
         {
             if (!disposed)
@@ -241,6 +265,19 @@ using System.Runtime.InteropServices;
         }
     }
 %}
+
+/* ============================================================================
+ * 包含C++头文件
+ * ============================================================================ */
+
+// 定义 ENABLE_MINIO 宏，让 SWIG 解析头文件时能看到 ToB3DMBatchToMinIO 方法
+#define ENABLE_MINIO
+
+// 包含 Tileset.h（获取 TileBox 等定义）
+%include "Native/Tileset.h"
+
+// 包含 OSGB23dTiles.h（获取所有结构体和类定义）
+%include "Native/OSGB23dTiles.h"
 
 /* ============================================================================
  * 异常处理

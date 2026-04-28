@@ -15,6 +15,167 @@ using namespace OSGBLog;
 
 static const double dPI = std::acos(-1);
 
+#ifdef ENABLE_MINIO
+
+#include <miniocpp/client.h>
+#include <mutex>
+
+// MinioClient 实现
+MinioClient::MinioClient(
+	const std::string& endpoint,
+	const std::string& accessKey,
+	const std::string& secretKey,
+	const std::string& bucket,
+	const std::string& prefix,
+	bool useSSL)
+{
+	try
+	{
+		LOG_I("创建MinIO客户端: endpoint={}, bucket={}, prefix={}, useSSL={}",
+			endpoint.c_str(), bucket.c_str(), prefix.c_str(), useSSL);
+
+		minio::s3::BaseUrl base_url;
+		base_url.host = endpoint;
+		base_url.https = useSSL;
+
+		LOG_D("BaseUrl: host={}, https={}", base_url.host.c_str(), base_url.https);
+
+		minio::creds::StaticProvider* provider = new minio::creds::StaticProvider(accessKey, secretKey);
+
+		minio::s3::Client* client = new minio::s3::Client(base_url, provider);
+
+		client_ptr = client;
+		bucket_name = bucket;
+		object_prefix = prefix;
+
+		LOG_I("MinIO客户端创建成功");
+	}
+	catch (const std::exception& e)
+	{
+		LOG_E("MinIO客户端创建失败: {}", e.what());
+
+		client_ptr = nullptr;
+	}
+}
+
+MinioClient::~MinioClient()
+{
+	if (client_ptr)
+	{
+		delete static_cast<minio::s3::Client*>(client_ptr);
+		client_ptr = nullptr;
+	}
+}
+
+bool MinioClient::Write(const std::string& objectName, const char* data, size_t size)
+{
+	if (!client_ptr)
+	{
+		LOG_E("MinIO客户端无效");
+
+		return false;
+	}
+
+	try
+	{
+		minio::s3::Client* client = static_cast<minio::s3::Client*>(client_ptr);
+
+		// 构造完整对象名：去除开头的斜杠避免双斜杠
+		std::string clean_name = objectName;
+		while (!clean_name.empty() && clean_name[0] == '/')
+		{
+			clean_name = clean_name.substr(1);
+		}
+
+		std::string full_name = object_prefix.empty() ? clean_name : object_prefix + "/" + clean_name;
+
+		LOG_D("MinIO写入: bucket={}, object={}, size={}", bucket_name.c_str(), full_name.c_str(), size);
+
+		// 创建字符串流（使用 stringstream 而非 istringstream）
+		std::stringstream stream;
+		stream.write(data, static_cast<std::streamsize>(size));
+		stream.seekg(0, std::ios::beg);  // 重置读取位置
+
+		LOG_D("Stream状态: good={}, eof={}, fail={}, bad={}, pos={}",
+			stream.good(), stream.eof(), stream.fail(), stream.bad(), (long)stream.tellg());
+
+		// 构造 PutObjectArgs
+		constexpr uint64_t kMaxPartSize = 5'368'709'120;        // 5GiB
+		constexpr unsigned int kMinPartSize = 5 * 1024 * 1024;  // 5MiB
+		long object_size = static_cast<long>(size);
+		long part_size = kMinPartSize; 
+		if (object_size > kMaxPartSize)
+		{
+			part_size = kMaxPartSize;
+		}
+
+		if (object_size > kMinPartSize && object_size < kMaxPartSize)
+		{
+			part_size = object_size;
+		}
+
+		minio::s3::PutObjectArgs args(stream, object_size, part_size);
+		args.bucket = bucket_name;
+		args.object = full_name;
+
+		LOG_D("PutObjectArgs验证通过，准备上传");
+
+		auto resp = client->PutObject(args);
+		LOG_D("PutObject返回: status_code={}, code={}, message={}", resp.status_code, resp.code.c_str(), resp.message.c_str());
+
+		if (!resp)
+		{
+			LOG_E("MinIO写入失败:");
+			LOG_E("  bucket={}, object={}", bucket_name.c_str(), full_name.c_str());
+			LOG_E("  status_code={}, code={}, message={}", resp.status_code, resp.code.c_str(), resp.message.c_str());
+			LOG_E("  data={}", resp.data.c_str());
+			LOG_E("  etag={}, version_id={}", resp.etag.c_str(), resp.version_id.c_str());
+
+			return false;
+		}
+
+		LOG_D("MinIO写入成功: {}", full_name.c_str());
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		LOG_E("MinIO写入异常: {}", e.what());
+
+		return false;
+	}
+}
+
+bool MinioClient::MakeBucket()
+{
+	if (!client_ptr)
+	{
+		return false;
+	}
+
+	try
+	{
+		minio::s3::Client* client = static_cast<minio::s3::Client*>(client_ptr);
+
+		minio::s3::MakeBucketArgs args;
+		args.bucket = bucket_name;
+
+		auto resp = client->MakeBucket(args);
+		if (!resp)
+		{
+			LOG_W("MinIO创建Bucket警告: {}", resp.message.c_str());
+		}
+
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		LOG_E("MinIO创建Bucket异常: {}", e.what());
+
+		return false;
+	}
+}
+#endif
+
 bool OSGBTools::MkDirs(const std::string& strPath)
 {
 	try
@@ -30,6 +191,25 @@ bool OSGBTools::MkDirs(const std::string& strPath)
 
 bool OSGBTools::WriteFile(const std::string& strFileName, const char* pszBuf, unsigned long nBufLen)
 {
+#ifdef ENABLE_MINIO
+	// 检查是否需要路由到 MinIO（加锁保护）
+	{
+		std::lock_guard<std::mutex> lock(g_minio_mutex);
+		if (g_minio_client && g_minio_client->IsValid())
+		{
+			// 转换路径分隔符为正斜杠
+			std::string object_name = strFileName;
+			for (char& c : object_name)
+			{
+				if (c == '\\') c = '/';
+			}
+
+			return g_minio_client->Write(object_name, pszBuf, nBufLen);
+		}
+	}
+#endif
+
+	// 默认：写入本地文件
 	try
 	{
 		std::ofstream ofs(strFileName, std::ios::binary);
@@ -735,4 +915,51 @@ std::vector<LODLevelSettings> OSGBTools::BuildLODLevels(
 	}
 
 	return levels;
+}
+
+std::string OSGBTools::GetTempDirectory()
+{
+#ifdef _WIN32
+	char tempPath[MAX_PATH];
+	GetTempPathA(MAX_PATH, tempPath);
+	return std::string(tempPath);
+#else
+	return "/tmp";
+#endif
+}
+
+void OSGBTools::ListFilesRecursive(const std::string& dir, std::vector<std::string>& files)
+{
+	namespace fs = std::filesystem;
+
+	try
+	{
+		for (const auto& entry : fs::recursive_directory_iterator(dir))
+		{
+			if (entry.is_regular_file())
+			{
+				files.push_back(entry.path().string());
+			}
+		}
+	}
+	catch (const std::exception& e)
+	{
+		LOG_E("递归列出文件失败: {}", e.what());
+	}
+}
+
+bool OSGBTools::RemoveDirectory(const std::string& dir)
+{
+	namespace fs = std::filesystem;
+
+	try
+	{
+		return fs::remove_all(dir) > 0;
+	}
+	catch (const std::exception& e)
+	{
+		LOG_E("删除目录失败: {}", e.what());
+
+		return false;
+	}
 }

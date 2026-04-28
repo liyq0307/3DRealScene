@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
+#include <memory>
 
 #include <osg/Material>
 #include <osg/PagedLOD>
@@ -29,6 +30,7 @@
 #include <json.hpp>
 
 #include "Tileset.h"
+#include "OSGBTools.h"
 
 using namespace std;
 
@@ -299,6 +301,38 @@ public:
 		bool bEnableMeshOpt = false, 
 		bool bEnableDraco = false);
 
+#ifdef ENABLE_MINIO
+	/**
+	 * @brief 批量处理倾斜摄影数据集并上传到MinIO
+	 * @param pDataDir 输入数据目录路径
+	 * @param strMinioPath MinIO对象路径 (如 "bucket/path/to/tiles")
+	 * @param strMinioEndpoint MinIO服务端点 (如 "localhost:9000")
+	 * @param strAccessKey MinIO访问密钥
+	 * @param strSecretKey MinIO秘密密钥
+	 * @param bUseSSL 是否使用HTTPS
+	 * @param dCenterX 切片中心X坐标
+	 * @param dCenterY 切片中心Y坐标
+	 * @param nMaxLevel 最大切片层级
+	 * @param bEnableTextureCompress 是否启用纹理压缩
+	 * @param bEnableMeshOpt 是否启用网格优化
+	 * @param bEnableDraco 是否启用Draco压缩
+	 * @return 返回成功或失败
+	 */
+	bool ToB3DMBatchToMinIO(
+		const std::string& pDataDir,
+		const std::string& strMinioPath,
+		const std::string& strMinioEndpoint,
+		const std::string& strAccessKey,
+		const std::string& strSecretKey,
+		bool bUseSSL,
+		double dCenterX,
+		double dCenterY,
+		int nMaxLevel,
+		bool bEnableTextureCompress = false,
+		bool bEnableMeshOpt = false,
+		bool bEnableDraco = false);
+#endif
+
 private:
 	/**
 	 * @brief 写入OSG索引数据到GLTF构建状态
@@ -435,6 +469,8 @@ private:
 	 * @return 返回OSG树节点结构体
 	 */
 	OSGTree GetAllTree(std::string& file_name);
+
+	std::shared_ptr<MinioClient> g_minio_client = nullptr;
 };
 
 #endif // !OSGBREADER_H

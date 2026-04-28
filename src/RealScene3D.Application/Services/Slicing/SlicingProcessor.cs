@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using RealScene3D.Application.Interfaces;
@@ -9,6 +10,7 @@ using RealScene3D.Domain.Enums;
 using RealScene3D.Domain.Geometry;
 using RealScene3D.Domain.Interfaces;
 using RealScene3D.Domain.Utils;
+using RealScene3D.Infrastructure.MinIO;
 
 namespace RealScene3D.Application.Services.Slicing;
 
@@ -34,6 +36,8 @@ public class SlicingProcessor : ISlicingProcessor
     private readonly ILogger<SlicingProcessor> _logger;
     private readonly SlicingDataService _dataService;
     private readonly IncrementalUpdateService _incrementalUpdateService;
+    private readonly IConfiguration _configuration;
+    private readonly IMinioStorageService? _minioStorageService;
 
     public SlicingProcessor(
         IRepository<SlicingTask> slicingTaskRepository,
@@ -41,7 +45,9 @@ public class SlicingProcessor : ISlicingProcessor
         IUnitOfWork unitOfWork,
         ILogger<SlicingProcessor> logger,
         SlicingDataService dataService,
-        IncrementalUpdateService incrementalUpdateService)
+        IncrementalUpdateService incrementalUpdateService,
+        IConfiguration configuration,
+        IMinioStorageService? minioStorageService = null)
     {
         _slicingTaskRepository = slicingTaskRepository ?? throw new ArgumentNullException(nameof(slicingTaskRepository));
         _sliceRepository = sliceRepository ?? throw new ArgumentNullException(nameof(sliceRepository));
@@ -49,6 +55,8 @@ public class SlicingProcessor : ISlicingProcessor
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
         _incrementalUpdateService = incrementalUpdateService ?? throw new ArgumentNullException(nameof(incrementalUpdateService));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _minioStorageService = minioStorageService;
     }
 
     /// <summary>
@@ -161,55 +169,123 @@ public class SlicingProcessor : ISlicingProcessor
         _logger.LogInformation("========== 开始倾斜摄影切片处理 ==========");
         _logger.LogInformation("任务ID: {TaskId}, 任务名称: {TaskName}", task.Id, task.Name);
         _logger.LogInformation("源数据路径: {SourceModel}", task.SourceModelPath);
+        _logger.LogInformation("存储位置类型: {StorageLocation}", config.StorageLocation);
 
         try
         {
-            // 使用OSGB倾斜摄影专用处理服务
-            var osgbLogger = new Logger<OsgbTiledDatasetSlicingService>(new NullLoggerFactory());
-            var osgbService = new OsgbTiledDatasetSlicingService(osgbLogger);
-            
-            // 确定输出路径
+            // 确定输出路径和存储位置
             var outputPath = task.OutputPath;
-            if (string.IsNullOrEmpty(outputPath))
-            {
-                // 如果没有指定输出路径，生成默认路径
-                outputPath = GenerateDefaultObliqueOutputPath(task.SourceModelPath, task.Id);
-                _logger.LogInformation("使用生成的默认输出路径: {OutputPath}", outputPath);
-            }
-
-            // 执行OSGB切片处理
-            var success = await osgbService.ProcessDatasetAsync(
-                task.SourceModelPath,
-                outputPath,
-                config,
-                cancellationToken
-            );
-
-            if (!success)
-            {
-                throw new InvalidOperationException("倾斜摄影切片处理失败");
-            }
-
-            _logger.LogInformation("倾斜摄影切片处理完成，开始扫描和保存元数据");
-
-            // 扫描输出目录，收集切片文件信息
-            var sliceFiles = await ScanObliqueSliceFilesAsync(outputPath, task.Id);
+            bool useMinio = config.StorageLocation == StorageLocationType.MinIO ||
+                           string.IsNullOrEmpty(outputPath) ||
+                           !Path.IsPathRooted(outputPath ?? "");
             
-            if (sliceFiles.Count == 0)
+            if (useMinio)
             {
-                _logger.LogWarning("未发现切片文件，请检查输出目录: {OutputPath}", outputPath);
+                config.StorageLocation = StorageLocationType.MinIO;
+                
+                if (string.IsNullOrEmpty(outputPath))
+                {
+                    outputPath = GenerateMinioObliqueOutputPath(task.SourceModelPath, task.Id);
+                }
+                else if (!outputPath.Contains('/'))
+                {
+                    // 如果已有路径但格式不正确（无 bucket 前缀），生成正确格式
+                    // 这可能来自前端传入的错误值或历史数据
+                    _logger.LogWarning("MinIO路径格式不正确（应为 bucket/path），重新生成: {OutputPath}", outputPath);
+                    outputPath = GenerateMinioObliqueOutputPath(task.SourceModelPath, task.Id);
+                }
+                
+                // 获取 MinIO 配置并填充到 config
+                var minioConfig = _configuration.GetSection("MinIO");
+                config.MinioEndpoint = minioConfig["Endpoint"] ?? "localhost:9000";
+                config.MinioAccessKey = minioConfig["AccessKey"] ?? "minioadmin";
+                config.MinioSecretKey = minioConfig["SecretKey"] ?? "minioadmin";
+                config.MinioUseSSL = bool.Parse(minioConfig["UseSSL"] ?? "false");
+                
+                _logger.LogInformation("倾斜摄影切片将直接写入MinIO: {OutputPath}", outputPath);
             }
             else
             {
-                // 保存切片元数据到数据库
-                await SaveObliqueSliceMetadataAsync(task.Id, sliceFiles);
+                config.StorageLocation = StorageLocationType.LocalFileSystem;
+                
+                if (string.IsNullOrEmpty(outputPath))
+                {
+                    outputPath = GenerateDefaultObliqueOutputPath(task.SourceModelPath, task.Id);
+                }
+                
+                _logger.LogInformation("倾斜摄影切片将存储到本地文件系统: {OutputPath}", outputPath);
             }
 
-            // 更新任务的输出路径
+            // 使用OSGB倾斜摄影专用处理服务统一处理
+            var osgbLogger = new Logger<OsgbTiledDatasetSlicingService>(new NullLoggerFactory());
+            var osgbService = new OsgbTiledDatasetSlicingService(osgbLogger);
+
+            // 执行OSGB切片处理
+            bool success;
+            try
+            {
+                success = await osgbService.ProcessDatasetAsync(
+                    task.SourceModelPath,
+                    outputPath,
+                    config,
+                    cancellationToken
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OsgbTiledDatasetSlicingService.ProcessDatasetAsync 执行失败");
+                throw;
+            }
+
+            if (!success)
+            {
+                _logger.LogError("倾斜摄影切片处理返回失败，源路径: {SourcePath}, 输出路径: {OutputPath}", 
+                    task.SourceModelPath, outputPath);
+                throw new InvalidOperationException("倾斜摄影切片处理失败");
+            }
+
+            // 本地文件系统模式下，扫描并保存元数据
+            if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+            {
+                _logger.LogInformation("倾斜摄影切片处理完成，开始扫描和保存元数据");
+
+                // 扫描输出目录，收集切片文件信息
+                var sliceFiles = await ScanObliqueSliceFilesAsync(outputPath, task.Id);
+                
+                if (sliceFiles.Count == 0)
+                {
+                    _logger.LogWarning("未发现切片文件，请检查输出目录: {OutputPath}", outputPath);
+                }
+                else
+                {
+                    // 保存切片元数据到数据库
+                    await SaveObliqueSliceMetadataAsync(task.Id, sliceFiles);
+                }
+            }
+            else
+            {
+                // MinIO 模式下，扫描 MinIO 并保存元数据
+                _logger.LogInformation("倾斜摄影切片处理完成，开始从MinIO扫描并保存元数据");
+
+                var sliceFiles = await ScanObliqueSliceFilesFromMinioAsync(outputPath, task.Id, config);
+                
+                if (sliceFiles.Count == 0)
+                {
+                    _logger.LogWarning("MinIO中未发现切片文件: {OutputPath}", outputPath);
+                }
+                else
+                {
+                    await SaveObliqueSliceMetadataAsync(task.Id, sliceFiles);
+                    _logger.LogInformation("MinIO切片元数据已保存到数据库，共 {Count} 个切片", sliceFiles.Count);
+                }
+            }
+
+            // 更新任务的输出路径和配置
             task.OutputPath = outputPath;
+            task.SlicingConfig = JsonSerializer.Serialize(config);
             await _unitOfWork.SaveChangesAsync();
             
-            _logger.LogInformation("任务输出路径已更新: {OutputPath}", outputPath);
+            _logger.LogInformation("任务输出路径已更新: {OutputPath}, 存储位置: {StorageLocation}", outputPath, config.StorageLocation);
 
             // 更新任务进度
             await UpdateProgressAsync(task.Id, new SlicingProgress
@@ -848,6 +924,100 @@ public class SlicingProcessor : ISlicingProcessor
     }
 
     /// <summary>
+    /// 从 MinIO 扫描倾斜摄影切片文件
+    /// </summary>
+    /// <param name="minioPath">MinIO路径 (如 "bucket/path/to/tiles")</param>
+    /// <param name="taskId">切片任务ID</param>
+    /// <param name="config">切片配置</param>
+    /// <returns>切片文件信息列表</returns>
+    private async Task<List<ObliqueSliceInfo>> ScanObliqueSliceFilesFromMinioAsync(
+        string minioPath, 
+        Guid taskId, 
+        SlicingConfig config)
+    {
+        _logger.LogInformation("开始从MinIO扫描倾斜摄影切片: {MinioPath}", minioPath);
+
+        var sliceFiles = new List<ObliqueSliceInfo>();
+
+        try
+        {
+            if (_minioStorageService == null)
+            {
+                _logger.LogWarning("MinioStorageService 未注入，无法扫描MinIO");
+                return sliceFiles;
+            }
+
+            // 解析 bucket 和 prefix
+            var slashPos = minioPath.IndexOf('/');
+            var bucket = slashPos > 0 ? minioPath.Substring(0, slashPos) : minioPath;
+            var prefix = slashPos > 0 ? minioPath.Substring(slashPos + 1) : "";
+
+            // 确保 prefix 以 / 结尾
+            if (!string.IsNullOrEmpty(prefix) && !prefix.EndsWith("/"))
+            {
+                prefix += "/";
+            }
+
+            _logger.LogInformation("扫描MinIO bucket: {Bucket}, prefix: {Prefix}", bucket, prefix);
+
+            // 列出所有文件
+            var files = await _minioStorageService.ListFilesAsync(bucket, prefix);
+            _logger.LogInformation("MinIO中发现 {Count} 个文件", files.Count);
+
+            // 筛选 .b3dm 和 tileset.json 文件
+            var b3dmFiles = files.Where(f => f.EndsWith(".b3dm", StringComparison.OrdinalIgnoreCase)).ToList();
+            _logger.LogInformation("发现 {Count} 个B3DM切片文件", b3dmFiles.Count);
+
+            foreach (var filePath in b3dmFiles)
+            {
+                // 从路径解析坐标和层级
+                // 路径格式: path/to/tiles/Data/Tile_+000_+000/xxx.b3dm
+                var (x, y, z) = (0, 0, 0);
+                int level = 0;
+
+                // 尝试从路径中提取 Tile_xxx_yyy
+                var pathParts = filePath.Split('/');
+                foreach (var part in pathParts)
+                {
+                    if (part.StartsWith("Tile_"))
+                    {
+                        (x, y, z) = ParseObliqueSliceCoordinates(part);
+                        break;
+                    }
+                }
+
+                // 尝试从路径中提取 LOD 层级
+                foreach (var part in pathParts)
+                {
+                    if (part.StartsWith("LOD-") && int.TryParse(part.Substring(4), out int lodLevel))
+                    {
+                        level = lodLevel;
+                        break;
+                    }
+                }
+
+                sliceFiles.Add(new ObliqueSliceInfo
+                {
+                    Level = level,
+                    X = x,
+                    Y = y,
+                    Z = z,
+                    FilePath = $"{bucket}/{filePath}",  // 完整MinIO路径
+                    FileSize = 0  // MinIO模式下文件大小需要额外查询，暂时设为0
+                });
+            }
+
+            _logger.LogInformation("MinIO扫描完成，共发现 {Count} 个切片文件", sliceFiles.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "从MinIO扫描切片文件时发生错误");
+        }
+
+        return sliceFiles;
+    }
+
+    /// <summary>
     /// 从倾斜摄影切片目录名解析坐标
     /// 支持格式：Tile_+000_+000, Tile_-001_+002 等
     /// </summary>
@@ -935,6 +1105,29 @@ public class SlicingProcessor : ISlicingProcessor
         {
             _logger.LogError(ex, "保存切片元数据失败");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// 为倾斜摄影数据生成 MinIO 存储路径
+    /// 统一使用 slices bucket，与通用切片保持一致
+    /// </summary>
+    private string GenerateMinioObliqueOutputPath(string sourcePath, Guid taskId)
+    {
+        try
+        {
+            var baseName = Path.GetFileNameWithoutExtension(sourcePath);
+            var shortHash = taskId.ToString("N").Substring(0, 8);
+            var outputPath = $"slices/{baseName}_{shortHash}";
+            
+            _logger.LogInformation("生成 MinIO 倾斜摄影输出路径: {OutputPath}", outputPath);
+            
+            return outputPath;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "生成 MinIO 倾斜摄影输出路径失败");
+            return $"slices/output_{taskId:N}";
         }
     }
 

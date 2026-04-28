@@ -88,8 +88,6 @@ export interface ObliqueSlicingRequest {
   sourceModelPath: string
   modelType: string
   outputPath: string
-  storageLocation?: 'MinIO' | 'LocalFileSystem'
-  userId?: string
   sceneObjectId?: string
   slicingConfig: {
     spatialReference: string
@@ -103,5 +101,6 @@ export interface ObliqueSlicingRequest {
     storageType: string
     outputFormat: string
     coordinateSystem: string
+    storageLocation?: number // 0=MinIO, 1=LocalFileSystem
   }
 }

@@ -48,24 +48,24 @@ public class OsgbLODSlicingService
             double centerX = 0.0;
             double centerY = 0.0;
 
-            // 调用原生OSGB23dTilesHelper进行切片生成
-            using var reader = new OSGB23dTilesHelper();
+            // 调用原生OSGB23dTiles.Helper进行切片生成
+            using var reader = new OSGB23dTiles.Helper();
 
-            _logger.LogInformation("调用 OSGB23dTilesHelper::ToB3DM 生成切片");
+            _logger.LogInformation("调用 OSGB23dTiles.Helper::ConvertToB3DM 生成切片");
 
-            string? tilesetJson = await Task.Run(() =>
+            var (success, tilesetJson, bbox) = await Task.Run(() =>
                 reader.ConvertToB3DM(
                     osgbPath,
                     outputDir,
                     centerX,
                     centerY,
-                    maxLevel: -1,  // -1表示不限制层级
+                    maxLevel: 0,  // 0表示不限制层级
                     enableTextureCompression: false,
                     enableMeshOptimization: false,
                     enableDracoCompression: false
                 ), cancellationToken);
 
-            if (string.IsNullOrEmpty(tilesetJson))
+            if (!success || string.IsNullOrEmpty(tilesetJson))
             {
                 throw new InvalidOperationException($"OSGB切片生成失败: 未知错误");
             }

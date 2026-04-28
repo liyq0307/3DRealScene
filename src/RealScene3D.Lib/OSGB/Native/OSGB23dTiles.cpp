@@ -2222,4 +2222,85 @@ bool OSGB23dTiles::ToB3DMBatch(
 	return true;
 }
 
+#ifdef ENABLE_MINIO
+#include <miniocpp/client.h>
+
+bool OSGB23dTiles::ToB3DMBatchToMinIO(
+	const std::string& pDataDir,
+	const std::string& strMinioPath,
+	const std::string& strMinioEndpoint,
+	const std::string& strAccessKey,
+	const std::string& strSecretKey,
+	bool bUseSSL,
+	double dCenterX,
+	double dCenterY,
+	int nMaxLevel,
+	bool bEnableTextureCompress,
+	bool bEnableMeshOpt,
+	bool bEnableDraco)
+{
+	LOG_I("========== 开始批量处理并直接写入MinIO ==========");
+	LOG_I("输入目录: {}", pDataDir.c_str());
+	LOG_I("MinIO路径: {}", strMinioPath.c_str());
+	LOG_I("MinIO端点: {}", strMinioEndpoint.c_str());
+
+	// 1. 解析 MinIO 路径 (格式: bucket/path)
+	size_t slash_pos = strMinioPath.find('/');
+	if (slash_pos == std::string::npos)
+	{
+		LOG_E("MinIO路径格式错误，应为: slices/path");
+		return false;
+	}
+
+	std::string bucket_name = strMinioPath.substr(0, slash_pos);
+	std::string object_prefix = strMinioPath.substr(slash_pos + 1);
+
+	LOG_I("MinIO Bucket: {}", bucket_name.c_str());
+	LOG_I("对象前缀: {}", object_prefix.c_str());
+
+	// 2. 创建 MinIO 客户端并设置为当前线程的写入目标
+	g_minio_client = std::make_shared<MinioClient>(
+		strMinioEndpoint, strAccessKey, strSecretKey, bucket_name, object_prefix, bUseSSL);
+
+	if (!g_minio_client->IsValid())
+	{
+		LOG_E("MinIO客户端创建失败");
+		return false;
+	}
+
+	// 确保 Bucket 存在
+	g_minio_client->MakeBucket();
+
+	// 3. 设置MinIO写入器（后续所有WriteFile调用都会自动写入MinIO）
+	OSGBTools::SetMinioWriter(g_minio_client.get());
+
+	// 4. 调用 ToB3DMBatch，所有文件会直接写入MinIO
+	// strOutputDir 传空字符串，实际路径由 MinIO client 的 object_prefix 控制
+	bool success = false;
+	try
+	{
+		success = ToB3DMBatch(pDataDir, "", dCenterX, dCenterY, nMaxLevel,
+			bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
+	}
+	catch (const std::exception& e)
+	{
+		LOG_E("切片处理异常: {}", e.what());
+	}
+
+	// 5. 清除MinIO写入器
+	OSGBTools::SetMinioWriter(nullptr);
+
+	if (success)
+	{
+		LOG_I("========== 批量处理并直接写入MinIO完成 ==========");
+	}
+	else
+	{
+		LOG_E("========== 批量处理失败 ==========");
+	}
+
+	return success;
+}
+#endif
+
 //===============OSGB23dTiles 结束==================

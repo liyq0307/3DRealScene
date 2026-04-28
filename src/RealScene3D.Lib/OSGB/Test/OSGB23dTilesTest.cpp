@@ -16,10 +16,110 @@
 #include <sys/stat.h>
 #endif
 
+void test_local_filesystem()
+{
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "测试1: 本地文件系统存储" << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    std::string strInputPath = "E:/Data/3D/Production_3";
+    std::string strOutputDir = "E:/Data/3D/output_osgb_batch";
+
+    std::cout << "输入目录: " << strInputPath << std::endl;
+    std::cout << "输出目录: " << strOutputDir << std::endl;
+
+    std::filesystem::create_directories(strOutputDir);
+
+    OSGB23dTiles reader;
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    bool success = reader.ToB3DMBatch(
+        strInputPath,
+        strOutputDir,
+        0.0, 0.0, -1,
+        false, false, false
+    );
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    if (success)
+    {
+        std::cout << "[SUCCESS] 本地文件系统存储成功" << std::endl;
+        std::cout << "  耗时: " << duration.count() << " ms" << std::endl;
+    }
+    else
+    {
+        std::cerr << "[FAILED] 本地文件系统存储失败" << std::endl;
+    }
+}
+
+#ifdef ENABLE_MINIO
+void test_minio_storage()
+{
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "测试2: MinIO 对象存储" << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    std::string strInputPath = "E:/Data/3D/Production_3";
+    std::string strMinioPath = "slices/Production_3_test";
+    std::string strMinioEndpoint = "localhost:9000";
+    std::string strAccessKey = "minioadmin";
+    std::string strSecretKey = "minioadmin";
+    bool bUseSSL = false;
+
+    std::cout << "输入目录: " << strInputPath << std::endl;
+    std::cout << "MinIO路径: " << strMinioPath << std::endl;
+    std::cout << "MinIO端点: " << strMinioEndpoint << std::endl;
+
+    // 验证路径格式
+    size_t slash_pos = strMinioPath.find('/');
+    if (slash_pos == std::string::npos)
+    {
+        std::cerr << "[ERROR] MinIO路径格式错误，应为: bucket/path" << std::endl;
+        return;
+    }
+
+    std::string bucket = strMinioPath.substr(0, slash_pos);
+    std::string prefix = strMinioPath.substr(slash_pos + 1);
+
+    std::cout << "  解析结果: bucket='" << bucket << "', prefix='" << prefix << "'" << std::endl;
+
+    OSGB23dTiles reader;
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    bool success = reader.ToB3DMBatchToMinIO(
+        strInputPath,
+        strMinioPath,
+        strMinioEndpoint,
+        strAccessKey,
+        strSecretKey,
+        bUseSSL,
+        0.0, 0.0, -1,
+        false, false, false
+    );
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    if (success)
+    {
+        std::cout << "[SUCCESS] MinIO存储成功" << std::endl;
+        std::cout << "  耗时: " << duration.count() << " ms" << std::endl;
+        std::cout << "  对象前缀: " << prefix << std::endl;
+    }
+    else
+    {
+        std::cerr << "[FAILED] MinIO存储失败" << std::endl;
+    }
+}
+#endif
+
 int main(int argc, char* argv[])
 {
 #ifdef _WIN32
-    // 设置控制台代码页为 UTF-8
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
@@ -27,54 +127,19 @@ int main(int argc, char* argv[])
     std::cout << "OSGB23dTiles C++ 测试程序" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // 设置输入输出路径
-    std::string strInputPath = "E:/Data/3D/Production_3";
-    std::string strOutputDir = "E:/Data/3D/output_osgb_batch";
+    // 测试1: 本地文件系统
+    //test_local_filesystem();
 
-    std::cout << "输入目录: " << strInputPath.c_str() << std::endl;
-    std::cout << "输出目录: " << strOutputDir.c_str() << std::endl;
-    std::cout << "========================================" << std::endl;
-
-    // 创建输出目录
-    std::filesystem::create_directories(strOutputDir);
-
-    // 初始化 OSGB23dTiles 实例
-    std::cout << "[INFO] 初始化 OsgbReader 实例..." << std::endl;
-    OSGB23dTiles reader;
-
-    // 开始转换: OSGB 文件转换为 3D Tiles
-    std::cout << "OSGB 文件转换为 3D Tiles" << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
-
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    bool bCreate = reader.ToB3DMBatch(
-        strInputPath,
-        strOutputDir,
-        0.0,        // center_x (将从 metadata.xml 自动读取)
-        0.0,        // center_y (将从 metadata.xml 自动读取)
-        -1,         // max_lvl (足够大以包含所有LOD层级)
-        false,      // enable_texture_compress
-        false,      // enable_meshopt
-        false       // enable_draco
-    );
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    if (bCreate)
-    {
-        std::cout << "[INFO] OSGB 转换为 3D Tiles 成功!" << std::endl;
-        std::cout << "  耗时: " << duration.count() << " ms" << std::endl;
-    }
-    else
-    {
-        std::cerr << "[ERROR] OSGB 转换为 3D Tiles 失败!" << std::endl;
-    }
+#ifdef ENABLE_MINIO
+    // 测试2: MinIO 存储
+    test_minio_storage();
+#else
+    std::cout << "\n[INFO] ENABLE_MINIO 未定义，跳过 MinIO 测试" << std::endl;
+    std::cout << "  编译时添加 -DENABLE_MINIO 启用 MinIO 测试" << std::endl;
+#endif
 
     std::cout << "\n========================================" << std::endl;
-    std::cout << "程序结束!" << std::endl;
+    std::cout << "所有测试完成" << std::endl;
     std::cout << "========================================" << std::endl;
 
     return 0;

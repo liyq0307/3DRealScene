@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RealScene3D.Domain.Entities;
+using RealScene3D.Domain.Enums;
 using RealScene3D.Lib.OSGB.Interop;
 
 namespace RealScene3D.Application.Services.Slicing;
@@ -33,8 +34,8 @@ public class OsgbTiledDatasetSlicingService
     /// 处理完整的倾斜摄影数据集
     /// </summary>
     /// <param name="datasetRootPath">数据集根目录（包含 Data 目录和 metadata.xml）</param>
-    /// <param name="outputDir">输出目录</param>
-    /// <param name="config">切片配置</param>
+    /// <param name="outputDir">输出目录或MinIO路径（如 "bucket/path/to/tiles"）</param>
+    /// <param name="config">切片配置（包含MinIO配置）</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>处理是否成功</returns>
     public async Task<bool> ProcessDatasetAsync(
@@ -45,7 +46,8 @@ public class OsgbTiledDatasetSlicingService
     {
         _logger.LogInformation("========== 开始处理 OSGB 倾斜摄影数据集 ==========");
         _logger.LogInformation("数据集根目录: {RootPath}", datasetRootPath);
-        _logger.LogInformation("输出目录: {OutputDir}", outputDir);
+        _logger.LogInformation("输出路径: {OutputDir}", outputDir);
+        _logger.LogInformation("存储位置: {StorageLocation}", config.StorageLocation);
 
         // 1. 验证数据集结构
         ValidateDatasetStructure(datasetRootPath);
@@ -62,22 +64,58 @@ public class OsgbTiledDatasetSlicingService
             _logger.LogWarning("未找到 metadata.xml，将使用默认坐标系");
         }
 
-        // 3. 直接调用 C++ ToB3DMBatch 一站式处理
-        using var reader = new OSGB23dTilesHelper();
+        // 3. 调用 C++ 处理
+        using var reader = new OSGB23dTiles.Helper();
+        bool success;
 
-        _logger.LogInformation("调用 OsgbReader::ToB3DMBatch 批量生成 3D Tiles");
+        if (config.StorageLocation == StorageLocationType.MinIO)
+        {
+            // MinIO 模式：直接写入 MinIO
+            _logger.LogInformation("调用 OSGB23dTiles.Helper::ConvertToB3DMBatchToMinIO 直接写入MinIO");
 
-        bool success = await Task.Run(() =>
-            reader.ConvertToB3DMBatch(
-                datasetRootPath,
-                outputDir,
-                centerX: config.CenterX ?? 0.0,
-                centerY: config.CenterY ?? 0.0,
-                maxLevel: -1,   // -1 表示不限制层级，处理所有 LOD
-                enableTextureCompression: config.EnableTextureCompression,
-                enableMeshOptimization: config.EnableMeshOptimization,
-                enableDracoCompression: config.EnableDracoCompression
-            ), cancellationToken);
+            if (string.IsNullOrEmpty(config.MinioEndpoint) ||
+                string.IsNullOrEmpty(config.MinioAccessKey) ||
+                string.IsNullOrEmpty(config.MinioSecretKey))
+            {
+                throw new InvalidOperationException("MinIO 配置不完整，请提供 Endpoint、AccessKey 和 SecretKey");
+            }
+
+            success = await Task.Run(() =>
+                reader.ConvertToB3DMBatchToMinIO(
+                    datasetRootPath,
+                    outputDir,
+                    config.MinioEndpoint,
+                    config.MinioAccessKey,
+                    config.MinioSecretKey,
+                    config.MinioUseSSL,
+                    centerX: config.CenterX ?? 0.0,
+                    centerY: config.CenterY ?? 0.0,
+                    maxLevel: -1, // -1 表示不限制层级，处理所有 LOD
+                    enableTextureCompression: config.EnableTextureCompression,
+                    enableMeshOptimization: config.EnableMeshOptimization,
+                    enableDracoCompression: config.EnableDracoCompression
+                ), cancellationToken);
+        }
+        else
+        {
+            // 本地文件系统模式
+            _logger.LogInformation("调用 OSGB23dTiles.Helper::ConvertToB3DMBatch 写入本地文件系统");
+
+            // 确保输出目录存在
+            Directory.CreateDirectory(outputDir);
+
+            success = await Task.Run(() =>
+                reader.ConvertToB3DMBatch(
+                    datasetRootPath,
+                    outputDir,
+                    centerX: config.CenterX ?? 0.0,
+                    centerY: config.CenterY ?? 0.0,
+                    maxLevel: -1, // -1 表示不限制层级，处理所有 LOD
+                    enableTextureCompression: config.EnableTextureCompression,
+                    enableMeshOptimization: config.EnableMeshOptimization,
+                    enableDracoCompression: config.EnableDracoCompression
+                ), cancellationToken);
+        }
 
         if (!success)
         {
@@ -86,7 +124,15 @@ public class OsgbTiledDatasetSlicingService
         }
 
         _logger.LogInformation("========== OSGB 倾斜摄影数据集处理完成 ==========");
-        _logger.LogInformation("根 tileset.json 已生成: {Path}", Path.Combine(outputDir, "tileset.json"));
+        
+        if (config.StorageLocation == StorageLocationType.LocalFileSystem)
+        {
+            _logger.LogInformation("根 tileset.json 已生成: {Path}", Path.Combine(outputDir, "tileset.json"));
+        }
+        else
+        {
+            _logger.LogInformation("切片已写入 MinIO: {Path}", outputDir);
+        }
 
         return true;
     }

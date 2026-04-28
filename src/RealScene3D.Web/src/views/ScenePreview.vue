@@ -4,7 +4,6 @@
     <div class="preview-header">
       <button @click="goBack" class="btn-back" title="返回场景列表">
         <span class="icon">←</span>
-        <span class="text">返回</span>
       </button>
 
       <div class="scene-info">

@@ -97,4 +97,24 @@ public class SlicingConfig
     /// 3D Tiles版本（1.0或1.1）
     /// </summary>
     public string TilesVersion { get; set; } = "1.0";
+
+    /// <summary>
+    /// MinIO 服务端点 (如 "localhost:9000")
+    /// </summary>
+    public string? MinioEndpoint { get; set; }
+
+    /// <summary>
+    /// MinIO 访问密钥
+    /// </summary>
+    public string? MinioAccessKey { get; set; }
+
+    /// <summary>
+    /// MinIO 秘密密钥
+    /// </summary>
+    public string? MinioSecretKey { get; set; }
+
+    /// <summary>
+    /// MinIO 是否使用 HTTPS
+    /// </summary>
+    public bool MinioUseSSL { get; set; } = false;
 }

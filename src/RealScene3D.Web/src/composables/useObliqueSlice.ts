@@ -147,16 +147,15 @@ export function mapObliqueFormDataToRequest(
   userId: string,
   sceneObjectId?: string
 ): ObliqueSlicingRequest {
-  // ✅ 修复存储位置判定逻辑
   const outputPathRaw = (formData.outputPath || '').trim()
   
   // 判断存储位置：
-  // 1. 空路径 → MinIO
-  // 2. 相对路径 → MinIO
-  // 3. 绝对路径 → LocalFileSystem
+  // 1. 空路径 → MinIO (0)
+  // 2. 相对路径 → MinIO (0)
+  // 3. 绝对路径 → LocalFileSystem (1)
   const isEmpty = !outputPathRaw
   const isRelative = outputPathRaw && !outputPathRaw.includes(':') && !outputPathRaw.startsWith('/')
-  const targetStorage = (isEmpty || isRelative) ? 'MinIO' : 'LocalFileSystem'
+  const targetStorage = (isEmpty || isRelative) ? 0 : 1 // 0=MinIO, 1=LocalFileSystem
   const finalOutputPath = outputPathRaw.replace(/\\/g, '/')
 
   return {
@@ -164,11 +163,8 @@ export function mapObliqueFormDataToRequest(
     sourceModelPath: formData.dataPath,
     modelType: 'ObliquePhotography',
     outputPath: finalOutputPath,
-    storageLocation: targetStorage, // 顶层
-    userId: userId,
-    sceneObjectId: sceneObjectId,
+    sceneObjectId: sceneObjectId || undefined,
     slicingConfig: {
-      // 倾斜摄影特有配置
       spatialReference: formData.spatialReference,
       zeroPoint: formData.zeroPoint,
       highQualityReconstruction: formData.highQualityReconstruction,
@@ -177,11 +173,10 @@ export function mapObliqueFormDataToRequest(
       textureCompression: formData.textureCompression,
       vertexCompression: formData.vertexCompression,
       store3DTiles11: formData.store3DTiles11,
-      storageType: formData.storageType, // 保持原本的 hash/hierarchy
-      
-      // 通用配置
+      storageType: formData.storageType,
       outputFormat: 'b3dm',
       coordinateSystem: formData.spatialReference || 'EPSG:4326',
+      storageLocation: targetStorage
     }
   }
 }
