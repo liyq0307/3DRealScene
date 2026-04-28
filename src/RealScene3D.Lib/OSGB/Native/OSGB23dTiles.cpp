@@ -1807,7 +1807,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 	int nMaxLevel,
 	bool bEnableTextureCompress,
 	bool bEnableMeshOpt,
-	bool bEnableDraco)
+	bool bEnableDraco,
+	bool bWriteToMinio)
 {
 	// 1. 构建 Data 目录路径
 	std::string data_path = OSGBTools::OSGString(pDataDir);
@@ -1939,7 +1940,10 @@ bool OSGB23dTiles::ToB3DMBatch(
 	}
 
 	// 4. 创建输出目录
-	OSGBTools::MkDirs(strOutputDir);
+	if (!bWriteToMinio)
+	{
+		OSGBTools::MkDirs(strOutputDir);
+	}
 
 	// 5. 收集所有子目录/OSGB文件
 	struct TileInfo {
@@ -1956,7 +1960,10 @@ bool OSGB23dTiles::ToB3DMBatch(
 	{
 		// 倾斜摄影模式：扫描 Tile_* 目录
 		std::string out_data_path = strOutputDir + "/Data";
-		OSGBTools::MkDirs(out_data_path);
+		if (!bWriteToMinio)
+		{
+			OSGBTools::MkDirs(out_data_path);
+		}
 
 		// 使用 OSGBTools 统一的目录扫描函数
 		std::vector<std::string> tile_names = OSGBTools::ScanTileDirectories(check_data_dir);
@@ -1975,7 +1982,10 @@ bool OSGB23dTiles::ToB3DMBatch(
 			info.tile_name = tile_name;
 			info.osgb_path = osgb_file;
 			info.output_path = out_data_path + "/" + tile_name;
-			OSGBTools::MkDirs(info.output_path);
+			if (!bWriteToMinio)
+			{
+				OSGBTools::MkDirs(info.output_path);
+			}
 			tiles.emplace_back(info);
 		}
 	}
@@ -2016,7 +2026,10 @@ bool OSGB23dTiles::ToB3DMBatch(
 			info.tile_name = dir_name;
 			info.osgb_path = root_osgb;
 			info.output_path = strOutputDir + "/" + dir_name;
-			OSGBTools::MkDirs(info.output_path);
+			if (!bWriteToMinio)
+			{
+				OSGBTools::MkDirs(info.output_path);
+			}
 			tiles.emplace_back(info);
 		}
 		else
@@ -2056,7 +2069,10 @@ bool OSGB23dTiles::ToB3DMBatch(
 				info.tile_name = folder_name;
 				info.osgb_path = root_osgb;
 				info.output_path = strOutputDir + "/" + folder_name;
-				OSGBTools::MkDirs(info.output_path);
+				if (!bWriteToMinio)
+				{
+					OSGBTools::MkDirs(info.output_path);
+				}
 				tiles.emplace_back(info);
 			}
 		}
@@ -2249,6 +2265,7 @@ bool OSGB23dTiles::ToB3DMBatchToMinIO(
 	if (slash_pos == std::string::npos)
 	{
 		LOG_E("MinIO路径格式错误，应为: slices/path");
+
 		return false;
 	}
 
@@ -2265,11 +2282,17 @@ bool OSGB23dTiles::ToB3DMBatchToMinIO(
 	if (!g_minio_client->IsValid())
 	{
 		LOG_E("MinIO客户端创建失败");
+
 		return false;
 	}
 
 	// 确保 Bucket 存在
-	g_minio_client->MakeBucket();
+	if (!g_minio_client->MakeBucket())
+	{
+		LOG_E("MinIO创建Bucket失败");
+
+		return false;	
+	}
 
 	// 3. 设置MinIO写入器（后续所有WriteFile调用都会自动写入MinIO）
 	OSGBTools::SetMinioWriter(g_minio_client.get());
@@ -2280,7 +2303,7 @@ bool OSGB23dTiles::ToB3DMBatchToMinIO(
 	try
 	{
 		success = ToB3DMBatch(pDataDir, "", dCenterX, dCenterY, nMaxLevel,
-			bEnableTextureCompress, bEnableMeshOpt, bEnableDraco);
+			bEnableTextureCompress, bEnableMeshOpt, bEnableDraco, true);
 	}
 	catch (const std::exception& e)
 	{

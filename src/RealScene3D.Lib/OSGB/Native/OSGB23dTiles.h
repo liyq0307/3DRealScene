@@ -299,7 +299,8 @@ public:
 		int nMaxLevel,
 		bool bEnableTextureCompress = false, 
 		bool bEnableMeshOpt = false, 
-		bool bEnableDraco = false);
+		bool bEnableDraco = false,
+		bool bWriteToMinio = false);
 
 #ifdef ENABLE_MINIO
 	/**

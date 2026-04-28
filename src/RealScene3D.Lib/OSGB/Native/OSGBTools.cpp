@@ -159,10 +159,19 @@ bool MinioClient::MakeBucket()
 		minio::s3::MakeBucketArgs args;
 		args.bucket = bucket_name;
 
+		if (client->BucketExists(args))
+		{
+			LOG_I("Minio Bucket已存在: {}", bucket_name.c_str());
+
+			return true;
+		}
+
 		auto resp = client->MakeBucket(args);
 		if (!resp)
 		{
-			LOG_W("MinIO创建Bucket警告: {}", resp.message.c_str());
+			LOG_W("MinIO创建Bucket失败: {}", resp.message.c_str());
+
+			return false;
 		}
 
 		return true;
