@@ -192,20 +192,22 @@ bool OSGBTools::MkDirs(const std::string& strPath)
 bool OSGBTools::WriteFile(const std::string& strFileName, const char* pszBuf, unsigned long nBufLen)
 {
 #ifdef ENABLE_MINIO
-	// 检查是否需要路由到 MinIO（加锁保护）
+	// 先获取MinIO客户端指针（锁内操作）
+	MinioClient* client = nullptr;
 	{
 		std::lock_guard<std::mutex> lock(g_minio_mutex);
-		if (g_minio_client && g_minio_client->IsValid())
-		{
-			// 转换路径分隔符为正斜杠
-			std::string object_name = strFileName;
-			for (char& c : object_name)
-			{
-				if (c == '\\') c = '/';
-			}
+		client = g_minio_client;
+	}
 
-			return g_minio_client->Write(object_name, pszBuf, nBufLen);
+	// 在锁外执行网络I/O，避免阻塞其他线程
+	if (client && client->IsValid())
+	{
+		std::string object_name = strFileName;
+		for (char& c : object_name)
+		{
+			if (c == '\\') c = '/';
 		}
+		return client->Write(object_name, pszBuf, nBufLen);
 	}
 #endif
 
