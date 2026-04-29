@@ -14,6 +14,10 @@
       </div>
 
       <div class="header-actions">
+        <button @click="toggleAnalysisToolbox" class="btn-action" :class="{ active: showAnalysisToolbox }" title="可视化分析">
+          <span class="icon">📊</span>
+          <span class="text">分析</span>
+        </button>
         <button v-if="hasUnsupportedModels" @click="convertModelsToTiles" class="btn-action" title="转换为3D Tiles">
           <span class="icon">🔄</span>
           <span class="text">转换模型</span>
@@ -128,6 +132,14 @@
         </button>
       </div>
     </div>
+
+    <!-- 可视化分析工具箱 -->
+    <AnalysisToolbox
+      v-if="showAnalysisToolbox"
+      :viewer-instance="currentViewerInstance"
+      :scene-objects="visibleObjects"
+      @close="showAnalysisToolbox = false"
+    />
   </div>
 </template>
 
@@ -138,6 +150,7 @@ import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
 import Mars3DViewer from '@/components/Mars3DViewer.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
+import AnalysisToolbox from '@/components/analysis/AnalysisToolbox.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -152,6 +165,8 @@ const sceneObjects = ref<any[]>([])
 const isFullscreen = ref(false)
 const sidebarVisible = ref(true)
 const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
+const showAnalysisToolbox = ref(false)
+const currentViewerInstance = ref<any>(null)
 
 // ==================== 计算属性 ====================
 
@@ -359,6 +374,7 @@ const convertModelsToTiles = async () => {
 
 const onMars3DReady = (map: any) => {
   console.log('[ScenePreview] Mars3D地球初始化成功', map)
+  currentViewerInstance.value = map
   showSuccess('Mars3D 3D地球加载成功')
 }
 
@@ -369,6 +385,7 @@ const onMars3DError = (err: Error) => {
 
 const onThreeJSReady = (viewerData: any) => {
   console.log('[ScenePreview] Three.js场景初始化成功', viewerData)
+  currentViewerInstance.value = viewerData
   showSuccess('Three.js 场景加载成功')
 }
 
@@ -383,6 +400,10 @@ const onThreeJSError = (err: Error) => {
 
 const handleFullscreenChange = () => {
   isFullscreen.value = !!document.fullscreenElement
+}
+
+const toggleAnalysisToolbox = () => {
+  showAnalysisToolbox.value = !showAnalysisToolbox.value
 }
 
 // ==================== 生命周期钩子 ====================
@@ -491,6 +512,11 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
+}
+
+.btn-action.active {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.5);
 }
 
 .btn-action .icon { font-size: 1.2rem; }
