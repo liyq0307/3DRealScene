@@ -20,7 +20,7 @@
     <!-- 菜单头部 -->
     <div class="sidebar-menu-header">
       <div class="sidebar-menu-brand">
-        <span class="brand-icon">🌍</span>
+        <IconEarth class="brand-icon" size="lg" :glow="true" />
         <span v-if="!collapsed" class="brand-text">3D场景管理</span>
       </div>
       <MenuToggle 
@@ -90,6 +90,7 @@ import MenuItem from './MenuItem.vue'
 import SubMenu from './SubMenu.vue'
 import MenuToggle from './MenuToggle.vue'
 import UserInfo from './UserInfo.vue'
+import { IconEarth } from './icons'
 import { useMenuStateSingleton } from '@/composables/useMenuState'
 import { useMenuConfig } from '@/composables/useMenuConfig'
 import { useResponsiveSingleton } from '@/composables/useResponsive'
@@ -387,14 +388,12 @@ onUnmounted(() => {
 }
 
 .brand-icon {
-  font-size: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--neon-cyan);
+  flex-shrink: 0;
 }
 
 .brand-text {
-  background: var(--gradient-primary);
+  background: var(--gradient-neon-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

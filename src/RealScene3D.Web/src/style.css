@@ -69,6 +69,33 @@
   --dark-text-secondary: #cbd5e1;
   --dark-border: #334155;
 
+  /* ==================== Cyberpunk UI 主题变量 ==================== */
+  
+  /* 霓虹强调色 */
+  --neon-cyan: #22D3EE;
+  --neon-blue: #3B82F6;
+  --neon-green: #22C55E;
+  --neon-purple: #A855F7;
+  --neon-pink: #EC4899;
+  
+  /* 霓虹渐变 */
+  --gradient-neon-primary: linear-gradient(135deg, var(--neon-blue), var(--neon-cyan));
+  --gradient-neon-secondary: linear-gradient(135deg, var(--neon-cyan), var(--neon-green));
+  --gradient-neon-accent: linear-gradient(135deg, var(--neon-purple), var(--neon-pink));
+  
+  /* 玻璃态效果 */
+  --glass-bg: rgba(30, 41, 59, 0.7);
+  --glass-bg-light: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(34, 211, 238, 0.3);
+  --glass-blur: 20px;
+  
+  /* 霓虹发光效果 */
+  --glow-cyan: 0 0 20px rgba(34, 211, 238, 0.5);
+  --glow-blue: 0 0 20px rgba(59, 130, 246, 0.5);
+  --glow-green: 0 0 20px rgba(34, 197, 94, 0.5);
+  --glow-purple: 0 0 20px rgba(168, 85, 247, 0.5);
+  --glow-strong-cyan: 0 0 30px rgba(34, 211, 238, 0.7);
+
   /* 边框和阴影 - 更精致的效果 */
   --border-color: #e5e7eb;
   --border-radius: 10px;
@@ -571,30 +598,10 @@ body {
 /* 容器 */
 .container {
   width: 100%;
-  padding-right: var(--spacing-md);
-  padding-left: var(--spacing-md);
-  margin-right: auto;
-  margin-left: auto;
-}
-
-@media (min-width: 576px) {
-  .container { max-width: 540px; }
-}
-
-@media (min-width: 768px) {
-  .container { max-width: 720px; }
-}
-
-@media (min-width: 992px) {
-  .container { max-width: 960px; }
-}
-
-@media (min-width: 1200px) {
-  .container { max-width: 1140px; }
-}
-
-@media (min-width: 1400px) {
-  .container { max-width: 1320px; }
+  padding-right: 0;
+  padding-left: 0;
+  margin-right: 0;
+  margin-left: 0;
 }
 
 
@@ -633,4 +640,100 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ==================== 主题系统 ==================== */
+
+/* 亮色主题 (默认) */
+:root,
+[data-theme="light"] {
+  --theme-bg-primary: #FFFFFF;
+  --theme-bg-secondary: #F3F4F6;
+  --theme-text-primary: #111827;
+  --theme-text-secondary: #6B7280;
+  --theme-border: #E5E7EB;
+}
+
+/* 暗色主题 */
+[data-theme="dark"] {
+  --theme-bg-primary: #0F172A;
+  --theme-bg-secondary: #1E293B;
+  --theme-text-primary: #F1F5F9;
+  --theme-text-secondary: #94A3B8;
+  --theme-border: #334155;
+}
+
+/* Cyberpunk 主题 */
+[data-theme="cyberpunk"] {
+  --theme-bg-primary: #0F172A;
+  --theme-bg-secondary: #1E293B;
+  --theme-text-primary: #F8FAFC;
+  --theme-text-secondary: #94A3B8;
+  --theme-border: rgba(34, 211, 238, 0.3);
+}
+
+/* 深色主题通用样式 */
+.dark,
+[data-theme="dark"],
+[data-theme="cyberpunk"] {
+  color-scheme: dark;
+}
+
+/* ==================== 全局交互优化 ==================== */
+
+/* 所有可点击元素添加 cursor-pointer */
+button,
+[role="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="button"],
+a,
+select,
+input[type="checkbox"],
+input[type="radio"],
+label,
+[tabindex]:not([tabindex="-1"]),
+.btn,
+.card[onclick],
+.menu-item {
+  cursor: pointer;
+}
+
+/* 平滑过渡效果 */
+button,
+a,
+input,
+select,
+textarea,
+.card,
+.btn,
+.menu-item,
+.sidebar-menu,
+.modal {
+  transition: all var(--transition-base);
+}
+
+/* 交互元素悬停反馈 */
+button:hover,
+a:hover,
+.btn:hover,
+.card:hover {
+  transform: translateY(-2px);
+}
+
+button:active,
+a:active,
+.btn:active {
+  transform: translateY(0);
+}
+
+/* 禁用状态 */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled,
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
 }

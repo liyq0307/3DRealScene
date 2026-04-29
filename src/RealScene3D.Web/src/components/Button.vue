@@ -4,25 +4,33 @@
       'btn',
       `btn-${variant}`,
       `btn-${size}`,
-      { 'btn-loading': loading, 'btn-disabled': disabled, 'btn-block': block }
+      { 
+        'btn-loading': loading, 
+        'btn-disabled': disabled, 
+        'btn-block': block,
+        'btn-neon': neon 
+      }
     ]"
     :disabled="disabled || loading"
     @click="handleClick"
   >
     <span v-if="loading" class="btn-spinner"></span>
-    <span v-if="icon && !loading" class="btn-icon">{{ icon }}</span>
+    <span v-if="$slots.icon && !loading" class="btn-icon">
+      <slot name="icon" />
+    </span>
     <span class="btn-text"><slot /></span>
+    <span v-if="neon && variant === 'primary'" class="btn-glow"></span>
   </button>
 </template>
 
 <script setup lang="ts">
 interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' | 'ghost'
+  variant?: 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' | 'ghost' | 'neon'
   size?: 'sm' | 'md' | 'lg'
   loading?: boolean
   disabled?: boolean
   block?: boolean
-  icon?: string
+  neon?: boolean
 }
 
 const props = withDefaults(defineProps<ButtonProps>(), {
@@ -31,7 +39,7 @@ const props = withDefaults(defineProps<ButtonProps>(), {
   loading: false,
   disabled: false,
   block: false,
-  icon: ''
+  neon: false
 })
 
 const emit = defineEmits<{
@@ -177,6 +185,46 @@ const handleClick = (event: MouseEvent) => {
   border-color: var(--primary-color);
 }
 
+/* Neon 样式 (Cyberpunk 主题) */
+.btn-neon.btn-primary {
+  background: var(--gradient-neon-primary);
+  border: 2px solid var(--glass-border);
+  box-shadow: var(--glow-cyan);
+  overflow: hidden;
+}
+
+.btn-neon.btn-primary:hover:not(.btn-disabled):not(.btn-loading) {
+  box-shadow: var(--glow-strong-cyan);
+  border-color: var(--neon-cyan);
+}
+
+.btn-neon.btn-secondary {
+  background: transparent;
+  color: var(--neon-cyan);
+  border: 2px solid rgba(34, 211, 238, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+.btn-neon.btn-secondary:hover:not(.btn-disabled):not(.btn-loading) {
+  background: rgba(34, 211, 238, 0.15);
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+  color: white;
+}
+
+.btn-glow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.btn-neon.btn-primary:hover .btn-glow {
+  transform: translateX(100%);
+}
+
 /* 禁用状态 */
 .btn-disabled {
   opacity: 0.6;
@@ -202,9 +250,14 @@ const handleClick = (event: MouseEvent) => {
 
 /* 图标 */
 .btn-icon {
-  font-size: 1.2em;
   display: flex;
   align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-fast);
+}
+
+.btn:hover:not(.btn-disabled):not(.btn-loading) .btn-icon {
+  transform: translateX(2px);
 }
 
 /* 加载旋转器 */

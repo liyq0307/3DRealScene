@@ -279,6 +279,19 @@ const routes = [
     name: 'TiltPhotographyMetadata',
     component: () => import('../views/TiltPhotographyMetadata.vue'),
     meta: { requiresAuth: true, title: '倾斜摄影元数据' }
+  },
+
+  /**
+   * 404页面路由
+   * 路径: /:pathMatch(.*)*
+   * 组件: NotFound.vue (404错误页面组件)
+   * 用途: 处理所有未匹配的路由
+   */
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('../views/NotFound.vue'),
+    meta: { title: '页面未找到' }
   }
 
   // ==================== 预留路由扩展空间 ====================

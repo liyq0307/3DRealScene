@@ -1,7 +1,15 @@
 <template>
   <div
     class="card"
-    :class="[`card-${variant}`, { 'card-hoverable': hoverable, 'card-bordered': bordered }]"
+    :class="[
+      `card-${variant}`,
+      { 
+        'card-hoverable': hoverable, 
+        'card-bordered': bordered,
+        'card-glass': glass,
+        'card-neon': neon
+      }
+    ]"
   >
     <!-- 卡片头部 -->
     <div v-if="$slots.header || title" class="card-header">
@@ -31,6 +39,8 @@
  * - 可选的悬停效果
  * - 可配置边框显示
  * - 灵活的插槽系统 (header, default, footer)
+ * - 玻璃态效果 (glassmorphism)
+ * - 霓虹发光效果 (neon)
  *
  * @author liyq
  * @date 2025-10-15
@@ -41,12 +51,16 @@ interface Props {
   variant?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'info'
   hoverable?: boolean
   bordered?: boolean
+  glass?: boolean
+  neon?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
   variant: 'default',
   hoverable: true,
-  bordered: true
+  bordered: true,
+  glass: false,
+  neon: false
 })
 </script>
 
@@ -74,6 +88,38 @@ withDefaults(defineProps<Props>(), {
   box-shadow: var(--shadow-lg);
 }
 
+/* 玻璃态效果 */
+.card-glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+}
+
+.card-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* 霓虹效果 */
+.card-neon {
+  border: 2px solid rgba(34, 211, 238, 0.3);
+  box-shadow: var(--glow-cyan);
+}
+
+.card-neon.card-hoverable:hover {
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-strong-cyan);
+}
+
+.card-neon .card-title {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+}
+
 /* 卡片变体样式 */
 .card-default {
   background: white;
@@ -86,7 +132,7 @@ withDefaults(defineProps<Props>(), {
   left: 0;
   right: 0;
   height: 4px;
-  background: var(--gradient-primary-alt);
+  background: var(--gradient-neon-primary);
 }
 
 .card-success::before {
@@ -96,7 +142,7 @@ withDefaults(defineProps<Props>(), {
   left: 0;
   right: 0;
   height: 4px;
-  background: var(--gradient-success);
+  background: linear-gradient(90deg, var(--neon-green), var(--neon-cyan));
 }
 
 .card-warning::before {
@@ -126,7 +172,7 @@ withDefaults(defineProps<Props>(), {
   left: 0;
   right: 0;
   height: 4px;
-  background: var(--gradient-info);
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-blue));
 }
 
 /* 卡片头部 */
@@ -134,6 +180,10 @@ withDefaults(defineProps<Props>(), {
   padding-bottom: 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--border-color);
+}
+
+.card-glass .card-header {
+  border-bottom-color: rgba(148, 163, 184, 0.2);
 }
 
 .card-title {
@@ -150,6 +200,10 @@ withDefaults(defineProps<Props>(), {
   line-height: 1.6;
 }
 
+.card-neon .card-body {
+  color: var(--gray-300);
+}
+
 /* 卡片底部 */
 .card-footer {
   padding-top: 1rem;
@@ -158,5 +212,9 @@ withDefaults(defineProps<Props>(), {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+}
+
+.card-glass .card-footer {
+  border-top-color: rgba(148, 163, 184, 0.2);
 }
 </style>

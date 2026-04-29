@@ -6,7 +6,7 @@
           <div
             v-if="modelValue"
             class="modal-container"
-            :class="[`modal-${size}`]"
+            :class="[`modal-${size}`, { 'modal-neon': neon }]"
             @click.stop
           >
             <!-- 模态框头部 -->
@@ -71,6 +71,7 @@ interface Props {
   showFooter?: boolean
   confirmText?: string
   cancelText?: string
+  neon?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -79,7 +80,8 @@ const props = withDefaults(defineProps<Props>(), {
   closeOnOverlay: true,
   showFooter: true,
   confirmText: '确定',
-  cancelText: '取消'
+  cancelText: '取消',
+  neon: false
 })
 
 const emit = defineEmits<{
@@ -161,7 +163,7 @@ const handleOverlayClick = () => {
   margin: 0;
   font-size: var(--font-size-xl);
   font-weight: 700;
-  background: var(--gradient-primary-alt);
+  background: var(--gradient-neon-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -235,10 +237,10 @@ const handleOverlayClick = () => {
 }
 
 .btn-primary {
-  background: var(--gradient-primary-alt);
+  background: var(--gradient-neon-primary);
   color: white;
   border: none;
-  box-shadow: var(--shadow-colored);
+  box-shadow: var(--glow-cyan);
 }
 
 .btn-primary::before {
@@ -317,5 +319,42 @@ const handleOverlayClick = () => {
     padding-left: 1.5rem;
     padding-right: 1.5rem;
   }
+}
+
+/* Neon Modal 样式 */
+.modal-neon {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 2px solid rgba(34, 211, 238, 0.3);
+  box-shadow: var(--glow-cyan), var(--shadow-2xl);
+}
+
+.modal-neon .modal-header {
+  border-bottom-color: rgba(34, 211, 238, 0.2);
+}
+
+.modal-neon .modal-title {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+}
+
+.modal-neon .modal-close {
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--neon-cyan);
+}
+
+.modal-neon .modal-close:hover {
+  background: rgba(236, 72, 153, 0.2);
+  color: var(--neon-pink);
+}
+
+.modal-neon .modal-body {
+  color: var(--gray-300);
+}
+
+.modal-neon .modal-footer {
+  background: rgba(15, 23, 42, 0.5);
+  border-top-color: rgba(34, 211, 238, 0.2);
 }
 </style>

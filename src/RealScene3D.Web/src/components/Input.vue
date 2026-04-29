@@ -1,5 +1,11 @@
 <template>
-  <div class="input-wrapper" :class="{ 'input-wrapper-error': error }">
+  <div 
+    class="input-wrapper" 
+    :class="{ 
+      'input-wrapper-error': error,
+      'input-wrapper-neon': neon 
+    }"
+  >
     <label v-if="label" :for="inputId" class="input-label">
       {{ label }}
       <span v-if="required" class="required-mark">*</span>
@@ -15,7 +21,11 @@
         :readonly="readonly"
         :class="[
           'input-field',
-          { 'input-with-prefix': prefixIcon, 'input-with-suffix': suffixIcon || clearable }
+          { 
+            'input-with-prefix': prefixIcon, 
+            'input-with-suffix': suffixIcon || clearable,
+            'input-neon': neon
+          }
         ]"
         @input="handleInput"
         @focus="handleFocus"
@@ -49,6 +59,7 @@ interface InputProps {
   prefixIcon?: string
   suffixIcon?: string
   clearable?: boolean
+  neon?: boolean
 }
 
 const props = withDefaults(defineProps<InputProps>(), {
@@ -62,7 +73,8 @@ const props = withDefaults(defineProps<InputProps>(), {
   hint: '',
   prefixIcon: '',
   suffixIcon: '',
-  clearable: false
+  clearable: false,
+  neon: false
 })
 
 const emit = defineEmits<{
@@ -145,6 +157,35 @@ const handleClear = () => {
 .input-field:focus {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+/* 霓虹输入框 */
+.input-neon {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--gray-100);
+}
+
+.input-neon::placeholder {
+  color: var(--gray-500);
+}
+
+.input-neon:hover:not(:disabled):not(:focus) {
+  border-color: rgba(34, 211, 238, 0.5);
+}
+
+.input-neon:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.input-wrapper-neon .input-label {
+  color: var(--gray-300);
+}
+
+.input-wrapper-neon .input-prefix-icon,
+.input-wrapper-neon .input-suffix-icon {
+  color: var(--neon-cyan);
 }
 
 .input-field:disabled {

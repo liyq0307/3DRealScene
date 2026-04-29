@@ -8,7 +8,7 @@
         @input="emit('update:dataPath', ($event.target as HTMLInputElement).value)"
         type="text"
         class="form-input"
-        placeholder="请输入倾斜模型的DATA文件夹完整路径"
+        placeholder="请输入模型所在文件夹路径"
       />
       <small class="form-hint">例如: F:/Data/Oblique/Tile/Data</small>
     </div>

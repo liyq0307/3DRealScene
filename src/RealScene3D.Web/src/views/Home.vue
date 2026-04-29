@@ -52,12 +52,12 @@
         <!-- 操作按钮 -->
         <div class="hero-actions">
           <router-link to="/scenes" class="btn btn-primary">
-            <span class="btn-icon">▶</span>
+            <IconPlay class="btn-icon" size="sm" :glow="true" />
             <span class="btn-text">进入平台</span>
             <span class="btn-glow"></span>
           </router-link>
           <router-link to="/workflow-designer" class="btn btn-secondary">
-            <span class="btn-icon">✦</span>
+            <IconStar class="btn-icon" size="sm" />
             <span class="btn-text">工作流设计</span>
           </router-link>
         </div>
@@ -85,6 +85,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as THREE from 'three'
 import earthTexture from '../image/earth.jpg'
+import { IconPlay, IconStar } from '@/components/icons'
 
 const globeContainer = ref<HTMLElement>()
 
@@ -432,6 +433,7 @@ const getFrontBuildingStyle = (index: number) => {
     rgba(15, 45, 90, 0.5) 100%);
   opacity: 0.6;
   animation: buildingGlow 4s ease-in-out infinite;
+  will-change: opacity;
 }
 
 /* 中排建筑层 */
@@ -441,6 +443,7 @@ const getFrontBuildingStyle = (index: number) => {
     rgba(20, 60, 110, 0.7) 100%);
   opacity: 0.75;
   animation: buildingGlow 4s ease-in-out infinite;
+  will-change: opacity;
 }
 
 /* 前排建筑层 */
@@ -449,9 +452,10 @@ const getFrontBuildingStyle = (index: number) => {
     rgba(30, 90, 160, 0.8) 0%,
     rgba(25, 75, 130, 0.9) 100%);
   box-shadow:
-    0 -2px 20px rgba(52, 152, 219, 0.3),
-    inset 0 -3px 10px rgba(52, 152, 219, 0.2);
+    0 -2px 20px rgba(34, 211, 238, 0.3),
+    inset 0 -3px 10px rgba(34, 211, 238, 0.2);
   animation: buildingGlow 4s ease-in-out infinite;
+  will-change: opacity;
 }
 
 /* 建筑顶部灯光 */
@@ -465,9 +469,9 @@ const getFrontBuildingStyle = (index: number) => {
   height: 4px;
   background: linear-gradient(90deg,
     transparent 0%,
-    rgba(52, 152, 219, 0.8) 50%,
+    var(--neon-cyan) 50%,
     transparent 100%);
-  box-shadow: 0 0 10px rgba(52, 152, 219, 0.8);
+  box-shadow: var(--glow-cyan);
 }
 
 /* 建筑窗户 */
@@ -484,15 +488,15 @@ const getFrontBuildingStyle = (index: number) => {
       0deg,
       transparent,
       transparent 12px,
-      rgba(52, 152, 219, 0.15) 12px,
-      rgba(52, 152, 219, 0.15) 14px
+      rgba(34, 211, 238, 0.15) 12px,
+      rgba(34, 211, 238, 0.15) 14px
     ),
     repeating-linear-gradient(
       90deg,
       transparent,
       transparent 12px,
-      rgba(52, 152, 219, 0.15) 12px,
-      rgba(52, 152, 219, 0.15) 14px
+      rgba(34, 211, 238, 0.15) 12px,
+      rgba(34, 211, 238, 0.15) 14px
     );
 }
 
@@ -506,17 +510,19 @@ const getFrontBuildingStyle = (index: number) => {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(52, 152, 219, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(52, 152, 219, 0.08) 1px, transparent 1px);
+    linear-gradient(var(--glass-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--glass-border) 1px, transparent 1px);
   background-size: 60px 60px;
   animation: gridMove 25s linear infinite;
   opacity: 0.4;
   z-index: 0;
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 @keyframes gridMove {
-  0% { transform: perspective(600px) rotateX(65deg) translateY(0); }
-  100% { transform: perspective(600px) rotateX(65deg) translateY(60px); }
+  0% { transform: perspective(600px) rotateX(65deg) translateY(0) translateZ(0); }
+  100% { transform: perspective(600px) rotateX(65deg) translateY(60px) translateZ(0); }
 }
 
 /* ==================== 粒子效果 ==================== */
@@ -525,18 +531,23 @@ const getFrontBuildingStyle = (index: number) => {
   inset: 0;
   pointer-events: none;
   z-index: 1;
+  overflow: hidden;
 }
 
 .particle {
   position: absolute;
-  background: radial-gradient(circle, rgba(52, 152, 219, 0.9), transparent);
+  background: radial-gradient(circle, var(--neon-cyan), transparent);
   border-radius: 50%;
   animation: float linear infinite;
+  will-change: transform, opacity;
+  /* 性能优化：使用GPU加速 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 @keyframes float {
   0% {
-    transform: translateY(0) translateX(0);
+    transform: translateY(0) translateX(0) translateZ(0);
     opacity: 0;
   }
   10% {
@@ -546,7 +557,7 @@ const getFrontBuildingStyle = (index: number) => {
     opacity: 0.8;
   }
   100% {
-    transform: translateY(-100vh) translateX(calc((var(--random-x, 0) - 0.5) * 100px));
+    transform: translateY(-100vh) translateX(calc((var(--random-x, 0) - 0.5) * 100px)) translateZ(0);
     opacity: 0;
   }
 }
@@ -560,18 +571,20 @@ const getFrontBuildingStyle = (index: number) => {
   height: 3px;
   background: linear-gradient(90deg,
     transparent,
-    rgba(52, 152, 219, 0.9) 50%,
+    var(--neon-cyan) 50%,
     transparent
   );
   animation: scan 5s linear infinite;
-  box-shadow: 0 0 25px rgba(52, 152, 219, 0.8);
+  box-shadow: var(--glow-cyan);
   z-index: 3;
+  will-change: transform, opacity;
+  transform: translateZ(0);
 }
 
 @keyframes scan {
-  0% { transform: translateY(0); opacity: 0; }
+  0% { transform: translateY(0) translateZ(0); opacity: 0; }
   50% { opacity: 1; }
-  100% { transform: translateY(100vh); opacity: 0; }
+  100% { transform: translateY(100vh) translateZ(0); opacity: 0; }
 }
 
 /* ==================== 主内容区 ==================== */
@@ -610,20 +623,15 @@ const getFrontBuildingStyle = (index: number) => {
   font-weight: 900;
   margin: 0;
   letter-spacing: 0.15em;
-  background: linear-gradient(135deg,
-    #3498db 0%,
-    #52a8e8 25%,
-    #74c0f4 50%,
-    #52a8e8 75%,
-    #3498db 100%);
+  background: var(--gradient-neon-primary);
   background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   animation: titleShine 6s linear infinite;
   text-shadow:
-    0 0 40px rgba(52, 152, 219, 0.6),
-    0 0 80px rgba(41, 128, 185, 0.4);
+    0 0 40px rgba(34, 211, 238, 0.6),
+    0 0 80px rgba(59, 130, 246, 0.4);
   position: relative;
 }
 
@@ -643,7 +651,7 @@ const getFrontBuildingStyle = (index: number) => {
   font-weight: 300;
   letter-spacing: 0.4em;
   margin: 0 0 0.75rem 0;
-  color: rgba(116, 192, 244, 0.9);
+  color: #E0F2FE;
   text-transform: uppercase;
 }
 
@@ -651,10 +659,10 @@ const getFrontBuildingStyle = (index: number) => {
   height: 3px;
   background: linear-gradient(90deg,
     transparent,
-    rgba(52, 152, 219, 0.9) 50%,
+    var(--neon-cyan) 50%,
     transparent
   );
-  box-shadow: 0 0 10px rgba(52, 152, 219, 0.6);
+  box-shadow: var(--glow-cyan);
   animation: expandLine 2s ease-out;
 }
 
@@ -719,28 +727,29 @@ const getFrontBuildingStyle = (index: number) => {
   font-weight: 600;
   text-decoration: none;
   border-radius: 50px;
-  transition: all 0.4s ease;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   text-transform: uppercase;
   letter-spacing: 0.15em;
 }
 
 .btn-icon {
-  font-size: 1.4rem;
-  transition: transform 0.4s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn:hover .btn-icon {
-  transform: translateX(8px);
+  transform: translateX(4px);
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #3498db, #2980b9);
+  background: var(--gradient-neon-primary);
   color: white;
-  border: 2px solid rgba(52, 152, 219, 0.5);
-  box-shadow:
-    0 12px 35px rgba(52, 152, 219, 0.5),
-    inset 0 2px 0 rgba(255, 255, 255, 0.3);
+  border: 2px solid rgba(34, 211, 238, 0.5);
+  box-shadow: var(--glow-cyan);
 }
 
 .btn-glow {
@@ -748,7 +757,7 @@ const getFrontBuildingStyle = (index: number) => {
   inset: 0;
   background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.4), transparent);
   transform: translateX(-100%);
-  transition: transform 0.7s ease;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-primary:hover .btn-glow {
@@ -757,25 +766,23 @@ const getFrontBuildingStyle = (index: number) => {
 
 .btn-primary:hover {
   transform: translateY(-4px);
-  box-shadow:
-    0 18px 45px rgba(52, 152, 219, 0.7),
-    inset 0 2px 0 rgba(255, 255, 255, 0.3);
-  border-color: rgba(52, 152, 219, 0.8);
+  box-shadow: var(--glow-strong-cyan);
+  border-color: rgba(34, 211, 238, 0.8);
 }
 
 .btn-secondary {
   background: transparent;
-  color: rgba(116, 192, 244, 1);
-  border: 2px solid rgba(52, 152, 219, 0.7);
+  color: #E0F2FE;
+  border: 2px solid rgba(34, 211, 238, 0.7);
   backdrop-filter: blur(10px);
-  box-shadow: 0 8px 25px rgba(52, 152, 219, 0.3);
+  box-shadow: 0 8px 25px rgba(34, 211, 238, 0.3);
 }
 
 .btn-secondary:hover {
-  background: rgba(52, 152, 219, 0.15);
-  border-color: rgba(52, 152, 219, 1);
+  background: rgba(34, 211, 238, 0.15);
+  border-color: rgba(34, 211, 238, 1);
   transform: translateY(-4px);
-  box-shadow: 0 12px 35px rgba(52, 152, 219, 0.5);
+  box-shadow: var(--glow-cyan);
   color: white;
 }
 

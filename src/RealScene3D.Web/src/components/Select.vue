@@ -1,5 +1,11 @@
 <template>
-  <div class="select-wrapper" :class="{ 'select-wrapper-error': error }">
+  <div 
+    class="select-wrapper" 
+    :class="{ 
+      'select-wrapper-error': error,
+      'select-wrapper-neon': neon 
+    }"
+  >
     <label v-if="label" :for="selectId" class="select-label">
       {{ label }}
       <span v-if="required" class="required-mark">*</span>
@@ -9,7 +15,7 @@
         :id="selectId"
         :value="modelValue"
         :disabled="disabled"
-        class="select-field"
+        :class="['select-field', { 'select-neon': neon }]"
         @change="handleChange"
         @focus="handleFocus"
         @blur="handleBlur"
@@ -49,6 +55,7 @@ interface SelectProps {
   required?: boolean
   error?: string
   hint?: string
+  neon?: boolean
 }
 
 const props = withDefaults(defineProps<SelectProps>(), {
@@ -57,7 +64,8 @@ const props = withDefaults(defineProps<SelectProps>(), {
   disabled: false,
   required: false,
   error: '',
-  hint: ''
+  hint: '',
+  neon: false
 })
 
 const emit = defineEmits<{
@@ -136,6 +144,35 @@ const handleBlur = (event: FocusEvent) => {
 .select-field:focus {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+/* 霓虹选择框 */
+.select-neon {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--gray-100);
+}
+
+.select-neon option {
+  background: var(--dark-bg-primary);
+  color: var(--gray-100);
+}
+
+.select-neon:hover:not(:disabled):not(:focus) {
+  border-color: rgba(34, 211, 238, 0.5);
+}
+
+.select-neon:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.select-wrapper-neon .select-label {
+  color: var(--gray-300);
+}
+
+.select-wrapper-neon .select-arrow {
+  color: var(--neon-cyan);
 }
 
 .select-field:disabled {

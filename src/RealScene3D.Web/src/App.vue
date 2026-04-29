@@ -1,14 +1,21 @@
 <template>
   <!-- 主应用容器，采用Flexbox布局结构 -->
   <div class="container">
+    <!-- Skip Link - 可访问性支持 -->
+    <a href="#main-content" class="skip-link">
+      跳转到主内容
+    </a>
+    
     <!-- 左侧菜单 -->
     <SidebarMenu v-if="!hideLayout" v-model:collapsed="menuCollapsed" />
     
     <!-- 主内容区域，使用路由视图显示不同页面 -->
     <main 
+      id="main-content"
       class="main-content"
       :class="{ 'main-content-fullscreen': hideLayout }"
       :style="{ marginLeft: hideLayout ? '0' : menuMarginLeft }"
+      tabindex="-1"
     >
       <router-view />
     </main>
@@ -67,6 +74,29 @@ watch(
   background: var(--gray-100);
 }
 
+/* Skip Link 样式 */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--neon-cyan);
+  color: var(--dark-bg-primary);
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--border-radius);
+  font-weight: 600;
+  text-decoration: none;
+  z-index: 9999;
+  transition: top var(--transition-fast);
+  box-shadow: var(--glow-cyan);
+}
+
+.skip-link:focus {
+  top: 1rem;
+  outline: 2px solid var(--dark-bg-primary);
+  outline-offset: 2px;
+}
+
 .main-content {
   flex: 1;
   overflow-y: auto;
@@ -77,6 +107,10 @@ watch(
   /* 添加滚动条样式 */
   scrollbar-width: thin;
   scrollbar-color: var(--primary-color) var(--gray-200);
+}
+
+.main-content:focus {
+  outline: none;
 }
 
 .main-content-fullscreen {
