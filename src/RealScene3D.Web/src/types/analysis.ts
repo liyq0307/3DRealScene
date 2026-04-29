@@ -4,23 +4,38 @@
 export type AnalysisToolType =
   | 'performance'
   | 'visibility'
+  | 'viewshed'
   | 'profile'
   | 'skyline'
   | 'distance'
+  | 'distance-surface'
   | 'area'
+  | 'area-surface'
   | 'volume'
+  | 'height'
+  | 'height-triangle'
+  | 'bearing'
+  | 'coordinate'
+  | 'coordinate-measure'
   | 'plot-ratio'
   | 'building-layout'
+  | 'building-spacing'
   | 'layer-comparison'
   | 'sun'
-  | 'building-spacing'
   | 'slope'
   | 'flood'
-  | 'coordinate'
-  | 'height'
+  | 'contour'
+  | 'flatten'
+  | 'map-marking'
+  | 'viewpoint'
+  | 'site-selection'
+  | 'tower-foundation'
+  | 'pipeline'
+  | 'constraint'
+  | 'business-format'
 
 /** 分析工具类别 */
-export type AnalysisCategory = 'monitoring' | 'spatial' | 'measurement' | 'planning' | 'comparison' | 'environment' | 'engineering'
+export type AnalysisCategory = 'basic' | 'measurement' | 'spatial' | 'environment' | 'planning' | 'engineering' | 'comparison' | 'monitoring'
 
 // ==================== 分析模式枚举 ====================
 
@@ -35,6 +50,12 @@ export type HeightBaseline = 'sea' | 'ground' | 'relative'
 
 /** 体积计算方式 */
 export type VolumeMethod = 'above' | 'below' | 'both'
+
+/** 图上标记类型 */
+export type MarkingType = 'point' | 'polyline' | 'polygon' | 'circle' | 'text'
+
+/** 绘制区域类型 */
+export type DrawAreaType = 'rectangle' | 'circle' | 'polygon'
 
 // ==================== 分析工具定义 ====================
 
@@ -66,6 +87,18 @@ export interface AnalysisResultBase<T = any> {
   visible: boolean
   status: 'success' | 'error' | 'cancelled'
   errorMessage?: string
+  cameraView?: CameraView
+  graphicData?: any
+}
+
+/** 相机视角 */
+export interface CameraView {
+  lng: number
+  lat: number
+  alt: number
+  heading: number
+  pitch: number
+  roll: number
 }
 
 /** 通视分析结果数据 */
@@ -77,6 +110,18 @@ export interface VisibilityResultData {
   totalCount?: number
   visibleRatio?: number
   result?: any
+}
+
+/** 可视域分析结果数据 */
+export interface ViewshedResultData {
+  observerPosition: { longitude: number; latitude: number; height: number }
+  direction: number
+  pitch: number
+  horizontalFov: number
+  verticalFov: number
+  distance: number
+  visibleArea?: number
+  hiddenArea?: number
 }
 
 /** 剖面分析结果数据 */
@@ -104,6 +149,7 @@ export interface SkylineResultData {
 export interface VolumeResultData {
   totalVolume: number
   fillVolume: number
+  cutVolume: number
   area: number
   avgHeight: number
   baseHeight: number
@@ -158,6 +204,117 @@ export interface SlopeResultData {
   totalArea: number
 }
 
+/** 坐标定位结果数据 */
+export interface CoordinateLocationResultData {
+  longitude: number
+  latitude: number
+  height: number
+  format: 'decimal' | 'dms'
+}
+
+/** 高度测量结果数据 */
+export interface HeightMeasurementResultData {
+  startHeight: number
+  endHeight: number
+  heightDiff: number
+}
+
+/** 三角测量结果数据 */
+export interface TriangleMeasurementResultData {
+  sideA: number
+  sideB: number
+  sideC: number
+  angleA: number
+  angleB: number
+  angleC: number
+  area: number
+}
+
+/** 方位角测量结果数据 */
+export interface BearingMeasurementResultData {
+  bearing: number
+  distance: number
+  fromPosition: { longitude: number; latitude: number }
+  toPosition: { longitude: number; latitude: number }
+}
+
+/** 等高线分析结果数据 */
+export interface ContourLineResultData {
+  contourSpacing: number
+  lineWidth: number
+  lineColor: string
+  regionPositions: any
+  showLabel: boolean
+}
+
+/** 压平结果数据 */
+export interface FlattenResultData {
+  height: number
+  regionPositions: any
+  tilesetUrl?: string
+}
+
+/** 图上标记结果数据 */
+export interface MapMarkingResultData {
+  markingType: MarkingType
+  positions: any
+  style: Record<string, any>
+  text?: string
+}
+
+/** 观测台结果数据 */
+export interface ViewpointResultData {
+  name: string
+  cameraView: CameraView
+  thumbnail?: string
+}
+
+/** 在线选址结果数据 */
+export interface SiteSelectionResultData {
+  position: { longitude: number; latitude: number; height: number }
+  modelUrl?: string
+  rotation?: { x: number; y: number; z: number }
+}
+
+/** 塔基建模结果数据 */
+export interface TowerFoundationResultData {
+  position: { longitude: number; latitude: number; height: number }
+  poleHeight: number
+  poleRadius: number
+  poleColor: string
+  linePositions?: any
+}
+
+/** 管线分析结果数据 */
+export interface PipelineResultData {
+  positions: any
+  pipeRadius: number
+  smoothness: number
+  pipeColor: string
+}
+
+/** 限制分析结果数据 */
+export interface ConstraintResultData {
+  areaType: DrawAreaType
+  regionPositions: any
+  constraints: Array<{ type: string; value: any; description: string }>
+}
+
+/** 业态分析结果数据 */
+export interface BusinessFormatResultData {
+  areaType: DrawAreaType
+  regionPositions: any
+  statistics: Array<{ category: string; count: number; area: number; percentage: number }>
+}
+
+/** 容积率分析结果数据 */
+export interface PlotRatioResultData {
+  totalBuildingArea: number
+  landArea: number
+  plotRatio: number
+  positions: any
+}
+
 // ==================== 分析错误类型 ====================
 
 /** 分析错误 */
@@ -191,6 +348,13 @@ export interface AnalysisParams {
     visibleColor: string
     hiddenColor: string
   }
+  viewshed?: {
+    direction: number
+    pitch: number
+    horizontalFov: number
+    verticalFov: number
+    distance: number
+  }
   profile?: {
     sampleInterval: number
     heightBaseline: HeightBaseline
@@ -219,6 +383,20 @@ export interface AnalysisParams {
   slope?: {
     sampleInterval: number
     classification: Array<{ min: number; max: number; label: string; color: string }>
+  }
+  contour?: {
+    spacing: number
+    lineWidth: number
+    lineColor: string
+    showLabel: boolean
+  }
+  flatten?: {
+    height: number
+  }
+  pipeline?: {
+    radius: number
+    smoothness: number
+    color: string
   }
 }
 
@@ -252,30 +430,38 @@ export interface AnalysisComponentEmits {
 
 export const TOOL_CATEGORIES: ToolCategory[] = [
   {
-    name: '性能监控',
-    category: 'monitoring',
+    name: '基础工具',
+    category: 'basic',
     tools: [
-      { key: 'performance', name: '性能分析', icon: '📊', category: 'monitoring', description: '监控场景渲染性能' }
-    ]
-  },
-  {
-    name: '空间分析',
-    category: 'spatial',
-    tools: [
-      { key: 'visibility', name: '通视分析', icon: '👁️', category: 'spatial', description: '分析两点间通视情况' },
-      { key: 'profile', name: '剖面分析', icon: '📈', category: 'spatial', description: '生成地形剖面图' },
-      { key: 'skyline', name: '天际线', icon: '🌆', category: 'spatial', description: '分析城市天际线' }
+      { key: 'coordinate', name: '坐标定位', icon: '📍', category: 'basic', description: '坐标拾取与定位' },
+      { key: 'flatten', name: '压平', icon: '⬇️', category: 'basic', description: '3DTiles建筑压平' },
+      { key: 'map-marking', name: '图上标记', icon: '✏️', category: 'basic', description: '点/线/面/圆绘制' },
+      { key: 'viewpoint', name: '观测台', icon: '🔭', category: 'basic', description: '视角保存与切换' }
     ]
   },
   {
     name: '测量工具',
     category: 'measurement',
     tools: [
-      { key: 'distance', name: '距离测量', icon: '📏', category: 'measurement', description: '测量空间距离' },
-      { key: 'area', name: '面积测量', icon: '📐', category: 'measurement', description: '测量水平或贴地面积' },
-      { key: 'volume', name: '体积计算', icon: '📦', category: 'measurement', description: '计算填挖方体积' },
-      { key: 'height', name: '高度测量', icon: '📏', category: 'measurement', description: '测量建筑物高度' },
-      { key: 'coordinate', name: '坐标定位', icon: '📍', category: 'measurement', description: '获取经纬度坐标' }
+      { key: 'distance', name: '空间距离', icon: '📏', category: 'measurement', description: '两点间空间直线距离' },
+      { key: 'distance-surface', name: '贴地距离', icon: '📏', category: 'measurement', description: '沿地形表面的距离' },
+      { key: 'height', name: '高度差', icon: '↕️', category: 'measurement', description: '两点间高度差' },
+      { key: 'area', name: '水平面积', icon: '📐', category: 'measurement', description: '水平面投影面积' },
+      { key: 'area-surface', name: '贴地面积', icon: '📐', category: 'measurement', description: '沿地形表面的面积' },
+      { key: 'coordinate-measure', name: '坐标测量', icon: '📍', category: 'measurement', description: '单点坐标测量' },
+      { key: 'height-triangle', name: '三角测量', icon: '📐', category: 'measurement', description: '三角形参数测量' },
+      { key: 'bearing', name: '方位角', icon: '🧭', category: 'measurement', description: '两点间方位角' }
+    ]
+  },
+  {
+    name: '空间分析',
+    category: 'spatial',
+    tools: [
+      { key: 'visibility', name: '通视分析', icon: '👁️', category: 'spatial', description: '线通视/圆通视/可视域' },
+      { key: 'profile', name: '剖面分析', icon: '📈', category: 'spatial', description: '生成地形剖面图' },
+      { key: 'skyline', name: '天际线', icon: '🌆', category: 'spatial', description: '分析城市天际线' },
+      { key: 'business-format', name: '业态分析', icon: '🏪', category: 'spatial', description: '区域业态分布分析' },
+      { key: 'building-spacing', name: '建筑间距', icon: '📐', category: 'spatial', description: '多建筑间距分析' }
     ]
   },
   {
@@ -292,8 +478,19 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     category: 'planning',
     tools: [
       { key: 'plot-ratio', name: '容积率', icon: '🏗️', category: 'planning', description: '计算地块容积率' },
-      { key: 'building-layout', name: '建筑布局', icon: '🏢', category: 'planning', description: '优化建筑布局' },
-      { key: 'building-spacing', name: '建筑间距', icon: '📐', category: 'planning', description: '检查建筑间距合规' }
+      { key: 'building-layout', name: '建筑布局', icon: '🏢', category: 'planning', description: '建筑体块布局' },
+      { key: 'site-selection', name: '在线选址', icon: '📌', category: 'planning', description: '模型放置与编辑' },
+      { key: 'tower-foundation', name: '塔基建模', icon: '⚡', category: 'planning', description: '高压线杆建模' },
+      { key: 'pipeline', name: '管线分析', icon: '🔧', category: 'planning', description: '管线绘制与漫游' },
+      { key: 'constraint', name: '限制分析', icon: '🚫', category: 'planning', description: '周边地块限制性分析' }
+    ]
+  },
+  {
+    name: '工程分析',
+    category: 'engineering',
+    tools: [
+      { key: 'volume', name: '挖方填方', icon: '📦', category: 'engineering', description: '计算填挖方体积' },
+      { key: 'contour', name: '等高线', icon: '🗺️', category: 'engineering', description: '等高线生成与分析' }
     ]
   },
   {
@@ -302,6 +499,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     tools: [
       { key: 'layer-comparison', name: '卷帘对比', icon: '🔄', category: 'comparison', description: '对比不同设计方案' }
     ]
+  },
+  {
+    name: '性能监控',
+    category: 'monitoring',
+    tools: [
+      { key: 'performance', name: '性能分析', icon: '📊', category: 'monitoring', description: '监控场景渲染性能' }
+    ]
   }
 ]
 
@@ -309,18 +513,33 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
 export const TOOL_COMPONENT_MAP: Record<AnalysisToolType, string> = {
   'performance': 'PerformanceAnalysis',
   'visibility': 'VisibilityAnalysis',
+  'viewshed': 'ViewshedAnalysis',
   'profile': 'ProfileAnalysis',
   'skyline': 'SkylineAnalysis',
   'distance': 'DistanceMeasurement',
+  'distance-surface': 'DistanceSurfaceMeasurement',
   'area': 'AreaMeasurement',
+  'area-surface': 'AreaSurfaceMeasurement',
   'volume': 'VolumeCalculation',
+  'height': 'HeightMeasurement',
+  'height-triangle': 'TriangleMeasurement',
+  'bearing': 'BearingMeasurement',
+  'coordinate': 'CoordinateLocation',
+  'coordinate-measure': 'CoordinateMeasure',
   'plot-ratio': 'PlotRatioAnalysis',
   'building-layout': 'BuildingLayoutAnalysis',
+  'building-spacing': 'BuildingSpacingAnalysis',
   'layer-comparison': 'LayerComparison',
   'sun': 'SunAnalysis',
-  'building-spacing': 'BuildingSpacingAnalysis',
   'slope': 'SlopeAnalysis',
   'flood': 'FloodAnalysis',
-  'coordinate': 'CoordinateAnalysis',
-  'height': 'HeightMeasurement'
+  'contour': 'ContourLineAnalysis',
+  'flatten': 'FlattenTerrain',
+  'map-marking': 'MapMarking',
+  'viewpoint': 'ViewpointManager',
+  'site-selection': 'SiteSelection',
+  'tower-foundation': 'TowerFoundationModeling',
+  'pipeline': 'PipelineAnalysis',
+  'constraint': 'ConstraintAnalysis',
+  'business-format': 'BusinessFormatAnalysis'
 }

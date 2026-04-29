@@ -83,16 +83,44 @@ const currentTool = ref<AnalysisToolType | null>(null)
 const toolCategories = TOOL_CATEGORIES
 
 const componentMap: Partial<Record<AnalysisToolType, any>> = {
-  'performance': defineAsyncComponent(() => import('./PerformanceAnalysis.vue')),
+  // 基础工具
+  'coordinate': defineAsyncComponent(() => import('./CoordinateLocation.vue')),
+  'flatten': defineAsyncComponent(() => import('./FlattenTerrain.vue')),
+  'map-marking': defineAsyncComponent(() => import('./MapMarking.vue')),
+  'viewpoint': defineAsyncComponent(() => import('./ViewpointManager.vue')),
+  // 测量工具
+  'distance': defineAsyncComponent(() => import('./DistanceMeasurement.vue')),
+  'distance-surface': defineAsyncComponent(() => import('./DistanceSurfaceMeasurement.vue')),
+  'height': defineAsyncComponent(() => import('./HeightMeasurement.vue')),
+  'area': defineAsyncComponent(() => import('./AreaMeasurement.vue')),
+  'area-surface': defineAsyncComponent(() => import('./AreaSurfaceMeasurement.vue')),
+  'coordinate-measure': defineAsyncComponent(() => import('./CoordinateMeasure.vue')),
+  'height-triangle': defineAsyncComponent(() => import('./TriangleMeasurement.vue')),
+  'bearing': defineAsyncComponent(() => import('./BearingMeasurement.vue')),
+  // 空间分析
   'visibility': defineAsyncComponent(() => import('./VisibilityAnalysis.vue')),
+  'viewshed': defineAsyncComponent(() => import('./ViewshedAnalysis.vue')),
   'profile': defineAsyncComponent(() => import('./ProfileAnalysis.vue')),
   'skyline': defineAsyncComponent(() => import('./SkylineAnalysis.vue')),
-  'distance': defineAsyncComponent(() => import('./DistanceMeasurement.vue')),
-  'area': defineAsyncComponent(() => import('./AreaMeasurement.vue')),
-  'volume': defineAsyncComponent(() => import('./VolumeCalculation.vue')),
+  'business-format': defineAsyncComponent(() => import('./BusinessFormatAnalysis.vue')),
+  'building-spacing': defineAsyncComponent(() => import('./BuildingSpacingAnalysis.vue')),
+  // 环境分析
+  'sun': defineAsyncComponent(() => import('./SunAnalysis.vue')),
+  'flood': defineAsyncComponent(() => import('./VolumeCalculation.vue')),
+  // 规划分析
   'plot-ratio': defineAsyncComponent(() => import('./PlotRatioAnalysis.vue')),
   'building-layout': defineAsyncComponent(() => import('./BuildingLayoutAnalysis.vue')),
-  'layer-comparison': defineAsyncComponent(() => import('./LayerComparison.vue'))
+  'site-selection': defineAsyncComponent(() => import('./SiteSelection.vue')),
+  'tower-foundation': defineAsyncComponent(() => import('./TowerFoundationModeling.vue')),
+  'pipeline': defineAsyncComponent(() => import('./PipelineAnalysis.vue')),
+  'constraint': defineAsyncComponent(() => import('./ConstraintAnalysis.vue')),
+  // 工程分析
+  'volume': defineAsyncComponent(() => import('./VolumeCalculation.vue')),
+  'contour': defineAsyncComponent(() => import('./ContourLineAnalysis.vue')),
+  // 对比工具
+  'layer-comparison': defineAsyncComponent(() => import('./LayerComparison.vue')),
+  // 性能监控
+  'performance': defineAsyncComponent(() => import('./PerformanceAnalysis.vue'))
 }
 
 const currentToolComponent = computed(() => {
