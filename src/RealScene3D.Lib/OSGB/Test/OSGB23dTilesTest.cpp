@@ -127,16 +127,33 @@ int main(int argc, char* argv[])
     std::cout << "OSGB23dTiles C++ 测试程序" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // 测试1: 本地文件系统
-    //test_local_filesystem();
+    std::cout << "请输入要测试的功能编号:" << std::endl;
+    std::cout << " 1: 本地文件系统存储" << std::endl; 
+    std::cout << " 2: MinIO 对象存储" << std::endl;
+    std::cout << " 其他: 退出程序" << std::endl;
 
+    int nChoice = 0;
+    std::cin >> nChoice;
+
+    if (nChoice != 1 && nChoice != 2)
+    {
+        std::cout << "退出程序" << std::endl;
+        return 0;
+    }
+
+    if (nChoice == 1)
+    {
+        test_local_filesystem();
+    }
+    else if (nChoice == 2)
+    {
 #ifdef ENABLE_MINIO
-    // 测试2: MinIO 存储
-    test_minio_storage();
+        test_minio_storage();
 #else
-    std::cout << "\n[INFO] ENABLE_MINIO 未定义，跳过 MinIO 测试" << std::endl;
-    std::cout << "  编译时添加 -DENABLE_MINIO 启用 MinIO 测试" << std::endl;
-#endif
+        std::cout << "\n[INFO] ENABLE_MINIO 未定义，跳过 MinIO 测试" << std::endl;
+        std::cout << "  编译时添加 -DENABLE_MINIO 启用 MinIO 测试" << std::endl;
+#endif      
+    }
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "所有测试完成" << std::endl;
