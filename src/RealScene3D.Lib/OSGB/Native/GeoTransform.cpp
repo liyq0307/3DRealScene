@@ -16,19 +16,6 @@
 #include "GeoTransform.h"
 #include "OSGBTools.h"
 
-// =================静态成员初始化=================
-PJ* GeoTransform::projTransform = nullptr;					// PROJ转换对象
-PJ_CONTEXT* GeoTransform::projContext = nullptr;			// PROJ上下文
-double GeoTransform::OriginX = 0.0;							// 原点X坐标
-double GeoTransform::OriginY = 0.0;							// 原点Y坐标
-double GeoTransform::OriginZ = 0.0;							// 原点Z坐标
-double GeoTransform::GeoOriginLon = 0.0;					// 地理原点经度
-double GeoTransform::GeoOriginLat = 0.0;					// 地理原点纬度
-double GeoTransform::GeoOriginHeight = 0.0;					// 地理原点高度
-bool GeoTransform::IsENU = false;							// 是否使用ENU坐标系
-glm::dmat4 GeoTransform::EcefToEnuMatrix = glm::dmat4(1);	// ECEF到ENU的转换矩阵
-std::string GeoTransform::lastError = "";					// 最后的错误信息
-
 // 辅助函数：配置PROJ上下文，设置正确的数据搜索路径
 static void ConfigureProjContext(PJ_CONTEXT* ctx)
 {
@@ -156,8 +143,8 @@ glm::dvec3 GeoTransform::CartographicToEcef(double lnt, double lat, double heigh
 
 void GeoTransform::Init(PJ* transform, double* origin)
 {
-	// 保存转换对象和原点坐标
-	GeoTransform::projTransform = transform;
+	// 保存转换对象和原点坐标（使用智能指针管理）
+	GeoTransform::projTransform.reset(transform);
 	GeoTransform::OriginX = origin[0];
 	GeoTransform::OriginY = origin[1];
 	GeoTransform::OriginZ = origin[2];
@@ -179,7 +166,7 @@ void GeoTransform::Init(PJ* transform, double* origin)
 		coord.xyzt.t = HUGE_VAL;  // 不使用时间维度
 
 		// 执行转换
-		PJ_COORD result = proj_trans(projTransform, PJ_FWD, coord);
+		PJ_COORD result = proj_trans(projTransform.get(), PJ_FWD, coord);
 
 		if (result.xyzt.x != HUGE_VAL)
 		{
@@ -224,18 +211,9 @@ void GeoTransform::SetGeographicOrigin(double lon, double lat, double height)
 
 void GeoTransform::Cleanup()
 {
-	// 清理PROJ资源
-	if (projTransform)
-	{
-		proj_destroy(projTransform);
-		projTransform = nullptr;
-	}
-
-	if (projContext)
-	{
-		proj_context_destroy(projContext);
-		projContext = nullptr;
-	}
+	// 清理PROJ资源（智能指针会自动释放）
+	projTransform.reset();
+	projContext.reset();
 }
 
 // ============================================================================
@@ -294,8 +272,8 @@ bool GeoTransform::InitFromEPSG(int epsg_code, double* origin)
 		transform = transform_normalized;
 	}
 
-	// 调用内部初始化函数
-	projContext = ctx;
+	// 调用内部初始化函数（使用智能指针管理上下文）
+	projContext.reset(ctx);
 	Init(transform, origin);
 
 	OSGBLog::LOG_I("[GeoTransform::InitFromEPSG] Initialization successful");
@@ -343,8 +321,8 @@ bool GeoTransform::InitFromENU(double lon, double lat, double* origin_enu)
 		return false;
 	}
 
-	// 保存上下文
-	projContext = ctx;
+	// 保存上下文（使用智能指针管理）
+	projContext.reset(ctx);
 
 	// 初始化GeoTransform
 	Init(transform, origin_enu);
@@ -432,8 +410,8 @@ bool GeoTransform::InitFromWKT(const char* wkt, double* origin)
 		transform = transform_normalized;
 	}
 
-	// 调用内部初始化
-	projContext = ctx;
+	// 调用内部初始化（使用智能指针管理上下文）
+	projContext.reset(ctx);
 	Init(transform, origin);
 
 	OSGBLog::LOG_I("[GeoTransform::InitFromWKT] Initialization successful");

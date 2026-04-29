@@ -59,7 +59,7 @@ void InfoVisitor::apply(osg::Geometry& geometry)
 	if (GeoTransform::projTransform)
 	{
 		osg::ref_ptr<osg::Vec3Array> vertexArr = (osg::Vec3Array*)geometry.getVertexArray();
-		void* transform = GeoTransform::projTransform;
+		PJ* transform = GeoTransform::projTransform.get();
 
 		glm::dvec3 Min = glm::dvec3(DBL_MAX);
 		glm::dvec3 Max = glm::dvec3(-DBL_MAX);
@@ -887,7 +887,7 @@ bool TriangulateQuadLike(const std::vector<uint32_t>& indices, GLenum mode, std:
 
 		if (indices.size() % 4 != 0)
 		{
-			LOG_E("GL_QUADS index count (%zu) is not divisible by 4, trailing vertices will be ignored", indices.size());
+			LOG_E("GL_QUADS index count ({:zu}) is not divisible by 4, trailing vertices will be ignored", indices.size());
 		}
 
 		size_t quad_count = indices.size() / 4;
@@ -915,7 +915,7 @@ bool TriangulateQuadLike(const std::vector<uint32_t>& indices, GLenum mode, std:
 
 		if (indices.size() % 2 != 0)
 		{
-			LOG_E("GL_QUAD_STRIP index count (%zu) is not even, trailing vertex will be ignored",
+			LOG_E("GL_QUAD_STRIP index count ({:zu}) is not even, trailing vertex will be ignored",
 				indices.size());
 		}
 
@@ -1841,8 +1841,8 @@ bool OSGB23dTiles::ToB3DMBatch(
 		{
 			// ENU 坐标系统
 			LOG_I("使用 ENU 坐标系统");
-			LOG_I("  地理原点：纬度=%.6f，经度=%.6f", metadata.dCenterLat, metadata.dCenterLon);
-			LOG_I("  SRSOrigin 偏移：x=%.3f, y=%.3f, z=%.3f", metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
+			LOG_I("  地理原点：纬度={:.6f}，经度={:.6f}", metadata.dCenterLat, metadata.dCenterLon);
+			LOG_I("  SRSOrigin 偏移：x={:.3f}, y={:.3f}, z={:.3f}", metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
 
 			// 调用 enu_init 初始化 GeoTransform
 			// 注意：enu_init 需要经度在前，纬度在后
@@ -1895,7 +1895,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 			if (GeoTransform::InitFromWKT(metadata.strSrs.c_str(), origin))
 			{
 				LOG_I("WKT 投影 GeoTransform 初始化成功");
-				LOG_I("  转换为地理坐标：经度=%.6f，纬度=%.6f，海拔=%.3f", origin[0], origin[1], origin[2]);
+				LOG_I("  转换为地理坐标：经度={:.6f}，纬度={:.6f}，海拔={:.3f}", origin[0], origin[1], origin[2]);
 
 				// 使用转换后的经纬度作为中心点
 				dCenterX = origin[0];
@@ -1909,7 +1909,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 	}
 	else
 	{
-		LOG_W("metadata.xml 未找到或解析失败，使用提供的 center_x=%.6f, center_y=%.6f", dCenterX, dCenterY);
+		LOG_W("metadata.xml 未找到或解析失败，使用提供的 center_x={:.6f}, center_y={:.6f}", dCenterX, dCenterY);
 	}
 
 	// 3. 检测数据源类型
@@ -2000,7 +2000,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		if (!osgb_files_in_root.empty())
 		{
 			// 情况1：输入目录本身就包含OSGB文件（如 E:\Data\3D\Tile_+005_+006）
-			LOG_I("输入目录本身包含 %zu 个OSGB文件", osgb_files_in_root.size());
+			LOG_I("输入目录本身包含 {:zu} 个OSGB文件", osgb_files_in_root.size());
 
 			// 查找根OSGB文件
 			std::string root_osgb = OSGBTools::FindRootOSGB(check_data_dir);
@@ -2037,7 +2037,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 			// 情况2：输入目录不包含OSGB，扫描子目录
 			std::vector<std::string> osgb_folders = OSGBTools::ScanOSGBFolders(check_data_dir);
 
-			LOG_I("找到 %zu 个包含OSGB文件的子目录", osgb_folders.size());
+			LOG_I("找到 {:zu} 个包含OSGB文件的子目录", osgb_folders.size());
 
 			for (const auto& folder_name : osgb_folders)
 			{
@@ -2184,7 +2184,7 @@ bool OSGB23dTiles::ToB3DMBatch(
 		// 对于ENU坐标系，需要应用SRSOrigin偏移到根节点变换矩阵
 		if (has_metadata && metadata.bIsENU)
 		{
-			LOG_I("应用ENU offset到根节点变换矩阵: (%.3f, %.3f, %.3f)",
+			LOG_I("应用ENU offset到根节点变换矩阵: ({:.3f}, {:.3f}, {:.3f})",
 				metadata.dOffsetX, metadata.dOffsetY, metadata.dOffsetZ);
 			OSGBTools::TransformCWithEnuOffset(
 				dCenterX, dCenterY, height_min,

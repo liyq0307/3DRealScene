@@ -153,7 +153,7 @@ private:
 	 * @return true=成功, false=失败
 	 */
 	static bool CompressToKtx2(const std::vector<unsigned char>& rgbaData, int nWidth, int nHeight,
-		std::vector<unsigned char>& ktx2Data, int  nTexFormat = 1);
+		std::vector<unsigned char>& ktx2Data, int  nTexFormat = 0);
 
 	/**
 	 * @brief 使用 meshoptimizer 优化和简化网格数据

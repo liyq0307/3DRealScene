@@ -869,10 +869,10 @@ bool OSGBTools::ParseMetadataXml(const std::string& strXmlPath, OSGBMetadata& ou
 
 	LOG_I("Parsed metadata.xml successfully:");
 	LOG_I("  SRS: {}", outMetadata.strSrs.c_str());
-	LOG_I("  SRSOrigin: {}", outMetadata.strSrsOrigin.c_str());
+	LOG_I("  SRSOrigin: ({})", outMetadata.strSrsOrigin.c_str());
 	if (outMetadata.bIsENU)
 	{
-		LOG_I("  ENU Center: lat=%.6f, lon=%.6f", outMetadata.dCenterLat, outMetadata.dCenterLon);
+		LOG_I("  ENU Center: lat={:.6f}, lon={:.6f}", outMetadata.dCenterLat, outMetadata.dCenterLon);
 	}
 	else if (outMetadata.bIsEPSG)
 	{
@@ -883,7 +883,7 @@ bool OSGBTools::ParseMetadataXml(const std::string& strXmlPath, OSGBMetadata& ou
 		LOG_I("  WKT Projection (will be converted using GDAL)");
 	}
 
-	LOG_I("  Offset: x=%.3f, y=%.3f, z=%.3f", outMetadata.dOffsetX, outMetadata.dOffsetY, outMetadata.dOffsetZ);
+	LOG_I("  Offset: x={:.3f}, y={:.3f}, z={:.3f}", outMetadata.dOffsetX, outMetadata.dOffsetY, outMetadata.dOffsetZ);
 
 	return true;
 }

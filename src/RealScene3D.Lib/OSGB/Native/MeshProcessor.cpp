@@ -41,13 +41,11 @@ bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, i
 			return false;
 		}
 
-		// 初始化Basis Universal编码器
-		static bool basisu_initialized = false;
-		if (!basisu_initialized)
-		{
+		// 初始化Basis Universal编码器（线程安全）
+		static std::once_flag basisu_init_flag;
+		std::call_once(basisu_init_flag, []() {
 			basisu::basisu_encoder_init();
-			basisu_initialized = true;
-		}
+		});
 
 		// 从RGBA数据创建basisu图像
 		basisu::vector<basisu::image> sourceImages;
@@ -61,7 +59,7 @@ bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, i
 		// - Quality 128 (0-255): 压缩质量
 		// - cFlagKTX2: 输出KTX2格式
 		// - cFlagGenMipsWrap: 生成mipmap并包装
-		unsigned int nCompressionFlags = 64 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap;
+		unsigned int nCompressionFlags = 128 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap | basisu::cFlagDebug | basisu::cFlagThreaded;;
 		auto format = static_cast<basist::basis_tex_format>(nTexFormat);
 		void* pCompressedData = basisu::basis_compress(
 			format,

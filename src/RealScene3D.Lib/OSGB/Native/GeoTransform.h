@@ -3,6 +3,7 @@
 
 #include "glm/glm.hpp"
 #include <string>
+#include <memory>
 #include <proj.h>
 
 /**
@@ -10,29 +11,53 @@
  */
 class GeoTransform
 {
+private:
+	// 自定义删除器用于智能指针管理PROJ资源
+	struct ProjDeleter 
+	{
+		void operator()(PJ* p) const 
+		{
+			if (p) 
+			{
+				proj_destroy(p);
+			}
+		}
+	};
+	
+	struct ProjContextDeleter 
+	{
+		void operator()(PJ_CONTEXT* p) const 
+		{
+			if (p) 
+			{
+				proj_context_destroy(p);
+			}
+		}
+	};
+
 public:
-	// PROJ转换对象（坐标转换的核心）
-	static PJ* projTransform;
-	static PJ_CONTEXT* projContext;
+	// PROJ转换对象（坐标转换的核心）- 使用智能指针自动管理
+	static inline std::unique_ptr<PJ, ProjDeleter> projTransform = nullptr;
+	static inline std::unique_ptr<PJ_CONTEXT, ProjContextDeleter> projContext = nullptr;
 
 	// 原点坐标（局部坐标系原点）
-	static double OriginX;
-	static double OriginY;
-	static double OriginZ;
+	static inline double OriginX = 0.0;
+	static inline double OriginY = 0.0;
+	static inline double OriginZ = 0.0;
 
 	// ENU地理原点（经纬度）
-	static double GeoOriginLon;
-	static double GeoOriginLat;
-	static double GeoOriginHeight;
+	static inline double GeoOriginLon = 0.0;
+	static inline double GeoOriginLat = 0.0;
+	static inline double GeoOriginHeight = 0.0;
 
 	// ENU标志（是否使用ENU坐标系）
-	static bool IsENU;
+	static inline bool IsENU = false;
 
 	// ECEF<->ENU转换矩阵
-	static glm::dmat4 EcefToEnuMatrix;
+	static inline glm::dmat4 EcefToEnuMatrix = glm::dmat4(1.0);
 
 	// 最后的错误信息
-	static std::string lastError;
+	static inline std::string lastError = "";
 
 	// ========================================================================
 	// Core coordinate transformation methods
