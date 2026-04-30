@@ -543,3 +543,81 @@ export const TOOL_COMPONENT_MAP: Record<AnalysisToolType, string> = {
   'constraint': 'ConstraintAnalysis',
   'business-format': 'BusinessFormatAnalysis'
 }
+
+// ==================== 核心管理器接口 ====================
+
+/** 分析参数基础类型 */
+export interface AnalysisParams {
+  [key: string]: unknown
+}
+
+/** 分析工具接口 - 所有分析工具必须实现此接口 */
+export interface IAnalysisTool {
+  readonly type: AnalysisToolType
+  readonly name: string
+  execute(params?: AnalysisParams): Promise<AnalysisResultBase>
+  cancel(): void
+  clear(): void
+  updateParams(params: Partial<AnalysisParams>): void
+  getResult(): AnalysisResultBase | null
+  destroy(): void
+}
+
+/** 工具定义接口 - 用于工具注册 */
+export interface AnalysisToolDefinition {
+  type: AnalysisToolType
+  name: string
+  icon: string
+  category: AnalysisCategory
+  description: string
+  component?: string
+  factory?: (map: any) => IAnalysisTool
+  defaultParams?: AnalysisParams
+  /** 是否互斥（同时只能激活一个） */
+  exclusive?: boolean
+}
+
+/** 工具管理器接口 */
+export interface IAnalysisToolManager {
+  registerTool(definition: AnalysisToolDefinition): void
+  registerTools(definitions: AnalysisToolDefinition[]): void
+  activateTool(type: AnalysisToolType): IAnalysisTool | null
+  deactivateTool(type: AnalysisToolType): void
+  executeTool(type: AnalysisToolType, params?: AnalysisParams): Promise<AnalysisResultBase>
+  getActiveTools(): IAnalysisTool[]
+  getToolDefinition(type: AnalysisToolType): AnalysisToolDefinition | undefined
+  getAllToolDefinitions(): AnalysisToolDefinition[]
+  getToolsByCategory(category: AnalysisCategory): AnalysisToolDefinition[]
+  searchTools(keyword: string): AnalysisToolDefinition[]
+  deactivateAll(): void
+}
+
+/** 结果管理器接口 */
+export interface IResultManager {
+  addResult(result: AnalysisResultBase): void
+  removeResult(id: string): void
+  removeResults(ids: string[]): void
+  clearAll(): void
+  clearByType(type: AnalysisToolType): void
+  getResult(id: string): AnalysisResultBase | undefined
+  getAllResults(): AnalysisResultBase[]
+  getResultsByType(type: AnalysisToolType): AnalysisResultBase[]
+  setVisibility(id: string, visible: boolean): void
+  setVisibilityBatch(ids: string[], visible: boolean): void
+  updateName(id: string, name: string): void
+  updateData(id: string, data: unknown): void
+  exportResults(ids?: string[], format?: 'json' | 'csv'): string | Blob
+  saveToStorage(): void
+  loadFromStorage(): void
+}
+
+/** 工具生命周期状态 */
+export type ToolLifecycleState = 'idle' | 'activating' | 'active' | 'executing' | 'deactivating' | 'error'
+
+/** 工具生命周期事件 */
+export interface ToolLifecycleEvent {
+  type: AnalysisToolType
+  state: ToolLifecycleState
+  timestamp: Date
+  error?: Error
+}

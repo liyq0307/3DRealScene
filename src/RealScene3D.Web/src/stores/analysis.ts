@@ -5,9 +5,16 @@ import type {
   AnalysisResultBase,
   AnalysisError,
   PerformanceMetrics,
-  AnalysisState,
-  CameraView
+  CameraView,
+  IAnalysisToolManager,
+  IResultManager
 } from '@/types/analysis'
+import { getToolManager } from '@/services/AnalysisToolManager'
+import { getResultManager } from '@/services/ResultManager'
+import { ConcurrencyManager } from '@/services/ConcurrencyManager'
+import { PerformanceMonitor } from '@/services/PerformanceMonitor'
+import { GraphicObjectPool } from '@/services/GraphicObjectPool'
+import { FallbackService } from '@/services/FallbackService'
 
 // Re-export from types for backward compatibility
 export type { AnalysisToolType, AnalysisResultBase as AnalysisResult, AnalysisError, PerformanceMetrics }
@@ -314,13 +321,30 @@ export const useAnalysisStore = defineStore('analysis', () => {
 
   // ==================== 初始化 ====================
 
+  const toolManager: IAnalysisToolManager = getToolManager()
+  const resultManager: IResultManager = getResultManager()
+  const concurrencyManager = new ConcurrencyManager()
+  const performanceMonitor = new PerformanceMonitor()
+  const graphicObjectPool = new GraphicObjectPool()
+  const fallbackService = new FallbackService()
+
   function init() {
     loadFromStorage()
     loadAllConfigs()
+    performanceMonitor.startFpsMonitor()
+  }
+
+  function dispose() {
+    performanceMonitor.stopFpsMonitor()
+    concurrencyManager.clearQueue()
+    graphicObjectPool.clearAll()
   }
 
   // ==================== Return ====================
   return {
+    // Core managers
+    toolManager, resultManager,
+    concurrencyManager, performanceMonitor, graphicObjectPool, fallbackService,
     // State
     results, currentToolType, isAnalyzing, isLoading, error,
     performanceMetrics, performanceHistory, maxHistorySize,
@@ -346,6 +370,6 @@ export const useAnalysisStore = defineStore('analysis', () => {
     // Actions - 分析状态
     startAnalysis, stopAnalysis, setError, clearError,
     // Actions - 初始化
-    init
+    init, dispose
   }
 })

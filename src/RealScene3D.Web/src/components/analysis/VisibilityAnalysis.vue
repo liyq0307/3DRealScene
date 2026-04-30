@@ -81,7 +81,6 @@
 
 <script setup lang="ts">
 import { ref, computed, toRef } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useAnalysisStore } from '@/stores/analysis'
 import { useAnalysisTool } from '@/composables/useAnalysisTool'
 import type { VisibilityMode } from '@/types/analysis'
@@ -96,7 +95,6 @@ defineEmits<{
 }>()
 
 const store = useAnalysisStore()
-const { isAnalyzing } = storeToRefs(store)
 
 const viewerRef = toRef(props, 'viewerInstance')
 const { analyzeVisibility, clearSightline } = useAnalysisTool(viewerRef)

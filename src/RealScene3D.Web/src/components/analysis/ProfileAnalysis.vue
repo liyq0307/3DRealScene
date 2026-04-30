@@ -89,7 +89,6 @@
 
 <script setup lang="ts">
 import { ref, computed, toRef } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useAnalysisStore } from '@/stores/analysis'
 import { useAnalysisTool } from '@/composables/useAnalysisTool'
 import LineChart from '@/components/LineChart.vue'

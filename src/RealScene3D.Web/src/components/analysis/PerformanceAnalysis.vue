@@ -82,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useAnalysisStore } from '@/stores/analysis'
 import LineChart from '@/components/LineChart.vue'
 
@@ -92,7 +92,6 @@ const props = defineProps<{
 }>()
 
 const analysisStore = useAnalysisStore()
-const chartContainer = ref<HTMLElement>()
 
 const performanceMetrics = computed(() => analysisStore.performanceMetrics)
 const performanceHistory = computed(() => analysisStore.performanceHistory)

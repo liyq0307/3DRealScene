@@ -65,7 +65,7 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue'
 import AnalysisHistory from './AnalysisHistory.vue'
-import { TOOL_CATEGORIES, TOOL_COMPONENT_MAP } from '@/types/analysis'
+import { TOOL_CATEGORIES } from '@/types/analysis'
 import type { AnalysisToolType } from '@/types/analysis'
 
 defineProps<{

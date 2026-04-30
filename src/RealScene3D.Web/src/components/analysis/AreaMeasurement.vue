@@ -68,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useAnalysisStore } from '@/stores/analysis'
 import { Mars3DAnalysisTools } from '@/utils/mars3dAnalysis'
 
