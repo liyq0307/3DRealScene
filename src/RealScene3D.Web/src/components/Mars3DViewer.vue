@@ -2,28 +2,6 @@
   <div class="mars3d-viewer-wrapper">
     <div ref="mars3dContainer" class="mars3d-container"></div>
 
-    <!-- 控制面板 -->
-    <div class="controls">
-      <button class="btn" @click="resetView" title="重置视图">
-        <span class="icon">🎥</span>
-      </button>
-      <button class="btn" @click="toggleWireframe" title="线框模式">
-        <span class="icon">{{ wireframeMode ? '🔲' : '⬜' }}</span>
-      </button>
-      <button class="btn" @click="toggleAxes" title="切换坐标轴">
-        <span class="icon">📐</span>
-      </button>
-      <button class="btn" @click="toggleGrid" title="切换网格">
-        <span class="icon">＃</span>
-      </button>
-      <button v-if="hasTilesModels" class="btn" @click="toggleBoundingBox" title="切换包围盒">
-        <span class="icon">{{ boundingBoxVisible ? '📦' : '⬛' }}</span>
-      </button>
-      <button class="btn" @click="takeScreenshot" title="截图">
-        <span class="icon">📷</span>
-      </button>
-    </div>
-
     <!-- 信息面板 -->
     <div v-if="showInfo" class="info-panel">
       <div class="info-item">
@@ -1178,16 +1156,23 @@ const initMars3D = async (): Promise<void> => {
         }
       },
       control: {
-        baseLayerPicker: false,
-        homeButton: false,
-        sceneModePicker: false,
-        navigationHelpButton: false,
-        geocoder: false,
+        toolbar: {
+          position: 'right-bottom'
+        },
+        homeButton: true,
         fullscreenButton: false,
+        navigationHelpButton: false,
+        baseLayerPicker: false,
+        sceneModePicker: true,
+        vrButton: false,
         animation: false,
         timeline: false,
         infoBox: false,
-        selectionIndicator: false
+        selectionIndicator: false,
+        compass: {
+          bottom: 'toolbar',
+          right: '5px'
+        }
       },
       terrain: {
         show: false,
@@ -1688,36 +1673,6 @@ defineExpose({
   position: relative;
   width: 100%;
   height: 100%;
-}
-
-/* 控制面板 */
-.controls {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  z-index: 10;
-}
-
-.btn {
-  padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #e1e5e9;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  backdrop-filter: blur(10px);
-}
-
-.btn:hover {
-  background: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.icon {
-  font-size: 1.2rem;
 }
 
 /* 信息面板 */

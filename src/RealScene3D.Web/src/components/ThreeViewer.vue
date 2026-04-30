@@ -4,23 +4,18 @@
 
     <!-- 控制面板 -->
     <div class="controls">
-      <button class="btn" @click="resetView" title="重置视图">
-        <span class="icon">🎥</span>
+      <button class="btn" @click="resetView" title="重置视角">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
       </button>
-      <button class="btn" @click="toggleWireframe" title="切换线框模式">
-        <span class="icon">{{ wireframeMode ? '🔲' : '⬜' }}</span>
-      </button>
-      <button class="btn" @click="toggleAxes" title="切换坐标轴">
-        <span class="icon">📐</span>
-      </button>
-      <button class="btn" @click="toggleGrid" title="切换网格">
-        <span class="icon">＃</span>
-      </button>
-      <button v-if="hasTilesModels" class="btn" @click="toggleBoundingBox" title="切换包围盒">
-        <span class="icon">{{ boundingBoxVisible ? '📦' : '⬛' }}</span>
-      </button>
-      <button class="btn" @click="takeScreenshot" title="截图">
-        <span class="icon">📷</span>
+      <button v-if="hasTilesModels" class="btn" :class="{ active: boundingBoxVisible }" @click="toggleBoundingBox" title="包围盒">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+          <line x1="12" y1="22.08" x2="12" y2="12"/>
+        </svg>
       </button>
     </div>
 
@@ -1222,36 +1217,50 @@ onUnmounted(() => {
 /* 控制面板 */
 .controls {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 10px;
+  right: 50px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   z-index: 10;
 }
 
 .btn {
-  width: 48px;
-  height: 48px;
-  background: rgba(255, 255, 255, 0.9);
-  border: none;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(18, 18, 43, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
 }
 
 .btn:hover {
-  background: white;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.4);
 }
 
-.btn .icon {
-  font-size: 1.4rem;
+.btn.active {
+  background: rgba(99, 102, 241, 0.4);
+  border-color: rgba(99, 102, 241, 0.6);
+}
+
+.btn svg {
+  width: 18px;
+  height: 18px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.btn:hover svg {
+  color: #fff;
+}
+
+.btn.active svg {
+  color: #fff;
 }
 
 /* 信息面板 */

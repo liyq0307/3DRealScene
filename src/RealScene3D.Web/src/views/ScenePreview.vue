@@ -14,10 +14,6 @@
       </div>
 
       <div class="header-actions">
-        <button @click="toggleAnalysisToolbox" class="btn-action" :class="{ active: showAnalysisToolbox }" title="可视化分析">
-          <span class="icon">📊</span>
-          <span class="text">分析</span>
-        </button>
         <button v-if="hasUnsupportedModels" @click="convertModelsToTiles" class="btn-action" title="转换为3D Tiles">
           <span class="icon">🔄</span>
           <span class="text">转换模型</span>
@@ -111,6 +107,12 @@
           </div>
         </div>
       </div>
+
+      <!-- 可视化分析右侧面板（常驻） -->
+      <RightAnalysisPanel
+        :viewer-instance="currentViewerInstance"
+        :scene-objects="visibleObjects"
+      />
     </div>
 
     <!-- 加载状态 -->
@@ -133,28 +135,23 @@
       </div>
     </div>
 
-    <!-- 可视化分析工具箱 -->
-    <AnalysisToolbox
-      v-if="showAnalysisToolbox"
-      :viewer-instance="currentViewerInstance"
-      :scene-objects="visibleObjects"
-      @close="showAnalysisToolbox = false"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
 import Mars3DViewer from '@/components/Mars3DViewer.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
-import AnalysisToolbox from '@/components/analysis/AnalysisToolbox.vue'
+import RightAnalysisPanel from '@/components/analysis/RightAnalysisPanel.vue'
+import { useToolboxStore } from '@/stores/toolbox'
 
 const router = useRouter()
 const route = useRoute()
 const { success: showSuccess, error: showError } = useMessage()
+const toolbox = useToolboxStore()
 
 // ==================== 响应式状态 ====================
 
@@ -165,7 +162,6 @@ const sceneObjects = ref<any[]>([])
 const isFullscreen = ref(false)
 const sidebarVisible = ref(true)
 const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
-const showAnalysisToolbox = ref(false)
 const currentViewerInstance = ref<any>(null)
 
 // ==================== 计算属性 ====================
@@ -376,6 +372,28 @@ const onMars3DReady = (map: any) => {
   console.log('[ScenePreview] Mars3D地球初始化成功', map)
   currentViewerInstance.value = map
   showSuccess('Mars3D 3D地球加载成功')
+
+  // 监听右侧面板状态，动态调整控件位置
+  watch([() => toolbox.isCollapsed, () => toolbox.activeTab], ([isCollapsed, activeTab]) => {
+    if (!map?.control) return
+    try {
+      const toolbar = map.control.toolbar?.container
+      const compass = map.control.compass?.container
+
+      if (isCollapsed) {
+        if (toolbar) toolbar.style.right = '-4px'
+        if (compass) compass.style.right = '5px'
+      } else if (activeTab) {
+        if (toolbar) toolbar.style.right = '304px'
+        if (compass) compass.style.right = '310px'
+      } else {
+        if (toolbar) toolbar.style.right = '32px'
+        if (compass) compass.style.right = '38px'
+      }
+    } catch (e) {
+      console.warn('[ScenePreview] 调整控件位置失败:', e)
+    }
+  })
 }
 
 const onMars3DError = (err: Error) => {
@@ -400,10 +418,6 @@ const onThreeJSError = (err: Error) => {
 
 const handleFullscreenChange = () => {
   isFullscreen.value = !!document.fullscreenElement
-}
-
-const toggleAnalysisToolbox = () => {
-  showAnalysisToolbox.value = !showAnalysisToolbox.value
 }
 
 // ==================== 生命周期钩子 ====================
@@ -526,6 +540,7 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
+  position: relative;
 }
 
 /* 左侧侧边栏 */

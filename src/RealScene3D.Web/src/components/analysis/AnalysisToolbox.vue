@@ -1,94 +1,70 @@
 <template>
   <div class="analysis-toolbox">
-    <div class="toolbox-header">
-      <h3>可视化分析</h3>
-      <button @click="$emit('close')" class="btn-close" title="关闭">×</button>
-    </div>
-
-    <div class="toolbox-tabs">
-      <button
-        @click="activeTab = 'tools'"
-        :class="['tab-btn', { active: activeTab === 'tools' }]"
-      >
-        工具
-      </button>
-      <button
-        @click="activeTab = 'history'"
-        :class="['tab-btn', { active: activeTab === 'history' }]"
-      >
-        历史
-      </button>
-    </div>
-
     <div class="toolbox-content">
-      <div v-show="activeTab === 'tools'">
-        <div class="tool-categories">
+      <div
+        v-for="category in toolCategories"
+        :key="category.category"
+        class="module"
+      >
+        <div
+          class="module-header"
+          @click="toolbox.toggleCategory(category.category)"
+        >
+          <span class="module-title">{{ category.name }}</span>
+          <span class="module-arrow" :class="{ expanded: toolbox.expandedCategories[category.category] }">▾</span>
+        </div>
+
+        <div class="module-body" v-show="toolbox.expandedCategories[category.category]">
+          <div class="button-grid">
+            <button
+              v-for="tool in category.tools"
+              :key="tool.key"
+              @click="handleToolClick(category.category, tool.key)"
+              :class="['tool-button', { active: toolbox.activeToolByCategory[category.category] === tool.key }]"
+              :title="tool.description || tool.name"
+            >
+              <span class="tool-icon">{{ tool.icon }}</span>
+              <span class="tool-name">{{ tool.name }}</span>
+            </button>
+          </div>
+
           <div
-            v-for="category in toolCategories"
-            :key="category.name"
-            class="category"
+            v-if="toolbox.activeToolByCategory[category.category]"
+            class="component-container"
           >
-            <div class="category-title">{{ category.name }}</div>
-            <div class="tool-grid">
-              <button
-                v-for="tool in category.tools"
-                :key="tool.key"
-                @click="selectTool(tool.key)"
-                :class="['tool-button', { active: currentTool === tool.key }]"
-                :title="tool.description || tool.name"
-              >
-                <span class="tool-icon">{{ tool.icon }}</span>
-                <span class="tool-name">{{ tool.name }}</span>
-              </button>
-            </div>
+            <component
+              :is="getComponent(toolbox.activeToolByCategory[category.category]!)"
+              v-if="getComponent(toolbox.activeToolByCategory[category.category]!)"
+              :viewer-instance="viewerInstance"
+              :scene-objects="sceneObjects"
+              @close="toolbox.setActiveTool(category.category, null)"
+            />
           </div>
         </div>
-
-        <div v-if="currentTool" class="tool-panel">
-          <component
-            :is="currentToolComponent"
-            v-if="currentToolComponent"
-            :viewer-instance="viewerInstance"
-            :scene-objects="sceneObjects"
-            @close="currentTool = null"
-          />
-        </div>
-      </div>
-
-      <div v-show="activeTab === 'history'">
-        <AnalysisHistory />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent } from 'vue'
-import AnalysisHistory from './AnalysisHistory.vue'
+import { defineAsyncComponent } from 'vue'
+import { useToolboxStore } from '@/stores/toolbox'
 import { TOOL_CATEGORIES } from '@/types/analysis'
-import type { AnalysisToolType } from '@/types/analysis'
+import type { AnalysisToolType, AnalysisCategory } from '@/types/analysis'
 
 defineProps<{
   viewerInstance?: any
   sceneObjects?: any[]
 }>()
 
-defineEmits<{
-  close: []
-}>()
-
-const activeTab = ref<'tools' | 'history'>('tools')
-const currentTool = ref<AnalysisToolType | null>(null)
-
+const toolbox = useToolboxStore()
 const toolCategories = TOOL_CATEGORIES
 
 const componentMap: Partial<Record<AnalysisToolType, any>> = {
-  // 基础工具
   'coordinate': defineAsyncComponent(() => import('./CoordinateLocation.vue')),
   'flatten': defineAsyncComponent(() => import('./FlattenTerrain.vue')),
   'map-marking': defineAsyncComponent(() => import('./MapMarking.vue')),
   'viewpoint': defineAsyncComponent(() => import('./ViewpointManager.vue')),
-  // 测量工具
   'distance': defineAsyncComponent(() => import('./DistanceMeasurement.vue')),
   'distance-surface': defineAsyncComponent(() => import('./DistanceSurfaceMeasurement.vue')),
   'height': defineAsyncComponent(() => import('./HeightMeasurement.vue')),
@@ -97,184 +73,186 @@ const componentMap: Partial<Record<AnalysisToolType, any>> = {
   'coordinate-measure': defineAsyncComponent(() => import('./CoordinateMeasure.vue')),
   'height-triangle': defineAsyncComponent(() => import('./TriangleMeasurement.vue')),
   'bearing': defineAsyncComponent(() => import('./BearingMeasurement.vue')),
-  // 空间分析
   'visibility': defineAsyncComponent(() => import('./VisibilityAnalysis.vue')),
   'viewshed': defineAsyncComponent(() => import('./ViewshedAnalysis.vue')),
   'profile': defineAsyncComponent(() => import('./ProfileAnalysis.vue')),
   'skyline': defineAsyncComponent(() => import('./SkylineAnalysis.vue')),
   'business-format': defineAsyncComponent(() => import('./BusinessFormatAnalysis.vue')),
   'building-spacing': defineAsyncComponent(() => import('./BuildingSpacingAnalysis.vue')),
-  // 环境分析
   'sun': defineAsyncComponent(() => import('./SunAnalysis.vue')),
   'flood': defineAsyncComponent(() => import('./VolumeCalculation.vue')),
-  // 规划分析
   'plot-ratio': defineAsyncComponent(() => import('./PlotRatioAnalysis.vue')),
   'building-layout': defineAsyncComponent(() => import('./BuildingLayoutAnalysis.vue')),
   'site-selection': defineAsyncComponent(() => import('./SiteSelection.vue')),
   'tower-foundation': defineAsyncComponent(() => import('./TowerFoundationModeling.vue')),
   'pipeline': defineAsyncComponent(() => import('./PipelineAnalysis.vue')),
   'constraint': defineAsyncComponent(() => import('./ConstraintAnalysis.vue')),
-  // 工程分析
   'volume': defineAsyncComponent(() => import('./VolumeCalculation.vue')),
   'contour': defineAsyncComponent(() => import('./ContourLineAnalysis.vue')),
-  // 对比工具
   'layer-comparison': defineAsyncComponent(() => import('./LayerComparison.vue')),
-  // 性能监控
   'performance': defineAsyncComponent(() => import('./PerformanceAnalysis.vue'))
 }
 
-const currentToolComponent = computed(() => {
-  if (!currentTool.value) return null
-  return componentMap[currentTool.value]
-})
+function getComponent(toolType: AnalysisToolType) {
+  return componentMap[toolType] || null
+}
 
-function selectTool(key: AnalysisToolType) {
-  currentTool.value = currentTool.value === key ? null : key
+function handleToolClick(category: AnalysisCategory, toolKey: AnalysisToolType) {
+  toolbox.setActiveTool(category, toolKey)
 }
 </script>
 
 <style scoped>
 .analysis-toolbox {
-  position: fixed;
-  right: 10px;
-  top: 60px;
-  width: 320px;
-  background: rgba(15, 15, 20, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+  width: 260px;
+  background: #0a0a14;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 80px);
-}
-
-.toolbox-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.6rem 0.8rem;
-  background: rgba(99, 102, 241, 0.15);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px 8px 0 0;
-}
-
-.toolbox-header h3 {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #a5b4fc;
-}
-
-.btn-close {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  border-radius: 4px;
-  color: white;
-  font-size: 1.2rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn-close:hover {
-  background: rgba(239, 68, 68, 0.3);
-}
-
-.toolbox-tabs {
-  display: flex;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.tab-btn {
-  flex: 1;
-  padding: 0.5rem;
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tab-btn:hover {
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.tab-btn.active {
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.1);
-  border-bottom: 2px solid #a5b4fc;
+  height: 100%;
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .toolbox-content {
   flex: 1;
   overflow-y: auto;
-  padding: 0.6rem;
+  padding: 0;
 }
 
-.tool-categories {
-  margin-bottom: 0.6rem;
+.toolbox-content::-webkit-scrollbar {
+  width: 3px;
 }
 
-.category {
-  margin-bottom: 0.8rem;
+.toolbox-content::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.category-title {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 0.4rem;
-  padding-left: 0.2rem;
+.toolbox-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
 }
 
-.tool-grid {
+.module {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: rgba(18, 18, 43, 0.6);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.module-header:hover {
+  background: rgba(18, 18, 43, 0.9);
+}
+
+.module-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.5px;
+}
+
+.module-arrow {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  transition: transform 0.25s ease;
+  display: inline-block;
+}
+
+.module-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.module-body {
+  padding: 10px 8px;
+}
+
+.button-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.4rem;
+  gap: 8px;
 }
 
 .tool-button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 4px;
+  padding: 0;
+  background: #1a1a30;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
+  min-height: 56px;
+  position: relative;
+  overflow: hidden;
+}
+
+.tool-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  background: radial-gradient(circle at center, rgba(99, 102, 241, 0.35) 0%, transparent 70%);
 }
 
 .tool-button:hover {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.3);
-  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.tool-button:hover::before {
+  opacity: 0.5;
 }
 
 .tool-button.active {
-  background: rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.2);
   border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.3), inset 0 0 12px rgba(99, 102, 241, 0.15);
+}
+
+.tool-button.active::before {
+  opacity: 1;
 }
 
 .tool-icon {
-  font-size: 1.3rem;
+  font-size: 1.2rem;
+  line-height: 1;
+  margin-top: 8px;
+  position: relative;
+  z-index: 1;
 }
 
 .tool-name {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.9);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.75);
   text-align: center;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 0 2px 6px;
+  position: relative;
+  z-index: 1;
 }
 
-.tool-panel {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding-top: 0.6rem;
+.tool-button.active .tool-name {
+  color: #fff;
+}
+
+.component-container {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(10, 10, 20, 0.8);
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.12);
 }
 </style>
