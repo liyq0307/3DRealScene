@@ -84,7 +84,7 @@
 
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as THREE from 'three'
-import earthTexture from '../image/earth.jpg'
+import earthTexture from '/earth.jpg'
 import { IconPlay, IconStar } from '@/components/icons'
 
 const globeContainer = ref<HTMLElement>()

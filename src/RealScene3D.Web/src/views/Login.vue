@@ -535,7 +535,7 @@ const createGeometryObjects = () => {
 
   // 加载地球纹理
   const textureLoader = new THREE.TextureLoader()
-  const earthTexture = textureLoader.load('/src/image/earth.jpg')
+  const earthTexture = textureLoader.load('/earth.jpg')
 
   const earthMaterial = new THREE.MeshPhongMaterial({
     map: earthTexture,
@@ -554,7 +554,7 @@ const createGeometryObjects = () => {
     color: 0xffffff,
     transparent: true,
     opacity: 0.4,
-    alphaMap: textureLoader.load('/src/image/earth.jpg'), // 复用地球纹理作为云层alpha
+    alphaMap: textureLoader.load('/earth.jpg'), // 复用地球纹理作为云层alpha
   })
   const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial)
   geometryGroup.add(clouds)
