@@ -10,7 +10,9 @@ import type {
   SkylineResultData,
   VolumeResultData,
   HeightMeasurementResultData,
-  CameraView
+  CameraView,
+  SightlineItemData,
+  ViewshedPropertyData
 } from '@/types/analysis'
 
 /**
@@ -160,18 +162,108 @@ export function useAnalysisTool(viewerInstance: Ref<any> | ShallowRef<any>) {
   // ==================== 空间分析 ====================
 
   /** 通视分析 */
-  async function analyzeVisibility(mode: VisibilityMode) {
-    const typeName = mode === 'linear' ? '线通视' : '圆通视'
-    const operation = mode === 'linear'
-      ? (t: Mars3DAnalysisTools) => t.sightlineLinear()
-      : (t: Mars3DAnalysisTools) => t.sightlineCircular()
+  async function analyzeVisibility(mode: VisibilityMode, options: {
+    observerHeight?: number
+    analysisRadius?: number
+    sampleCount?: number
+    visibleColor?: string
+    hiddenColor?: string
+    viewshedOptions?: ViewshedPropertyData
+  } = {}) {
+    const observerHeight = options.observerHeight ?? 1.5
+    const visibleColor = options.visibleColor ?? '#00ff00'
+    const hiddenColor = options.hiddenColor ?? '#ff0000'
+
+    let operation: (t: Mars3DAnalysisTools) => Promise<any>
+
+    if (mode === 'linear') {
+      operation = (t) => t.sightlineLinear(observerHeight, visibleColor, hiddenColor)
+    } else if (mode === 'circular') {
+      operation = (t) => t.sightlineCircular(observerHeight, options.sampleCount ?? 45, visibleColor, hiddenColor)
+    } else {
+      // viewshed
+      operation = (t) => t.drawViewshed({
+        horizontalAngle: options.viewshedOptions?.horizontalAngle ?? 60,
+        verticalAngle: options.viewshedOptions?.verticalAngle ?? 45,
+        distance: options.viewshedOptions?.distance ?? 80,
+        heading: options.viewshedOptions?.heading ?? 44,
+        pitch: options.viewshedOptions?.pitch ?? -12
+      })
+    }
 
     const result = await safeExecute('visibility', operation)
     if (result) {
-      store.addResult({ type: 'visibility', name: `通视分析(${typeName})`, data: { mode, result }, visible: true })
+      const typeName = mode === 'linear' ? '线通视' : mode === 'circular' ? '圆通视' : '可视域'
+      store.addResult({
+        type: 'visibility',
+        name: `通视分析(${typeName})`,
+        data: { mode, observerHeight, ...result },
+        visible: true
+      })
     }
     return result
   }
+
+  /** 获取所有通视线数据 */
+  function getSightlineList(): SightlineItemData[] {
+    return tools.value?.getAllSightlineData() ?? []
+  }
+
+  /** 切换指定通视线显示/隐藏 */
+  function toggleSightlineVisibilityById(id: string, visible?: boolean) {
+    return tools.value?.toggleSightlineVisibility(id, visible) ?? false
+  }
+
+  /** 移除指定通视线 */
+  function removeSightlineById(id: string) {
+    return tools.value?.removeSightlineById(id) ?? false
+  }
+
+  /** 清除所有通视分析数据 */
+  function clearAllSightlineAnalysis() {
+    tools.value?.clearAllSightlineAnalysis()
+  }
+
+  /** 取消绘制 */
+  function cancelDrawing() {
+    tools.value?.cancelDrawing()
+  }
+
+  /** 是否正在绘制 */
+  function isDrawingState() {
+    return tools.value?.isDrawing ?? false
+  }
+
+  // ==================== 可视域属性编辑 ====================
+
+  /** 设置选中的可视域图形 */
+  function setSelectedViewshed(graphic: any) {
+    tools.value?.setSelectedViewshed(graphic)
+  }
+
+  /** 获取选中的可视域图形 */
+  function getSelectedViewshed() {
+    return tools.value?.getSelectedViewshed()
+  }
+
+  /** 更新可视域水平张角 */
+  function setViewshedAngle(value: number) { tools.value?.setViewshedAngle(value) }
+  /** 更新可视域垂直张角 */
+  function setViewshedAngle2(value: number) { tools.value?.setViewshedAngle2(value) }
+  /** 更新可视域投射距离 */
+  function setViewshedDistance(value: number) { tools.value?.setViewshedDistance(value) }
+  /** 更新可视域四周方向 */
+  function setViewshedHeading(value: number) { tools.value?.setViewshedHeading(value) }
+  /** 更新可视域俯仰角度 */
+  function setViewshedPitch(value: number) { tools.value?.setViewshedPitch(value) }
+  /** 切换视椎框线显示 */
+  function setViewshedFrustum(show: boolean) { tools.value?.setViewshedFrustum(show) }
+  /** 更新可视域透明度 */
+  function setViewshedOpacity(value: number) { tools.value?.setViewshedOpacity(value) }
+  /** 点选相机位置 */
+  async function pickCameraPosition() { return tools.value?.pickCameraPosition() }
+  /** 点选四周视角目标 */
+  async function pickViewTarget() { return tools.value?.pickViewTarget() }
 
   /** 剖面分析 */
   async function analyzeProfile(): Promise<ProfileResultData | null> {
@@ -483,6 +575,14 @@ export function useAnalysisTool(viewerInstance: Ref<any> | ShallowRef<any>) {
     measureHeight, measureHeightTriangle, measureAngle, measurePoint,
     // 空间分析
     analyzeVisibility, analyzeProfile, analyzeSkyline,
+    // 通视线管理
+    getSightlineList, toggleSightlineVisibilityById, removeSightlineById,
+    clearAllSightlineAnalysis, cancelDrawing, isDrawingState,
+    // 可视域属性编辑
+    setSelectedViewshed, getSelectedViewshed,
+    setViewshedAngle, setViewshedAngle2, setViewshedDistance,
+    setViewshedHeading, setViewshedPitch, setViewshedFrustum,
+    setViewshedOpacity, pickCameraPosition, pickViewTarget,
     // 体积
     calculateVolume,
     // 日照

@@ -40,7 +40,7 @@ export type AnalysisCategory = 'basic' | 'measurement' | 'spatial' | 'environmen
 // ==================== 分析模式枚举 ====================
 
 /** 通视分析模式 */
-export type VisibilityMode = 'linear' | 'circular'
+export type VisibilityMode = 'linear' | 'circular' | 'viewshed'
 
 /** 天际线显示模式 */
 export type SkylineDisplayMode = '2d' | '3d'
@@ -106,10 +106,42 @@ export interface VisibilityResultData {
   mode: VisibilityMode
   observerHeight: number
   observerPosition?: { longitude: number; latitude: number; height: number }
+  targetPosition?: { longitude: number; latitude: number; height: number }
   visibleCount?: number
   totalCount?: number
   visibleRatio?: number
+  distance?: number
+  sightlineId?: string
   result?: any
+}
+
+/** 可视域属性数据 */
+export interface ViewshedPropertyData {
+  horizontalAngle: number   // 水平张角
+  verticalAngle: number     // 垂直张角
+  distance: number          // 投射距离
+  heading: number          // 四周方向
+  pitch: number            // 俯仰角度
+  showFrustum: boolean     // 视椎框线
+  opacity: number          // 透明度
+}
+
+/** 通视线数据项(用于管理单条通视线) */
+export interface SightlineItemData {
+  id: string
+  type: 'line' | 'circle' | 'viewshed'
+  visible: boolean
+  timestamp: Date
+  center?: any
+  observerPosition?: any
+  targetPosition?: any
+  targetPoint?: any          // 线通视目标点
+  targetPoints?: any[]       // 圆通视目标点集
+  offsetHeight: number
+  centerPointGraphic?: any
+  targetPointGraphic?: any
+  targetPointGraphics?: any[]
+  viewshedGraphic?: any
 }
 
 /** 可视域分析结果数据 */

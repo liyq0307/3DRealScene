@@ -1,10 +1,12 @@
 import * as mars3d from 'mars3d'
 import * as Cesium from 'mars3d-cesium'
+import type { SightlineItemData, ViewshedPropertyData } from '@/types/analysis'
 
 export class Mars3DAnalysisTools {
   private map: mars3d.Map
   private graphicLayer: mars3d.layer.GraphicLayer
   private lineLayer: mars3d.layer.GraphicLayer
+  private sightlineLayer: mars3d.layer.GraphicLayer  // 通视线专用图层
   private measure: mars3d.thing.Measure | null = null
   private sightline: mars3d.thing.Sightline | null = null
   private skyline: mars3d.thing.Skyline | null = null
@@ -14,6 +16,13 @@ export class Mars3DAnalysisTools {
   private flood: any = null
   private flatObj: any = null
 
+  // 通视线数据管理
+  private sightlineData = new Map<string, SightlineItemData>()
+  // 当前选中的可视域图形
+  private selectedViewshed: any = null
+  // 当前是否正在绘制
+  private _isDrawing = false
+
   constructor(map: mars3d.Map) {
     this.map = map
     this.graphicLayer = new mars3d.layer.GraphicLayer({
@@ -22,7 +31,12 @@ export class Mars3DAnalysisTools {
     map.addLayer(this.graphicLayer)
     this.lineLayer = new mars3d.layer.GraphicLayer()
     map.addLayer(this.lineLayer)
+    // 通视线专用图层，用于管理观察点/目标点
+    this.sightlineLayer = new mars3d.layer.GraphicLayer()
+    map.addLayer(this.sightlineLayer)
   }
+
+  get isDrawing() { return this._isDrawing }
 
   // ==================== 初始化方法 ====================
 
@@ -240,68 +254,386 @@ export class Mars3DAnalysisTools {
   // ==================== 通视分析 ====================
 
   /** 线通视分析 */
-  async sightlineLinear(observerHeight = 1.5): Promise<any> {
+  async sightlineLinear(observerHeight = 1.5, visibleColor = '#00ff00', hiddenColor = '#ff0000'): Promise<any> {
     const sightline = this.initSightline()
-    const graphic = await this.map.graphicLayer.startDraw({
-      type: 'polyline',
-      maxPointNum: 2,
-      style: { color: '#55ff33', width: 5 }
-    })
-    const positions = graphic.positionsShow
-    const center = positions[0]
-    const targetPoint = positions[1]
-    this.map.graphicLayer.clear()
-    this.map.scene.globe.depthTestAgainstTerrain = true
-    sightline.add(center, targetPoint, { offsetHeight: observerHeight })
-    this.createPointMarker(center, '观察点')
-    this.createPointMarker(targetPoint, '目标点')
-    this.map.scene.globe.depthTestAgainstTerrain = false
-    return { observer: center, target: targetPoint, result: sightline.toJSON() }
+    // 更新通视线颜色
+    sightline.visibleColor = Cesium.Color.fromCssColorString(visibleColor)
+    sightline.hiddenColor = Cesium.Color.fromCssColorString(hiddenColor)
+
+    const sightlineId = 'sightline_' + new Date().getTime()
+    this._isDrawing = true
+    try {
+      const graphic = await this.sightlineLayer.startDraw({
+        type: 'polyline',
+        maxPointNum: 2,
+        style: { color: '#55ff33', width: 5 }
+      })
+      const positions = graphic.positionsShow
+      // 移除绘制的线，只保留通视分析结果
+      this.sightlineLayer.getGraphicById(graphic.id)?.remove()
+
+      const center = positions[0]
+      const targetPoint = positions[1]
+
+      this.map.scene.globe.depthTestAgainstTerrain = true
+      sightline.add(center, targetPoint, { offsetHeight: observerHeight })
+
+      // 创建观察位置点和目标点
+      const centerPoint = this.createSightlinePoint(center, true)
+      const targetPointGraphic = this.createSightlinePoint(targetPoint, false)
+
+      // 计算距离
+      const distance = Cesium.Cartesian3.distance(center, targetPoint)
+
+      // 存储通视线数据
+      const data: SightlineItemData = {
+        id: sightlineId,
+        type: 'line',
+        visible: true,
+        timestamp: new Date(),
+        center: positions[0],
+        targetPoint: positions[1],
+        offsetHeight: observerHeight,
+        centerPointGraphic: centerPoint,
+        targetPointGraphic: targetPointGraphic
+      }
+      this.sightlineData.set(sightlineId, data)
+
+      this.map.scene.globe.depthTestAgainstTerrain = false
+      return {
+        observer: center,
+        target: targetPoint,
+        distance,
+        sightlineId,
+        result: sightline.toJSON()
+      }
+    } finally {
+      this._isDrawing = false
+    }
   }
 
   /** 圆形通视分析 */
-  async sightlineCircular(observerHeight = 1.5, sampleCount = 45): Promise<any> {
+  async sightlineCircular(observerHeight = 1.5, sampleCount = 45, visibleColor = '#00ff00', hiddenColor = '#ff0000'): Promise<any> {
     const sightline = this.initSightline()
-    const graphic = await this.map.graphicLayer.startDraw({
-      type: 'circle',
-      style: { color: 'rgba(255, 255, 0, 0.2)', outline: true, outlineColor: '#ffff00' }
-    })
-    let center = graphic.positionShow
-    center = mars3d.PointUtil.addPositionsHeight(center, observerHeight)
-    const targetPoints = graphic.getOutlinePositions(false, sampleCount)
-    this.map.graphicLayer.clear()
-    this.map.scene.globe.depthTestAgainstTerrain = true
-    const results: any[] = []
-    for (let i = 0; i < targetPoints.length; i++) {
-      let targetPoint = targetPoints[i]
-      targetPoint = mars3d.PointUtil.getSurfacePosition(this.map.scene, targetPoint)
-      sightline.add(center, targetPoint)
-      results.push(targetPoint)
-    }
-    this.createPointMarker(center, '观察点')
-    this.map.scene.globe.depthTestAgainstTerrain = false
-    return { observer: center, targets: results, result: sightline.toJSON() }
-  }
+    sightline.visibleColor = Cesium.Color.fromCssColorString(visibleColor)
+    sightline.hiddenColor = Cesium.Color.fromCssColorString(hiddenColor)
 
-  /** 可视域分析 */
-  analyzeViewshed(options: {
-    direction?: number
-    pitch?: number
-    horizontalFov?: number
-    verticalFov?: number
-    distance?: number
-  } = {}): any {
-    if (!this.viewshed) {
-      this.viewshed = new (mars3d.thing as any).Viewshed({
-        ...options
+    const sightlineId = 'sightline_' + new Date().getTime()
+    this._isDrawing = true
+    try {
+      const graphic = await this.sightlineLayer.startDraw({
+        type: 'circle',
+        style: {
+          color: 'rgba(255, 255, 0, 0.2)',
+          opacity: 0.2,
+          clampToGround: true
+        }
       })
-      this.map.addThing(this.viewshed)
+
+      let center = graphic.positionShow
+      center = mars3d.PointUtil.addPositionsHeight(center, observerHeight)
+      const targetPoints = graphic.getOutlinePositions(false, sampleCount)
+      // 移除绘制的圆
+      this.sightlineLayer.getGraphicById(graphic.id)?.remove()
+
+      this.map.scene.globe.depthTestAgainstTerrain = true
+      const results: any[] = []
+      for (let i = 0; i < targetPoints.length; i++) {
+        let targetPoint = targetPoints[i]
+        targetPoint = mars3d.PointUtil.getSurfacePosition(this.map.scene, targetPoint)
+        sightline.add(center, targetPoint, { offsetHeight: observerHeight })
+        results.push(targetPoint)
+      }
+
+      // 创建观察位置点
+      const centerPoint = this.createSightlinePoint(center, true)
+
+      // 存储通视线数据
+      const data: SightlineItemData = {
+        id: sightlineId,
+        type: 'circle',
+        visible: true,
+        timestamp: new Date(),
+        center,
+        targetPoints,
+        offsetHeight: observerHeight,
+        centerPointGraphic: centerPoint,
+        targetPointGraphics: []
+      }
+      this.sightlineData.set(sightlineId, data)
+
+      this.map.scene.globe.depthTestAgainstTerrain = false
+      return { observer: center, targets: results, targetCount: results.length, sightlineId, result: sightline.toJSON() }
+    } finally {
+      this._isDrawing = false
     }
-    return this.viewshed
   }
 
-  /** 切换通视线可见性 */
-  toggleSightlineVisibility(visible: boolean) {
+  /** 可视域分析（交互式绘制） */
+  async drawViewshed(options: {
+    horizontalAngle?: number
+    verticalAngle?: number
+    distance?: number
+    heading?: number
+    pitch?: number
+    addHeight?: number
+  } = {}): Promise<any> {
+    const sightlineId = 'sightline_' + new Date().getTime()
+    this._isDrawing = true
+    try {
+      this.map.scene.globe.depthTestAgainstTerrain = true
+      // 使用 sightlineLayer 绘制，避免 graphicLayer 的 isAutoEditing 干扰
+      const graphic = await this.sightlineLayer.startDraw({
+        type: 'viewShed',
+        style: {
+          angle: options.horizontalAngle || 60,
+          angle2: options.verticalAngle || 45,
+          distance: options.distance || 80,
+          heading: options.heading || 44,
+          pitch: options.pitch || -12,
+          addHeight: options.addHeight ?? 0.5
+        }
+      })
+
+      // 设置当前选中的可视域图形
+      this.selectedViewshed = graphic
+
+      // 存储通视线数据
+      const data: SightlineItemData = {
+        id: sightlineId,
+        type: 'viewshed',
+        visible: true,
+        timestamp: new Date(),
+        offsetHeight: 0,
+        viewshedGraphic: graphic
+      }
+      this.sightlineData.set(sightlineId, data)
+
+      this.map.scene.globe.depthTestAgainstTerrain = false
+      return {
+        sightlineId,
+        graphic,
+        angle: graphic.angle,
+        angle2: graphic.angle2,
+        distance: graphic.distance,
+        heading: graphic.heading,
+        pitch: graphic.pitch,
+        opacity: graphic.opacity
+      }
+    } finally {
+      this._isDrawing = false
+    }
+  }
+
+  /** 创建通视分析标记点（参考LuZhou项目风格） */
+  private createSightlinePoint(position: any, isObserver: boolean) {
+    const graphic = new mars3d.graphic.PointEntity({
+      position,
+      style: {
+        color: Cesium.Color.fromCssColorString('rgba(51, 136, 255, 1)'),
+        pixelSize: 6,
+        outlineColor: Cesium.Color.fromCssColorString('rgba(255, 255, 255, 1)'),
+        outlineWidth: 2,
+        scaleByDistance: new Cesium.NearFarScalar(1.5e2, 1.0, 8.0e6, 0.2),
+        label: {
+          text: isObserver ? '观察位置' : '目标点',
+          font_size: 14,
+          font_family: '楷体',
+          color: Cesium.Color.AZURE,
+          outline: true,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 2000000)
+        }
+      }
+    })
+    this.sightlineLayer.addGraphic(graphic)
+    return graphic
+  }
+
+  // ==================== 通视线管理 ====================
+
+  /** 获取所有通视线数据 */
+  getAllSightlineData(): SightlineItemData[] {
+    return Array.from(this.sightlineData.values())
+  }
+
+  /** 切换指定通视线的显示/隐藏 */
+  toggleSightlineVisibility(id: string, visible?: boolean): boolean {
+    const data = this.sightlineData.get(id)
+    if (!data) return false
+
+    const targetVisible = visible !== undefined ? visible : !data.visible
+
+    if (targetVisible) {
+      // 显示：重新添加通视线
+      this.map.scene.globe.depthTestAgainstTerrain = true
+      const sightline = this.sightline
+      if (sightline) {
+        if (data.type === 'line' && data.center && data.targetPoint) {
+          sightline.add(data.center, data.targetPoint, { offsetHeight: data.offsetHeight })
+        } else if (data.type === 'circle' && data.center && data.targetPoints) {
+          for (const tp of data.targetPoints) {
+            sightline.add(data.center, tp, { offsetHeight: data.offsetHeight })
+          }
+        }
+      }
+      // 显示观察位置点和目标点
+      if (data.centerPointGraphic) data.centerPointGraphic.show = true
+      if (data.targetPointGraphic) data.targetPointGraphic.show = true
+      if (data.targetPointGraphics) data.targetPointGraphics.forEach((g: any) => { g.show = true })
+      if (data.viewshedGraphic) data.viewshedGraphic.show = true
+      this.map.scene.globe.depthTestAgainstTerrain = false
+    } else {
+      // 隐藏
+      if (data.centerPointGraphic) data.centerPointGraphic.show = false
+      if (data.targetPointGraphic) data.targetPointGraphic.show = false
+      if (data.targetPointGraphics) data.targetPointGraphics.forEach((g: any) => { g.show = false })
+      if (data.viewshedGraphic) data.viewshedGraphic.show = false
+      // 清除所有通视线，稍后重建可见的
+      if (this.sightline) this.sightline.clear()
+      // 重新添加其他可见的通视线
+      this.rebuildVisibleSightlines()
+    }
+    data.visible = targetVisible
+    return true
+  }
+
+  /** 重建所有可见的通视线 */
+  private rebuildVisibleSightlines() {
+    if (!this.sightline) return
+    // sightline.clear() 已在调用方执行
+    this.sightlineData.forEach(data => {
+      if (!data.visible) return
+      if (data.type === 'line' && data.center && data.targetPoint) {
+        this.sightline!.add(data.center, data.targetPoint, { offsetHeight: data.offsetHeight })
+      } else if (data.type === 'circle' && data.center && data.targetPoints) {
+        for (const tp of data.targetPoints) {
+          this.sightline!.add(data.center, tp, { offsetHeight: data.offsetHeight })
+        }
+      }
+    })
+  }
+
+  /** 移除指定通视线 */
+  removeSightlineById(id: string): boolean {
+    const data = this.sightlineData.get(id)
+    if (!data) return false
+
+    // 移除观察位置点和目标点
+    if (data.centerPointGraphic) {
+      this.sightlineLayer.removeGraphic(data.centerPointGraphic)
+    }
+    if (data.targetPointGraphic) {
+      this.sightlineLayer.removeGraphic(data.targetPointGraphic)
+    }
+    if (data.targetPointGraphics) {
+      data.targetPointGraphics.forEach((g: any) => this.sightlineLayer.removeGraphic(g))
+    }
+    if (data.viewshedGraphic) {
+      this.sightlineLayer.removeGraphic(data.viewshedGraphic)
+    }
+
+    this.sightlineData.delete(id)
+
+    // 清除并重建通视线
+    if (this.sightline) {
+      this.sightline.clear()
+      this.rebuildVisibleSightlines()
+    }
+    return true
+  }
+
+  /** 清除之前的所有通视分析（线、圆、可视域），保证唯一存在 */
+  clearAllSightlineAnalysis() {
+    const ids = Array.from(this.sightlineData.keys())
+    ids.forEach(id => this.removeSightlineById(id))
+    // 确保彻底移除所有 viewShed 类型的 graphic
+    const sightlineGraphics = this.sightlineLayer.getGraphics()
+    sightlineGraphics.forEach((g: any) => {
+      if (g.type === 'viewShed') {
+        this.sightlineLayer.removeGraphic(g)
+      }
+    })
+  }
+
+  /** 取消绘制 */
+  cancelDrawing() {
+    this.sightlineLayer.clearDrawing()
+    this.graphicLayer.clearDrawing()
+    this._isDrawing = false
+  }
+
+  // ==================== 可视域属性编辑 ====================
+
+  /** 设置当前选中的可视域图形 */
+  setSelectedViewshed(graphic: any) {
+    this.selectedViewshed = graphic
+  }
+
+  /** 获取当前选中的可视域图形 */
+  getSelectedViewshed() {
+    return this.selectedViewshed
+  }
+
+  /** 更新可视域水平张角 */
+  setViewshedAngle(value: number) {
+    if (this.selectedViewshed) this.selectedViewshed.angle = value
+  }
+
+  /** 更新可视域垂直张角 */
+  setViewshedAngle2(value: number) {
+    if (this.selectedViewshed) this.selectedViewshed.angle2 = value
+  }
+
+  /** 更新可视域投射距离 */
+  setViewshedDistance(value: number) {
+    if (this.selectedViewshed) this.selectedViewshed.distance = value
+  }
+
+  /** 更新可视域四周方向 */
+  setViewshedHeading(value: number) {
+    if (this.selectedViewshed) this.selectedViewshed.heading = value
+  }
+
+  /** 更新可视域俯仰角度 */
+  setViewshedPitch(value: number) {
+    if (this.selectedViewshed) this.selectedViewshed.pitch = value
+  }
+
+  /** 切换视椎框线显示 */
+  setViewshedFrustum(show: boolean) {
+    if (this.selectedViewshed) this.selectedViewshed.showFrustum = show
+  }
+
+  /** 更新可视域透明度 */
+  setViewshedOpacity(value: number) {
+    if (this.selectedViewshed) this.selectedViewshed.opacity = value
+  }
+
+  /** 点选相机位置 */
+  async pickCameraPosition() {
+    if (!this.selectedViewshed) return
+    const graphic = await this.graphicLayer.startDraw({ type: 'point' })
+    const point = graphic.point
+    graphic.remove()
+    this.selectedViewshed.position = point
+  }
+
+  /** 点选四周视角目标 */
+  async pickViewTarget() {
+    if (!this.selectedViewshed) return
+    const graphic = await this.graphicLayer.startDraw({ type: 'point' })
+    const point = graphic.point
+    graphic.remove()
+    this.selectedViewshed.targetPosition = point
+  }
+
+  /** 切换整个通视线图层的可见性 */
+  setSightlineVisible(visible: boolean) {
     if (this.sightline) {
       ;(this.sightline as any).show = visible
     }
@@ -727,6 +1059,9 @@ export class Mars3DAnalysisTools {
   clearAll() {
     this.graphicLayer.clear()
     this.lineLayer.clear()
+    this.sightlineLayer.clear()
+    this.sightlineData.clear()
+    this.selectedViewshed = null
     if (this.measure) this.measure.clear()
     if (this.sightline) this.sightline.clear()
     if (this.skyline) {
@@ -761,8 +1096,10 @@ export class Mars3DAnalysisTools {
   }
 
   clearSightline() {
+    this.clearAllSightlineAnalysis()
     if (this.sightline) this.sightline.clear()
-    this.graphicLayer.clear()
+    this.sightlineLayer.clear()
+    this.selectedViewshed = null
   }
 
   clearSkyline() {
@@ -803,6 +1140,8 @@ export class Mars3DAnalysisTools {
 
   destroy() {
     this.clearAll()
+    this.sightlineData.clear()
+    this.selectedViewshed = null
     if (this.measure) {
       this.map.removeThing(this.measure, true)
       this.measure = null
@@ -816,6 +1155,9 @@ export class Mars3DAnalysisTools {
     }
     if (this.lineLayer) {
       this.map.removeLayer(this.lineLayer, true)
+    }
+    if (this.sightlineLayer) {
+      this.map.removeLayer(this.sightlineLayer, true)
     }
   }
 }
