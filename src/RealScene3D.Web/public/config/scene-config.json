@@ -1,0 +1,137 @@
+{
+  "mars3d": {
+    "scene": {
+      "center": {
+        "lng": 116.39,
+        "lat": 39.91,
+        "alt": 15000000,
+        "heading": 0,
+        "pitch": -45
+      },
+      "showSun": false,
+      "showMoon": false,
+      "showSkyAtmosphere": true,
+      "fog": false,
+      "cameraController": {
+        "minimumZoomDistance": 1,
+        "maximumZoomDistance": 50000000
+      },
+      "globe": {
+        "depthTestAgainstTerrain": false,
+        "enableLighting": false
+      },
+      "clock": {
+        "currentTime": "2025-01-01"
+      }
+    },
+    "control": {
+      "toolbar": {
+        "position": "right-bottom"
+      },
+      "homeButton": true,
+      "fullscreenButton": false,
+      "navigationHelpButton": false,
+      "baseLayerPicker": false,
+      "sceneModePicker": true,
+      "vrButton": false,
+      "animation": false,
+      "timeline": false,
+      "infoBox": false,
+      "selectionIndicator": false,
+      "compass": {
+        "bottom": "toolbar",
+        "right": "5px"
+      }
+    },
+    "terrain": {
+      "show": false,
+      "url": ""
+    },
+    "basemaps": [
+      {
+        "name": "ArcGIS影像底图",
+        "type": "xyz",
+        "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        "show": true
+      }
+    ],
+    "performance": {
+      "tileCacheSize": 100,
+      "maximumScreenSpaceError": 2
+    },
+    "defaultPosition": {
+      "longitude": 116.397128,
+      "latitude": 39.908802,
+      "height": 100
+    },
+    "cameraFlight": {
+      "duration": 2.0,
+      "heading": 0,
+      "pitch": -45,
+      "roll": 0
+    },
+    "helper": {
+      "axesLength": 500000,
+      "gridSpacing": 30,
+      "gridColor": "rgba(255,255,255,0.15)"
+    },
+    "tileset": {
+      "maximumScreenSpaceError": 16,
+      "maximumMemoryUsage": 512
+    }
+  },
+  "threejs": {
+    "camera": {
+      "fov": 60,
+      "near": 0.1,
+      "far": 10000,
+      "initialPosition": { "x": 5, "y": 5, "z": 5 }
+    },
+    "controls": {
+      "dampingFactor": 0.05,
+      "minDistance": 1,
+      "maxDistance": 1000,
+      "maxPolarAngle": 180
+    },
+    "lights": {
+      "ambient": { "color": "#ffffff", "intensity": 0.6 },
+      "directional": { "color": "#ffffff", "intensity": 0.8, "position": [10, 10, 5], "shadowMapSize": 2048 },
+      "hemisphere": { "skyColor": "#ffffff", "groundColor": "#444444", "intensity": 0.4, "position": [0, 20, 0] }
+    },
+    "fog": {
+      "near": 10,
+      "far": 1000
+    },
+    "helpers": {
+      "axes": { "size": 100 },
+      "grid": { "size": 100, "divisions": 100, "colorCenterLine": "#888888", "colorGrid": "#444444" }
+    },
+    "renderer": {
+      "toneMapping": "ACESFilmic",
+      "toneMappingExposure": 1.0
+    }
+  },
+  "formats": {
+    "nativelySupported": ["gltf", "glb", "json"],
+    "threejsSupported": ["obj", "fbx", "dae", "stl", "ply"],
+    "convertible": ["blend", "las", "laz", "e57"],
+    "cesiumSupported": ["gltf", "glb", "json", "tileset", "tiles"],
+    "needsSlicing": ["obj", "fbx", "dae", "stl", "3ds", "ply", "osgb", "las", "laz", "e57", "blend"],
+    "threejsEngineFormats": ["obj", "fbx", "dae", "stl", "3ds", "blend", "ply"],
+    "cesiumOnlyFormats": ["json", "tiles", "osgb", "las", "laz", "e57"]
+  },
+  "performance": {
+    "tilesLoadTimeout": 30000,
+    "modelLoadTimeout": 10000,
+    "batchSize": 3,
+    "minDistance": 500,
+    "scaleFactor": 50
+  },
+  "ui": {
+    "fpsMonitorInterval": 1000,
+    "cameraUpdateDebounce": 100
+  },
+  "minio": {
+    "buckets": ["models-3d", "slices", "textures", "thumbnails", "videos"]
+  }
+}

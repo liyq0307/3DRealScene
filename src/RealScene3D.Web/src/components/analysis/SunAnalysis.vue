@@ -19,7 +19,7 @@
       </div>
       <div class="param-item">
         <label>时间步长(分)</label>
-        <input v-model.number="timeStep" type="number" min="15" max="120" step="15" />
+        <input v-model.number="timeStep" type="number" min="5" max="60" step="5" />
       </div>
     </div>
 
@@ -94,7 +94,7 @@ const viewerRef = toRef(props, 'viewerInstance')
 const analysisDate = ref(new Date().toISOString().split('T')[0])
 const startTime = ref('08:00')
 const endTime = ref('18:00')
-const timeStep = ref(60)
+const timeStep = ref(10)
 const playSpeed = ref(1)
 const isPlaying = ref(false)
 const hasResult = ref(false)
