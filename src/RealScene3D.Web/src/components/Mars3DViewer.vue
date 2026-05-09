@@ -55,6 +55,7 @@ import * as mars3d from 'mars3d'
 import * as Cesium from 'mars3d-cesium'
 import authStore from '@/stores/auth'
 import fileHandleStore from '@/services/fileHandleStore'
+import { loadSceneConfig, getSceneConfig, type SceneConfig } from '@/config/scene-config'
 
 
 // ==================== 类型定义 ====================
@@ -93,36 +94,14 @@ interface LoadedModel {
 
 // ==================== 常量和配置 ====================
 
-const APP_CONFIG = Object.freeze({
-  DEFAULT_POSITION: Object.freeze({
-    longitude: 116.397128,
-    latitude: 39.908802,
-    height: 100
-  }),
-  SUPPORTED_FORMATS: Object.freeze({
-    nativelySupported: Object.freeze(['gltf', 'glb', 'json']),
-    threejsSupported: Object.freeze(['obj', 'fbx', 'dae', 'stl', 'ply']), // Three.js 支持的格式
-    convertible: Object.freeze(['blend', 'las', 'laz', 'e57']) // 需要切片转换的格式
-  }),
-  MINIO_BUCKETS: Object.freeze(['models-3d', 'slices', 'textures', 'thumbnails', 'videos']),
-  CAMERA_FLIGHT_CONFIG: Object.freeze({
-    duration: 2.0,
-    heading: 0,
-    pitch: -45,
-    roll: 0
-  }),
-  PERFORMANCE: Object.freeze({
-    TILES_LOAD_TIMEOUT: 30000,
-    MODEL_LOAD_TIMEOUT: 10000,
-    BATCH_SIZE: 3,
-    MIN_DISTANCE: 500,
-    SCALE_FACTOR: 50
-  }),
-  UI: Object.freeze({
-    FPS_MONITOR_INTERVAL: 1000,
-    CAMERA_UPDATE_DEBOUNCE: 100
-  })
-})
+// 场景配置（异步加载，通过 cfg() 访问）
+let _sceneConfig: SceneConfig | null = null
+
+/** 获取场景配置，确保已加载 */
+const cfg = (): SceneConfig => {
+  if (!_sceneConfig) _sceneConfig = getSceneConfig()
+  return _sceneConfig
+}
 
 // ==================== Props 定义 ====================
 
@@ -143,11 +122,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   showInfo: true,
-  initialPosition: () => ({
-    longitude: 116.39,
-    latitude: 39.91,
-    height: 15000000
-  }),
+  initialPosition: undefined, // 未指定时从配置文件读取
   sceneObjects: () => [],
   showBasemap: false,
   basemapToggle: true,
@@ -376,7 +351,7 @@ const resolveObjectUrl = async (displayPath: string): Promise<{ url: string; ori
     // ✅ 核心修复：判断路径是否为 MinIO bucket 路径
     // 1. 如果第一部分是已知的 MinIO bucket（如 models-3d, slices），直接使用
     // 2. 否则，默认添加 slices bucket 前缀
-    if (APP_CONFIG.MINIO_BUCKETS.includes(firstPart)) {
+    if (cfg().minio.buckets.includes(firstPart)) {
       // 路径已经包含 bucket 名称，直接使用
       fullPath = `${apiBaseUrl.value}/api/files/proxy/${fullPath.replace(/^\//, '')}`
       console.log('[Mars3DViewer] MinIO bucket 路径转换:', { original: displayPath, converted: fullPath })
@@ -414,7 +389,7 @@ const handleConvertibleFormat = async (obj: SceneObject): Promise<boolean> => {
     return await loadTileset(obj, fullTilesetPath.url)
   } else {
     const position = obj.position.every(coord => coord === 0)
-      ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height]
+      ? [cfg().mars3d.defaultPosition.longitude, cfg().mars3d.defaultPosition.latitude, cfg().mars3d.defaultPosition.height]
       : obj.position
 
     if (!map || !graphicLayer) return false
@@ -479,10 +454,11 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     }
 
     // 构建Mars3D TilesetLayer配置
+    const tilesetCfg = cfg().mars3d.tileset
     const layerConfig: any = {
       url: resource,  // ✅ 使用 Resource 对象而不是字符串
-      maximumScreenSpaceError: 16, // 默认值，平衡性能和质量
-      maximumMemoryUsage: 512, // 限制内存使用 (MB)
+      maximumScreenSpaceError: tilesetCfg.maximumScreenSpaceError,
+      maximumMemoryUsage: tilesetCfg.maximumMemoryUsage,
       show: true,
       debugShowBoundingVolume: boundingBoxVisible.value,
       debugShowContentBoundingVolume: boundingBoxVisible.value
@@ -515,7 +491,7 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     const tileset = tilesetLayer.tileset
     if (!tileset) {
       await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Tileset加载超时')), APP_CONFIG.PERFORMANCE.TILES_LOAD_TIMEOUT)
+        const timeout = setTimeout(() => reject(new Error('Tileset加载超时')), cfg().performance.tilesLoadTimeout)
         const checkReady = () => {
           if (tilesetLayer.tileset) {
             clearTimeout(timeout)
@@ -595,7 +571,7 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
 
     // 使用Cesium原生Model API加载GLB
     const position = obj.position.every(coord => coord === 0)
-      ? [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height]
+      ? [cfg().mars3d.defaultPosition.longitude, cfg().mars3d.defaultPosition.latitude, cfg().mars3d.defaultPosition.height]
       : obj.position
 
     const cartesian = Cesium.Cartesian3.fromDegrees(position[0], position[1], position[2])
@@ -640,7 +616,7 @@ const loadGltfModel = async (obj: SceneObject, url: string): Promise<boolean> =>
         setTimeout(() => {
           removeListener()
           reject(new Error('Model ready timeout'))
-        }, APP_CONFIG.PERFORMANCE.MODEL_LOAD_TIMEOUT)
+        }, cfg().performance.modelLoadTimeout)
       }
     })
 
@@ -674,15 +650,15 @@ const loadThreeJSModel = async (obj: SceneObject, url: string): Promise<boolean>
 /**
  * 飞行到指定位置 - 使用Mars3D的setCameraView
  */
-const flyToPosition = async (position: number[], duration: number = APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration): Promise<void> => {
+const flyToPosition = async (position: number[], duration: number = cfg().mars3d.cameraFlight.duration): Promise<void> => {
   if (!map) return
 
   map.setCameraView({
     lng: position[0],
     lat: position[1],
     alt: position[2],
-    heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-    pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
+    heading: cfg().mars3d.cameraFlight.heading,
+    pitch: cfg().mars3d.cameraFlight.pitch
   }, { duration })
 }
 
@@ -695,16 +671,16 @@ const flyToTileset = async (tilesetLayer: mars3d.layer.TilesetLayer, fallbackPos
   try {
     const tileset = tilesetLayer.tileset
     if (!tileset || !tileset.boundingSphere) {
-      await flyToPosition([APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, 10000])
+      await flyToPosition([cfg().mars3d.defaultPosition.longitude, cfg().mars3d.defaultPosition.latitude, 10000])
       return
     }
 
     const radius = tileset.boundingSphere.radius
-    const distance = Math.max(radius * 3.0, APP_CONFIG.PERFORMANCE.MIN_DISTANCE)
+    const distance = Math.max(radius * 3.0, cfg().performance.minDistance)
 
     // 使用TilesetLayer的flyTo方法
     tilesetLayer.flyTo({
-      duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+      duration: cfg().mars3d.cameraFlight.duration,
       radius: distance
     })
   } catch (error) {
@@ -718,9 +694,9 @@ const flyToTileset = async (tilesetLayer: mars3d.layer.TilesetLayer, fallbackPos
             lng: Cesium.Math.toDegrees(cartographic.longitude),
             lat: Cesium.Math.toDegrees(cartographic.latitude),
             alt: cartographic.height + 1000,
-            heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-            pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
-          }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+            heading: cfg().mars3d.cameraFlight.heading,
+            pitch: cfg().mars3d.cameraFlight.pitch
+          }, { duration: cfg().mars3d.cameraFlight.duration })
         }
       } catch (e) {
         // 忽略
@@ -746,12 +722,12 @@ const normalizeObjectPosition = (obj: SceneObject): [number, number, number] => 
   }
 
   if (position.every(coord => coord === 0)) {
-    return [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height]
+    return [cfg().mars3d.defaultPosition.longitude, cfg().mars3d.defaultPosition.latitude, cfg().mars3d.defaultPosition.height]
   }
 
   const [longitude, latitude, height] = position
   if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90 || height < -1000) {
-    return [APP_CONFIG.DEFAULT_POSITION.longitude, APP_CONFIG.DEFAULT_POSITION.latitude, APP_CONFIG.DEFAULT_POSITION.height]
+    return [cfg().mars3d.defaultPosition.longitude, cfg().mars3d.defaultPosition.latitude, cfg().mars3d.defaultPosition.height]
   }
 
   return position
@@ -765,11 +741,11 @@ const determineLoadStrategy = (fullPath: string, fileExt: string): 'tileset' | '
 
   // 2. 根据扩展名判定
   if (fileExt) {
-    if (APP_CONFIG.SUPPORTED_FORMATS.convertible.includes(fileExt)) return 'convertible'
-    if (APP_CONFIG.SUPPORTED_FORMATS.threejsSupported.includes(fileExt)) return 'threejs'
+    if (cfg().formats.convertible.includes(fileExt)) return 'convertible'
+    if (cfg().formats.threejsSupported.includes(fileExt)) return 'threejs'
     if (['gltf', 'glb'].includes(fileExt)) return 'gltf'
     if (fileExt === 'json') return 'tileset'
-    if (!APP_CONFIG.SUPPORTED_FORMATS.nativelySupported.includes(fileExt)) return null
+    if (!cfg().formats.nativelySupported.includes(fileExt)) return null
   }
 
   // 3. 处理文件夹（无扩展名）
@@ -967,7 +943,7 @@ const loadSceneObjects = async (objects: SceneObject[]): Promise<void> => {
 
   if (validObjects.length === 0) return
 
-  const batchSize = APP_CONFIG.PERFORMANCE.BATCH_SIZE
+  const batchSize = cfg().performance.batchSize
   const batches = []
   for (let i = 0; i < validObjects.length; i += batchSize) {
     batches.push(validObjects.slice(i, i + batchSize))
@@ -998,12 +974,12 @@ const flyToAllObjects = async (): Promise<void> => {
   if (loadedModels.size === 0) {
     console.log('[flyToAllObjects] 没有加载任何对象，飞向默认位置')
     map.setCameraView({
-      lng: APP_CONFIG.DEFAULT_POSITION.longitude,
-      lat: APP_CONFIG.DEFAULT_POSITION.latitude,
+      lng: cfg().mars3d.defaultPosition.longitude,
+      lat: cfg().mars3d.defaultPosition.latitude,
       alt: 10000, // 10公里高度，可以看到底图
-      heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-      pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
-    }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+      heading: cfg().mars3d.cameraFlight.heading,
+      pitch: cfg().mars3d.cameraFlight.pitch
+    }, { duration: cfg().mars3d.cameraFlight.duration })
     return
   }
 
@@ -1017,17 +993,17 @@ const flyToAllObjects = async (): Promise<void> => {
         const tileset = layer.tileset
         if (tileset && tileset.boundingSphere && tileset.boundingSphere.radius > 0) {
           const radius = tileset.boundingSphere.radius
-          const distance = Math.max(radius * 3.0, APP_CONFIG.PERFORMANCE.MIN_DISTANCE)
-          layer.flyTo({ duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration, radius: distance })
+          const distance = Math.max(radius * 3.0, cfg().performance.minDistance)
+          layer.flyTo({ duration: cfg().mars3d.cameraFlight.duration, radius: distance })
         } else {
-          layer.flyTo({ duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+          layer.flyTo({ duration: cfg().mars3d.cameraFlight.duration })
         }
       } else {
         // Cesium.Model
         const model = modelInfo.object as Cesium.Model
         if (model.boundingSphere && model.boundingSphere.radius > 0) {
           viewer.camera.flyToBoundingSphere(model.boundingSphere, {
-            duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+            duration: cfg().mars3d.cameraFlight.duration,
             offset: new Cesium.HeadingPitchRange(0, -0.5, Math.max(model.boundingSphere.radius * 3.0, 500))
           })
         } else {
@@ -1038,9 +1014,9 @@ const flyToAllObjects = async (): Promise<void> => {
               lng: Cesium.Math.toDegrees(cartographic.longitude),
               lat: Cesium.Math.toDegrees(cartographic.latitude),
               alt: cartographic.height + 1000,
-              heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-              pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
-            }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+              heading: cfg().mars3d.cameraFlight.heading,
+              pitch: cfg().mars3d.cameraFlight.pitch
+            }, { duration: cfg().mars3d.cameraFlight.duration })
           }
         }
       }
@@ -1057,9 +1033,9 @@ const flyToAllObjects = async (): Promise<void> => {
             lng: Cesium.Math.toDegrees(cartographic.longitude),
             lat: Cesium.Math.toDegrees(cartographic.latitude),
             alt: cartographic.height + boundingSphere.radius * 3.0,
-            heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-            pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
-          }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+            heading: cfg().mars3d.cameraFlight.heading,
+            pitch: cfg().mars3d.cameraFlight.pitch
+          }, { duration: cfg().mars3d.cameraFlight.duration })
         }
       }
     }
@@ -1129,63 +1105,35 @@ const initMars3D = async (): Promise<void> => {
     const containerId = 'mars3d-container-' + Date.now()
     mars3dContainer.value.id = containerId
 
-    // Mars3D Map配置
+    // Mars3D Map配置 - 从 scene-config.json 读取
+    const config = cfg()
+    // 合并 props 传入的初始位置与配置文件的 center
+    const initialPosition = props.initialPosition || {
+      longitude: config.mars3d.scene.center.lng,
+      latitude: config.mars3d.scene.center.lat,
+      height: config.mars3d.scene.center.alt
+    }
+
     map = new mars3d.Map(containerId, {
       scene: {
         center: {
-          lng: props.initialPosition.longitude,
-          lat: props.initialPosition.latitude,
-          alt: props.initialPosition.height,
-          heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-          pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
+          lng: initialPosition.longitude,
+          lat: initialPosition.latitude,
+          alt: initialPosition.height,
+          heading: config.mars3d.scene.center.heading,
+          pitch: config.mars3d.scene.center.pitch
         },
-        showSun: false,
-        showMoon: false,
-        showSkyAtmosphere: true,
-        fog: false,
-        cameraController: {
-          minimumZoomDistance: 1,
-          maximumZoomDistance: 50000000
-        },
-        globe: {
-          depthTestAgainstTerrain: false,
-          enableLighting: false
-        },
-        clock: {
-          currentTime: '2025-01-01'
-        }
+        showSun: config.mars3d.scene.showSun,
+        showMoon: config.mars3d.scene.showMoon,
+        showSkyAtmosphere: config.mars3d.scene.showSkyAtmosphere,
+        fog: config.mars3d.scene.fog,
+        cameraController: config.mars3d.scene.cameraController,
+        globe: config.mars3d.scene.globe,
+        clock: config.mars3d.scene.clock
       },
-      control: {
-        toolbar: {
-          position: 'right-bottom'
-        },
-        homeButton: true,
-        fullscreenButton: false,
-        navigationHelpButton: false,
-        baseLayerPicker: false,
-        sceneModePicker: true,
-        vrButton: false,
-        animation: false,
-        timeline: false,
-        infoBox: false,
-        selectionIndicator: false,
-        compass: {
-          bottom: 'toolbar',
-          right: '5px'
-        }
-      },
-      terrain: {
-        show: false,
-        url: ''
-      },
-      basemaps: [
-        {
-          name: 'ArcGIS影像底图',
-          type: 'xyz',
-          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          show: true // 始终加载底图，确保后续可以切换显示/隐藏
-        }
-      ]
+      control: config.mars3d.control,
+      terrain: config.mars3d.terrain,
+      basemaps: config.mars3d.basemaps
     })
 
     // 获取Cesium Viewer引用
@@ -1195,10 +1143,10 @@ const initMars3D = async (): Promise<void> => {
     graphicLayer = new mars3d.layer.GraphicLayer()
     map.addLayer(graphicLayer)
 
-    // 性能优化设置
+    // 性能优化设置 - 从配置读取
     if (viewer.scene.globe) {
-      viewer.scene.globe.tileCacheSize = 100
-      viewer.scene.globe.maximumScreenSpaceError = 2
+      viewer.scene.globe.tileCacheSize = cfg().mars3d.performance.tileCacheSize
+      viewer.scene.globe.maximumScreenSpaceError = cfg().mars3d.performance.maximumScreenSpaceError
     }
 
     // 隐藏Cesium Logo
@@ -1270,7 +1218,7 @@ const initMars3D = async (): Promise<void> => {
 const initAxesHelper = (): void => {
   if (!map || !graphicLayer) return
   try {
-    const axisLength = 500000
+    const axisLength = cfg().mars3d.helper.axesLength
 
     // X轴 (红色 - 东)
     graphicLayer.addGraphic(new mars3d.graphic.PolylineEntity({
@@ -1317,8 +1265,10 @@ const initAxesHelper = (): void => {
 const initGridHelper = (): void => {
   if (!map || !graphicLayer) return
   try {
-    // 经度线（南北向）- 每30度一条
-    for (let lon = -180; lon <= 180; lon += 30) {
+    const gridSpacing = cfg().mars3d.helper.gridSpacing
+    const gridColor = cfg().mars3d.helper.gridColor
+    // 经度线（南北向）
+    for (let lon = -180; lon <= 180; lon += gridSpacing) {
       const positions: [number, number, number][] = []
       for (let lat = -85; lat <= 85; lat += 10) {
         positions.push([lon, lat, 0])
@@ -1328,15 +1278,15 @@ const initGridHelper = (): void => {
         positions,
         style: {
           width: 1,
-          color: 'rgba(255,255,255,0.15)',
+          color: gridColor,
           clampToGround: true
         },
         show: gridVisible.value
       }))
     }
 
-    // 纬度线（东西向）- 每30度一条
-    for (let lat = -60; lat <= 60; lat += 30) {
+    // 纬度线（东西向）
+    for (let lat = -60; lat <= 60; lat += gridSpacing) {
       const positions: [number, number, number][] = []
       for (let lon = -180; lon <= 180; lon += 10) {
         positions.push([lon, lat, 0])
@@ -1346,7 +1296,7 @@ const initGridHelper = (): void => {
         positions,
         style: {
           width: 1,
-          color: 'rgba(255,255,255,0.15)',
+          color: gridColor,
           clampToGround: true
         },
         show: gridVisible.value
@@ -1385,7 +1335,7 @@ const updateCameraInfo = () => {
       console.warn('[updateCameraInfo] 更新相机信息失败:', error)
     }
     cameraUpdateTimer = null
-  }, APP_CONFIG.UI.CAMERA_UPDATE_DEBOUNCE)
+  }, cfg().ui.cameraUpdateDebounce)
 }
 
 /**
@@ -1403,13 +1353,13 @@ const resetView = async (): Promise<void> => {
         const modelInfo = Array.from(loadedModels.values())[0]
         if (modelInfo.type === '3dtiles') {
           const layer = modelInfo.object as mars3d.layer.TilesetLayer
-          layer.flyTo({ duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+          layer.flyTo({ duration: cfg().mars3d.cameraFlight.duration })
         } else {
           // Cesium.Model - 飞向模型位置
           const model = modelInfo.object as Cesium.Model
           if (model.boundingSphere && model.boundingSphere.radius > 0) {
             viewer.camera.flyToBoundingSphere(model.boundingSphere, {
-              duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration,
+              duration: cfg().mars3d.cameraFlight.duration,
               offset: new Cesium.HeadingPitchRange(0, -0.5, Math.max(model.boundingSphere.radius * 3.0, 500))
             })
           }
@@ -1417,21 +1367,22 @@ const resetView = async (): Promise<void> => {
       } else {
         // 多个对象 - 飞向全局视角
         map.setCameraView({
-          lng: APP_CONFIG.DEFAULT_POSITION.longitude,
-          lat: APP_CONFIG.DEFAULT_POSITION.latitude,
+          lng: cfg().mars3d.defaultPosition.longitude,
+          lat: cfg().mars3d.defaultPosition.latitude,
           alt: 10000,
-          heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-          pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
-        }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+          heading: cfg().mars3d.cameraFlight.heading,
+          pitch: cfg().mars3d.cameraFlight.pitch
+        }, { duration: cfg().mars3d.cameraFlight.duration })
       }
     } else {
+      const pos = props.initialPosition || cfg().mars3d.defaultPosition
       map.setCameraView({
-        lng: props.initialPosition.longitude,
-        lat: props.initialPosition.latitude,
+        lng: pos.longitude,
+        lat: pos.latitude,
         alt: 10000,
-        heading: APP_CONFIG.CAMERA_FLIGHT_CONFIG.heading,
-        pitch: APP_CONFIG.CAMERA_FLIGHT_CONFIG.pitch
-      }, { duration: APP_CONFIG.CAMERA_FLIGHT_CONFIG.duration })
+        heading: cfg().mars3d.cameraFlight.heading,
+        pitch: cfg().mars3d.cameraFlight.pitch
+      }, { duration: cfg().mars3d.cameraFlight.duration })
     }
   } catch (error) {
     const errorMessage = `重置视图失败: ${error instanceof Error ? error.message : String(error)}`
@@ -1530,7 +1481,7 @@ const startPerformanceMonitoring = (): void => {
     frameCount++
     const currentTime = performance.now()
 
-    if (currentTime >= lastTime + APP_CONFIG.UI.FPS_MONITOR_INTERVAL) {
+    if (currentTime >= lastTime + cfg().ui.fpsMonitorInterval) {
       fps.value = Math.round((frameCount * 1000) / (currentTime - lastTime))
       frameCount = 0
       lastTime = currentTime
@@ -1637,6 +1588,7 @@ watch(() => props.showBasemap, (newVal) => {
 
 onMounted(async () => {
   await nextTick()
+  await loadSceneConfig() // 加载场景配置文件
   await initMars3D()
 })
 
@@ -1657,7 +1609,8 @@ defineExpose({
   toggleBasemap,
   setBasemapVisible,
   getBasemapVisible,
-  setObjectVisibility
+  setObjectVisibility,
+  resetView
 })
 </script>
 

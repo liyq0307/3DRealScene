@@ -22,14 +22,14 @@
       <div v-else-if="toolbox.activeTab === 'history'" class="tab-content">
         <AnalysisHistory />
       </div>
-    </div>
-    <div
-      class="collapse-btn"
-      @click="toggleCollapse"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline :points="toolbox.isCollapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6'" />
-      </svg>
+      <div
+        class="collapse-btn"
+        @click="toggleCollapse"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline :points="toolbox.isCollapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6'" />
+        </svg>
+      </div>
     </div>
   </div>
 </template>
@@ -109,6 +109,7 @@ function toggleCollapse() {
   display: flex;
   flex-direction: column;
   background: #12122b;
+  height: 100%;
 }
 
 .tab-item {

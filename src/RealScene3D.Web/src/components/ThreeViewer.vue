@@ -88,6 +88,7 @@
  */
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useMessage } from '@/composables/useMessage'
+import { loadSceneConfig, getSceneConfig, type SceneConfig } from '@/config/scene-config'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -145,7 +146,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   showInfo: true,
-  initialCameraPosition: () => ({ x: 5, y: 5, z: 5 }),
+  initialCameraPosition: undefined, // 未指定时从配置文件读取
   sceneObjects: () => [],
   backgroundColor: '#1a1a1a',
   enableShadows: true,
@@ -217,6 +218,15 @@ const debugPlugins = new Map<string, DebugTilesPlugin>()
 
 // ==================== 业务逻辑方法 ====================
 
+// 场景配置（异步加载，通过 cfg() 访问）
+let _sceneConfig: SceneConfig | null = null
+
+/** 获取场景配置，确保已加载 */
+const cfg = (): SceneConfig => {
+  if (!_sceneConfig) _sceneConfig = getSceneConfig()
+  return _sceneConfig
+}
+
 /**
  * 初始化Three.js场景
  */
@@ -225,19 +235,24 @@ const initThreeScene = () => {
 
   console.log('[ThreeViewer] 初始化Three.js场景')
 
+  const config = cfg().threejs
+  const camCfg = config.camera
+  const controlsCfg = config.controls
+  const lightsCfg = config.lights
+  const fogCfg = config.fog
+  const helpersCfg = config.helpers
+  const rendererCfg = config.renderer
+
   // 创建场景
   scene = new THREE.Scene()
   scene.background = new THREE.Color(props.backgroundColor)
-  scene.fog = new THREE.Fog(props.backgroundColor, 10, 1000)
+  scene.fog = new THREE.Fog(props.backgroundColor, fogCfg.near, fogCfg.far)
 
   // 创建相机
   const aspect = threeContainer.value.clientWidth / threeContainer.value.clientHeight
-  camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 10000)
-  camera.position.set(
-    props.initialCameraPosition.x,
-    props.initialCameraPosition.y,
-    props.initialCameraPosition.z
-  )
+  camera = new THREE.PerspectiveCamera(camCfg.fov, aspect, camCfg.near, camCfg.far)
+  const initialPos = props.initialCameraPosition || camCfg.initialPosition
+  camera.position.set(initialPos.x, initialPos.y, initialPos.z)
 
   // 创建渲染器
   renderer = new THREE.WebGLRenderer({
@@ -249,7 +264,7 @@ const initThreeScene = () => {
   renderer.shadowMap.enabled = props.enableShadows
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.0
+  renderer.toneMappingExposure = rendererCfg.toneMappingExposure
   renderer.outputColorSpace = THREE.SRGBColorSpace
 
   threeContainer.value.appendChild(renderer.domElement)
@@ -257,36 +272,36 @@ const initThreeScene = () => {
   // 创建轨道控制器
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
-  controls.dampingFactor = 0.05
+  controls.dampingFactor = controlsCfg.dampingFactor
   controls.screenSpacePanning = false
-  controls.minDistance = 1
-  controls.maxDistance = 1000
-  controls.maxPolarAngle = Math.PI
+  controls.minDistance = controlsCfg.minDistance
+  controls.maxDistance = controlsCfg.maxDistance
+  controls.maxPolarAngle = (controlsCfg.maxPolarAngle / 180) * Math.PI
 
   // 添加环境光
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
+  const ambientLight = new THREE.AmbientLight(lightsCfg.ambient.color, lightsCfg.ambient.intensity)
   scene.add(ambientLight)
 
   // 添加方向光
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-  directionalLight.position.set(10, 10, 5)
+  const directionalLight = new THREE.DirectionalLight(lightsCfg.directional.color, lightsCfg.directional.intensity)
+  directionalLight.position.set(lightsCfg.directional.position[0], lightsCfg.directional.position[1], lightsCfg.directional.position[2])
   directionalLight.castShadow = props.enableShadows
-  directionalLight.shadow.mapSize.width = 2048
-  directionalLight.shadow.mapSize.height = 2048
+  directionalLight.shadow.mapSize.width = lightsCfg.directional.shadowMapSize
+  directionalLight.shadow.mapSize.height = lightsCfg.directional.shadowMapSize
   scene.add(directionalLight)
 
   // 添加半球光
-  const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4)
-  hemisphereLight.position.set(0, 20, 0)
+  const hemisphereLight = new THREE.HemisphereLight(lightsCfg.hemisphere.skyColor, lightsCfg.hemisphere.groundColor, lightsCfg.hemisphere.intensity)
+  hemisphereLight.position.set(lightsCfg.hemisphere.position[0], lightsCfg.hemisphere.position[1], lightsCfg.hemisphere.position[2])
   scene.add(hemisphereLight)
 
   // 添加坐标轴辅助器
-  axesHelper = new THREE.AxesHelper(100)
+  axesHelper = new THREE.AxesHelper(helpersCfg.axes.size)
   axesHelper.visible = true
   scene.add(axesHelper)
 
   // 添加网格辅助器
-  gridHelper = new THREE.GridHelper(100, 100, 0x888888, 0x444444)
+  gridHelper = new THREE.GridHelper(helpersCfg.grid.size, helpersCfg.grid.divisions, helpersCfg.grid.colorCenterLine, helpersCfg.grid.colorGrid)
   gridHelper.visible = true
   scene.add(gridHelper)
 
@@ -1015,6 +1030,10 @@ const resetView = () => {
   showSuccess('视图已重置')
 }
 
+defineExpose({
+  resetView
+})
+
 /**
  * 切换线框模式
  */
@@ -1185,6 +1204,7 @@ watch(
 
 onMounted(async () => {
   console.log('[ThreeViewer] 组件挂载')
+  await loadSceneConfig() // 加载场景配置文件
   initThreeScene()
   await loadSceneObjects()
 })
@@ -1217,8 +1237,8 @@ onUnmounted(() => {
 /* 控制面板 */
 .controls {
   position: absolute;
-  top: 10px;
-  right: 50px;
+  bottom: 20px;
+  right: 20px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1343,7 +1363,7 @@ onUnmounted(() => {
 /* 响应式设计 */
 @media (max-width: 768px) {
   .controls {
-    top: 10px;
+    bottom: 10px;
     right: 10px;
     gap: 8px;
   }

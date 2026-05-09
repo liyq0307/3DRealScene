@@ -85,13 +85,11 @@
 <script setup lang="ts">
 import { ref, toRef, onUnmounted } from 'vue'
 import { useAnalysisStore } from '@/stores/analysis'
-import { useAnalysisTool } from '@/composables/useAnalysisTool'
 import type { SunAnalysisResultData } from '@/types/analysis'
 
 const props = defineProps<{ viewerInstance?: any }>()
 const store = useAnalysisStore()
 const viewerRef = toRef(props, 'viewerInstance')
-const { safeExecute } = useAnalysisTool(viewerRef)
 
 const analysisDate = ref(new Date().toISOString().split('T')[0])
 const startTime = ref('08:00')
@@ -174,7 +172,9 @@ function setShadowsTime(minutes: number) {
     const map = viewerRef.value?.map || viewerRef.value
     if (map?.clock) {
       const date = new Date(analysisDate.value)
-      date.setMinutes(minutes)
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      date.setHours(hours, mins, 0, 0)
       if ((map as any)?.clock?.currentTime) {
         const Cesium = (window as any).Cesium || (globalThis as any).Cesium
         if (Cesium?.JulianDate) {
@@ -187,40 +187,41 @@ function setShadowsTime(minutes: number) {
 
 async function startAnalysis() {
   errorMsg.value = ''
-  startShadowsPlay()
-  const result = await safeExecute('sun', (tools: any) =>
-    (tools as any).analyzeSun?.({
-      date: analysisDate.value,
-      startTime: startTime.value,
-      endTime: endTime.value
-    })
-  )
 
-  if (result) {
-    const startMins = parseTimeToMinutes(startTime.value)
-    const endMins = parseTimeToMinutes(endTime.value)
-    const totalMinutes = endMins - startMins
-    const sunHours = totalMinutes / 60 * (0.6 + Math.random() * 0.25)
-    const coverage = Math.min(0.95, sunHours / (totalMinutes / 60))
-
-    analysisResult.value = {
-      date: analysisDate.value,
-      startTime: startTime.value,
-      endTime: endTime.value,
-      totalSunHours: sunHours,
-      sunPath: [],
-      shadowAreas: (Math.random() * 3000 + 1500),
-      coverage
-    }
-    hasResult.value = true
-
-    store.addResult({
-      type: 'sun',
-      name: `日照分析 ${analysisDate.value}`,
-      data: analysisResult.value,
-      visible: true
-    })
+  // 初始化阴影系统
+  const map = viewerRef.value?.map || viewerRef.value
+  if (map?.scene?.shadowMap) {
+    map.scene.shadowMap.enabled = true
+    map.scene.shadowMap.uninitialized = true
   }
+
+  // 设置初始时间
+  const startMins = parseTimeToMinutes(startTime.value)
+  setShadowsTime(startMins)
+
+  // 生成模拟分析结果
+  const endMins = parseTimeToMinutes(endTime.value)
+  const totalMinutes = endMins - startMins
+  const sunHours = totalMinutes / 60 * (0.6 + Math.random() * 0.25)
+  const coverage = Math.min(0.95, sunHours / (totalMinutes / 60))
+
+  analysisResult.value = {
+    date: analysisDate.value,
+    startTime: startTime.value,
+    endTime: endTime.value,
+    totalSunHours: sunHours,
+    sunPath: [],
+    shadowAreas: (Math.random() * 3000 + 1500),
+    coverage
+  }
+  hasResult.value = true
+
+  store.addResult({
+    type: 'sun',
+    name: `日照分析 ${analysisDate.value}`,
+    data: analysisResult.value,
+    visible: true
+  })
 }
 
 function clearResult() {

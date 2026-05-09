@@ -139,10 +139,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
+import { loadSceneConfig, getSceneConfig } from '@/config/scene-config'
 import Mars3DViewer from '@/components/Mars3DViewer.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
 import RightAnalysisPanel from '@/components/analysis/RightAnalysisPanel.vue'
@@ -191,8 +192,9 @@ const sceneRenderEngine = computed(() => {
 
   if (!visibleObjects.value || visibleObjects.value.length === 0) return 'cesium'
 
-  const threeJSFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply']
-  const cesiumOnlyFormats = ['json', 'tiles', 'osgb', 'las', 'laz', 'e57']
+  const formats = getSceneConfig().formats
+  const threeJSFormats = formats.threejsEngineFormats
+  const cesiumOnlyFormats = formats.cesiumOnlyFormats
 
   let hasThreeJSFormat = false
   let hasCesiumOnlyFormat = false
@@ -217,7 +219,7 @@ const hasUnsupportedModels = computed(() => {
   if (!visibleObjects.value || visibleObjects.value.length === 0) return false
   if (sceneRenderEngine.value === 'threejs') return false
 
-  const needsSlicingFormats = ['osgb', 'las', 'laz', 'e57']
+  const needsSlicingFormats = getSceneConfig().formats.cesiumOnlyFormats
 
   return visibleObjects.value.some(obj => {
     if (!obj.displayPath) return false
@@ -244,10 +246,10 @@ const canDirectDisplay = (obj: any): boolean => {
   const path = obj.displayPath || obj.modelPath || ''
   const fileExt = path.split('?')[0].split('.').pop()?.toLowerCase() || ''
   
-  // Cesium 原生支持的格式
-  const cesiumSupported = ['gltf', 'glb', 'json', 'tileset', 'tiles']
-  // 需要切片的格式
-  const needsSlicing = ['obj', 'fbx', 'dae', 'stl', '3ds', 'ply', 'osgb', 'las', 'laz', 'e57', 'blend']
+  // 从配置文件读取格式列表
+  const formats = getSceneConfig().formats
+  const cesiumSupported = formats.cesiumSupported
+  const needsSlicing = formats.needsSlicing
   
   if (cesiumSupported.includes(fileExt)) {
     return true
@@ -350,7 +352,7 @@ const convertModelsToTiles = async () => {
     return
   }
 
-  const convertibleFormats = ['obj', 'fbx', 'dae', 'stl', '3ds', 'blend', 'ply', 'las', 'laz', 'e57']
+  const convertibleFormats = getSceneConfig().formats.needsSlicing
   const modelsToConvert = visibleObjects.value.filter(obj => {
     if (!obj.displayPath) return false
     const fileExt = obj.displayPath.split('?')[0].split('.').pop()?.toLowerCase()
@@ -373,6 +375,29 @@ const onMars3DReady = (map: any) => {
   currentViewerInstance.value = map
   showSuccess('Mars3D 3D地球加载成功')
 
+  // 移动 Cesium 内置控件（HomeButton、SceneModePicker）到右下角
+  nextTick(() => {
+    try {
+      const viewer = map?.viewer
+      if (viewer?.container) {
+        const cesiumToolbar = viewer.container.querySelector('.cesium-viewer-toolbar')
+        if (cesiumToolbar) {
+          const el = cesiumToolbar as HTMLElement
+          el.style.position = 'absolute'
+          el.style.bottom = '20px'
+          el.style.right = '20px'
+          el.style.top = 'auto'
+          el.style.left = 'auto'
+          el.style.display = 'flex'
+          el.style.flexDirection = 'column'
+          el.style.gap = '8px'
+        }
+      }
+    } catch (e) {
+      console.warn('[ScenePreview] 移动Cesium控件位置失败:', e)
+    }
+  })
+
   // 监听右侧面板状态，动态调整控件位置
   watch([() => toolbox.isCollapsed, () => toolbox.activeTab], ([isCollapsed, activeTab]) => {
     if (!map?.control) return
@@ -381,14 +406,14 @@ const onMars3DReady = (map: any) => {
       const compass = map.control.compass?.container
 
       if (isCollapsed) {
-        if (toolbar) toolbar.style.right = '-4px'
-        if (compass) compass.style.right = '5px'
+        if (toolbar) toolbar.style.right = '50px'
+        if (compass) compass.style.right = '95px'
       } else if (activeTab) {
         if (toolbar) toolbar.style.right = '304px'
-        if (compass) compass.style.right = '310px'
+        if (compass) compass.style.right = '348px'
       } else {
-        if (toolbar) toolbar.style.right = '32px'
-        if (compass) compass.style.right = '38px'
+        if (toolbar) toolbar.style.right = '50px'
+        if (compass) compass.style.right = '95px'
       }
     } catch (e) {
       console.warn('[ScenePreview] 调整控件位置失败:', e)
@@ -422,8 +447,9 @@ const handleFullscreenChange = () => {
 
 // ==================== 生命周期钩子 ====================
 
-onMounted(() => {
+onMounted(async () => {
   console.log('[ScenePreview] 组件挂载，开始加载场景')
+  await loadSceneConfig() // 加载场景配置文件
   loadSceneDetails()
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 })
