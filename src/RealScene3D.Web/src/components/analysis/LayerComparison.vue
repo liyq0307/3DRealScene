@@ -74,14 +74,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, toRef } from 'vue'
 import { useAnalysisStore } from '@/stores/analysis'
+import { useAnalysisTool } from '@/composables/useAnalysisTool'
 
 const props = defineProps<{
+  viewerInstance?: any
   sceneObjects?: any[]
 }>()
 
 const analysisStore = useAnalysisStore()
+const { createSplitControl, destroySplitControl } = useAnalysisTool(toRef(props, 'viewerInstance'))
 
 const leftLayerId = ref('')
 const rightLayerId = ref('')
@@ -89,13 +92,31 @@ const splitPosition = ref(50)
 const comparisonMode = ref<'vertical' | 'horizontal' | 'wipe'>('vertical')
 const isComparing = ref(false)
 const showInfo = ref(true)
+let splitControl: any = null
 
 const availableLayers = computed(() => {
-  return props.sceneObjects?.map(obj => ({
-    id: obj.id,
-    name: obj.name,
-    url: obj.displayPath || obj.modelPath
-  })) || []
+  // 优先从 sceneObjects 获取
+  if (props.sceneObjects && props.sceneObjects.length > 0) {
+    return props.sceneObjects.map(obj => ({
+      id: obj.id,
+      name: obj.name,
+      url: obj.displayPath || obj.modelPath
+    }))
+  }
+  // 备选：从 viewerInstance.map 获取已加载的 tileset 图层
+  const map = props.viewerInstance?.map || props.viewerInstance
+  if (map) {
+    const result = map.getLayer?.('tileset')
+    if (result) {
+      const tilesetArr = Array.isArray(result) ? result : [result]
+      return tilesetArr.map((layer: any, index: number) => ({
+        id: layer.id || `tileset-${index}`,
+        name: layer.name || `3DTiles模型${index + 1}`,
+        url: layer.url || layer.options?.url
+      }))
+    }
+  }
+  return []
 })
 
 const canCompare = computed(() => {
@@ -116,6 +137,11 @@ function getModeLabel(mode: string): string {
   return labels[mode] || mode
 }
 
+function getLayerUrl(layerId: string): string {
+  const layer = availableLayers.value.find(l => l.id === layerId)
+  return layer?.url || ''
+}
+
 function updateComparison() {
   if (isComparing.value && canCompare.value) {
     createComparison()
@@ -123,21 +149,38 @@ function updateComparison() {
 }
 
 function updateSplitPosition() {
-  if (isComparing.value) {
+  if (isComparing.value && splitControl) {
     // 更新分割位置
+    splitControl.splitPosition = splitPosition.value / 100
   }
 }
 
 function startComparison() {
   if (!canCompare.value) return
-  
+
   analysisStore.startAnalysis('layer-comparison')
   createComparison()
 }
 
 function createComparison() {
+  const leftUrl = getLayerUrl(leftLayerId.value)
+  const rightUrl = getLayerUrl(rightLayerId.value)
+
+  if (!leftUrl || !rightUrl) {
+    analysisStore.setError({
+      type: 'layer-comparison',
+      message: '请选择有效的图层',
+      code: 'INVALID_LAYERS',
+      timestamp: new Date(),
+      recoverable: true
+    })
+    analysisStore.stopAnalysis()
+    return
+  }
+
+  splitControl = createSplitControl(leftUrl, rightUrl)
   isComparing.value = true
-  
+
   analysisStore.addResult({
     type: 'layer-comparison',
     name: '卷帘对比结果',
@@ -149,11 +192,13 @@ function createComparison() {
     },
     visible: true
   })
-  
+
   analysisStore.stopAnalysis()
 }
 
 function stopComparison() {
+  destroySplitControl(splitControl)
+  splitControl = null
   isComparing.value = false
   analysisStore.clearByType('layer-comparison')
 }
@@ -162,7 +207,7 @@ function captureScreenshot() {
   // 截图功能
   const canvas = document.querySelector('canvas')
   if (!canvas) return
-  
+
   const dataUrl = canvas.toDataURL('image/png')
   const a = document.createElement('a')
   a.href = dataUrl

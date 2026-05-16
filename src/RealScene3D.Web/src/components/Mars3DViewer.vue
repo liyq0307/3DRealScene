@@ -461,7 +461,12 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
       maximumMemoryUsage: tilesetCfg.maximumMemoryUsage,
       show: true,
       debugShowBoundingVolume: boundingBoxVisible.value,
-      debugShowContentBoundingVolume: boundingBoxVisible.value
+      debugShowContentBoundingVolume: boundingBoxVisible.value,
+      flat: {
+        enabled: true,
+        precise: false,
+        raise: false
+      }
     }
 
     // 解析旋转和缩放参数
@@ -486,6 +491,9 @@ const loadTileset = async (obj: SceneObject, url: string): Promise<boolean> => {
     // 使用Mars3D的TilesetLayer加载3D Tiles
     const tilesetLayer = new mars3d.layer.TilesetLayer(layerConfig)
     map.addLayer(tilesetLayer)
+
+    // 将 tilesetLayer 存储到 map 上，供分析工具使用
+    ;(map as any)._tilesetLayer = tilesetLayer
 
     // 等待tileset加载完成
     const tileset = tilesetLayer.tileset

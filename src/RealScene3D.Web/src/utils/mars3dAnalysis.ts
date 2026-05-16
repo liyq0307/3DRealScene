@@ -14,7 +14,8 @@ export class Mars3DAnalysisTools {
   private contourLine: any = null
   private viewshed: any = null
   private flood: any = null
-  private flatObj: any = null
+  private flatAreas: any[] = []  // 压平区域列表
+  private tilesetLayer: mars3d.layer.TilesetLayer | null = null
 
   // 通视线数据管理
   private sightlineData = new Map<string, SightlineItemData>()
@@ -652,7 +653,12 @@ export class Mars3DAnalysisTools {
   analyzeSkyline(): any {
     const skyline = this.initSkyline()
     skyline.enabled = true
-    return skyline.toJSON()
+    // 返回 skyline 对象本身，供外部获取属性
+    return {
+      enabled: skyline.enabled,
+      width: skyline.width,
+      color: skyline.color
+    }
   }
 
   setSkylineWidth(width: number) {
@@ -775,9 +781,41 @@ export class Mars3DAnalysisTools {
 
   // ==================== 压平功能 ====================
 
+  /** 设置压平所用的 TilesetLayer */
+  setTilesetLayer(layer: mars3d.layer.TilesetLayer) {
+    this.tilesetLayer = layer
+  }
+
+  /** 获取第一个可用的 TilesetLayer */
+  private getFirstTilesetLayer(): mars3d.layer.TilesetLayer | null {
+    if (this.tilesetLayer) return this.tilesetLayer
+    // 优先从 map._tilesetLayer 获取（Mars3DViewer.vue 中设置）
+    const mapTileset = (this.map as any)._tilesetLayer
+    if (mapTileset?.flat) {
+      this.tilesetLayer = mapTileset
+      return this.tilesetLayer
+    }
+    // 备选：按类型获取 tileset 图层
+    const result = this.map.getLayer?.('tileset')
+    if (!result) return null
+    const tilesetArr = Array.isArray(result) ? result : [result]
+    for (const layer of tilesetArr) {
+      if (layer?.flat) {
+        this.tilesetLayer = layer as mars3d.layer.TilesetLayer
+        return this.tilesetLayer
+      }
+    }
+    return null
+  }
+
   /** 开始压平 */
   async startFlatten(options: { height?: number; tilesetUrl?: string } = {}): Promise<any> {
     const height = options.height || 0
+    const tilesetLayer = this.getFirstTilesetLayer()
+    if (!tilesetLayer || !tilesetLayer.flat) {
+      throw new Error('未找到可用的3DTiles图层，请先加载3DTiles模型')
+    }
+
     const graphic = await this.map.graphicLayer.startDraw({
       type: 'polygon',
       style: {
@@ -787,28 +825,33 @@ export class Mars3DAnalysisTools {
       }
     })
 
-    if (!this.flatObj) {
-      this.flatObj = new (mars3d.thing as any).Flat({
-        positions: graphic.positionsShow,
-        height
-      })
-      this.map.addThing(this.flatObj)
+    const area = tilesetLayer.flat.addArea(graphic.positionsShow, {
+      height,
+      color: '#007be6',
+      editHeight: 0
+    })
+
+    if (area) {
+      this.flatAreas.push(area)
     }
 
-    return { positions: graphic.positionsShow, height }
+    return { positions: graphic.positionsShow, height, areaId: area?.id }
   }
 
   /** 更新压平高度 */
   updateFlattenHeight(height: number) {
-    if (this.flatObj) this.flatObj.height = height
+    for (const area of this.flatAreas) {
+      if (area) area.height = height
+    }
   }
 
   /** 清除压平 */
   clearFlatten() {
-    if (this.flatObj) {
-      this.map.removeThing(this.flatObj, true)
-      this.flatObj = null
+    const tilesetLayer = this.getFirstTilesetLayer()
+    if (tilesetLayer?.flat) {
+      tilesetLayer.flat.clear()
     }
+    this.flatAreas = []
   }
 
   // ==================== 图上标记 ====================
@@ -1004,18 +1047,31 @@ export class Mars3DAnalysisTools {
   // ==================== 卷帘对比 ====================
 
   /** 创建卷帘控制 */
-  createSplitControl(): any {
-    const mapSplit = new (mars3d as any).MapSplit({
-      direction: 0 // 水平方向
+  createSplitControl(leftUrl: string, rightUrl: string, options?: any): any {
+    // 先销毁已有的卷帘控件
+    this.destroySplitControl()
+
+    const mapSplit = new mars3d.control.MapSplit({
+      leftLayer: [{
+        type: 'tileset',
+        url: leftUrl,
+        ...options?.leftOptions
+      }],
+      rightLayer: [{
+        type: 'tileset',
+        url: rightUrl,
+        ...options?.rightOptions
+      }],
+      style: { zIndex: 1 }
     })
-    this.map.addThing(mapSplit)
+    this.map.addControl(mapSplit)
     return mapSplit
   }
 
   /** 销毁卷帘控制 */
-  destroySplitControl(splitControl: any) {
+  destroySplitControl(splitControl?: any) {
     if (splitControl) {
-      this.map.removeThing(splitControl, true)
+      this.map.removeControl(splitControl)
     }
   }
 
@@ -1081,9 +1137,12 @@ export class Mars3DAnalysisTools {
       this.map.removeThing(this.flood, true)
       this.flood = null
     }
-    if (this.flatObj) {
-      this.map.removeThing(this.flatObj, true)
-      this.flatObj = null
+    if (this.flatAreas.length > 0) {
+      const tilesetLayer = this.getFirstTilesetLayer()
+      if (tilesetLayer?.flat) {
+        tilesetLayer.flat.clear()
+      }
+      this.flatAreas = []
     }
     if (this.viewshed) {
       this.map.removeThing(this.viewshed, true)
@@ -1104,8 +1163,7 @@ export class Mars3DAnalysisTools {
 
   clearSkyline() {
     if (this.skyline) {
-      this.map.removeThing(this.skyline, true)
-      this.skyline = null
+      this.skyline.enabled = false
     }
   }
 

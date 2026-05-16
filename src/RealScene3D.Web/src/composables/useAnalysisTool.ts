@@ -307,31 +307,16 @@ export function useAnalysisTool(viewerInstance: Ref<any> | ShallowRef<any>) {
     store.startAnalysis('skyline')
     try {
       const raw = t.analyzeSkyline()
-      if (raw && raw.points) {
-        const len = raw.points.length
-        let maxHeight = -Infinity
-        let minHeight = Infinity
-        let sumHeight = 0
-
-        const points = new Array(len)
-        for (let i = 0; i < len; i++) {
-          const height = raw.points[i].height || 0
-          if (height > maxHeight) maxHeight = height
-          if (height < minHeight) minHeight = height
-          sumHeight += height
-          points[i] = { angle: (i / len) * 360, height }
-        }
-
-        const avg = sumHeight / len
-        let varianceSum = 0
-        for (let i = 0; i < len; i++) {
-          varianceSum += (points[i].height - avg) ** 2
-        }
-        const variance = Math.sqrt(varianceSum / len)
-
+      if (raw && raw.enabled) {
+        // 天际线已在地图上显示，返回基本数据
         const skylineResult: SkylineResultData = {
-          points, maxHeight, minHeight, variance,
-          lineWidth: 5, lineColor: '#ff6b6b', displayMode: '2d'
+          points: [], // 天际线点数据由 mars3d 内部处理
+          maxHeight: 0,
+          minHeight: 0,
+          variance: 0,
+          lineWidth: raw.width || 5,
+          lineColor: '#ff6b6b',
+          displayMode: '2d'
         }
 
         store.addResult({ type: 'skyline', name: '天际线分析', data: skylineResult, visible: true })
@@ -418,6 +403,7 @@ export function useAnalysisTool(viewerInstance: Ref<any> | ShallowRef<any>) {
 
   function updateFlattenHeight(height: number) { tools.value?.updateFlattenHeight(height) }
   function clearFlatten() { tools.value?.clearFlatten() }
+  function setTilesetLayer(layer: any) { tools.value?.setTilesetLayer(layer) }
 
   // ==================== 图上标记 ====================
 
@@ -526,8 +512,10 @@ export function useAnalysisTool(viewerInstance: Ref<any> | ShallowRef<any>) {
 
   // ==================== 卷帘对比 ====================
 
-  function createSplitControl() { return tools.value?.createSplitControl() }
-  function destroySplitControl(ctrl: any) { tools.value?.destroySplitControl(ctrl) }
+  function createSplitControl(leftUrl: string, rightUrl: string, options?: any) {
+    return tools.value?.createSplitControl(leftUrl, rightUrl, options)
+  }
+  function destroySplitControl(ctrl?: any) { tools.value?.destroySplitControl(ctrl) }
 
   // ==================== 淹没分析 ====================
 
@@ -590,7 +578,7 @@ export function useAnalysisTool(viewerInstance: Ref<any> | ShallowRef<any>) {
     // 等高线
     generateContourLine, setContourSpacing, setContourWidth, setContourColor, toggleContourVisible,
     // 压平
-    startFlatten, updateFlattenHeight, clearFlatten,
+    startFlatten, updateFlattenHeight, clearFlatten, setTilesetLayer,
     // 图上标记
     drawPoint, drawPolyline, drawPolygon, drawCircle, exportGeoJSON,
     // 坐标定位
