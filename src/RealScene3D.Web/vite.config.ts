@@ -2,15 +2,42 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import mars3d from 'vite-plugin-mars3d'
+import { createStyleImportPlugin, AndDesignVueResolve } from 'vite-plugin-style-import'
 
 export default defineConfig({
   plugins: [
     vue(),
-    mars3d()
+    mars3d(),
+    createStyleImportPlugin({
+      resolves: [AndDesignVueResolve()],
+      libs: [
+        {
+          libraryName: 'ant-design-vue',
+          esModule: true,
+          resolveStyle: (name) => {
+            if (name === 'auto-complete') {
+              return `ant-design-vue/es/${name}/index`
+            }
+            return `ant-design-vue/es/${name}/style/index`
+          }
+        }
+      ]
+    })
   ],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      '@mars': resolve(__dirname, 'src'),
+      // 兼容旧代码 `import * as Cesium from 'cesium'`
+      cesium: 'mars3d-cesium'
+    }
+  },
+  css: {
+    preprocessorOptions: {
+      less: {
+        javascriptEnabled: true,
+        additionalData: `@import "${resolve(__dirname, 'src/components/mars-ui/base.less').replace(/\\/g, '/')}";`
+      }
     }
   },
   build: {
@@ -26,11 +53,11 @@ export default defineConfig({
             return 'three-vendor'
           }
           // 将Vue相关代码拆分到单独的chunk
-          if (id.includes('vue') || id.includes('pinia') || id.includes('@vue')) {
+          if (id.includes('vue') || id.includes('pinia') || id.includes('@vue') || id.includes('vuex')) {
             return 'vue-vendor'
           }
           // 将UI库和工具库拆分
-          if (id.includes('element-plus') || id.includes('@element-plus') ||
+          if (id.includes('ant-design-vue') || id.includes('@ant-design') ||
               id.includes('axios') || id.includes('@/services') ||
               id.includes('@/composables')) {
             return 'ui-vendor'

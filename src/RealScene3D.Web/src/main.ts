@@ -13,39 +13,38 @@
  * 创建时间：2025-10-13
  */
 
+import 'mars3d-cesium/Build/Cesium/Widgets/widgets.css'
+import 'mars3d/mars3d.css'
+import 'mars3d'
+import '@mars/components/mars-work/expand/index'
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import MarsUI from '@mars/components/mars-ui'
+import { injectState, key as widgetKey } from '@mars/common/store/widget'
+import widgetStore from './widget-store'
 import './style.css'
 
 // ==================== 应用初始化 ====================
 
-/**
- * 创建Vue应用实例
- * 以根组件App.vue为基础构建应用
- */
 const app = createApp(App)
 
 // ==================== 插件配置 ====================
 
-/**
- * 配置Pinia状态管理
- * 提供全局状态管理和响应式数据存储
- */
+// Mars3D 公共 UI 组件库（注册全局 mars-* 组件 + 按需 ant-design-vue）
+app.use(MarsUI)
+
+// Pinia 状态管理（业务领域 store）
 app.use(createPinia())
 
-/**
- * 配置Vue Router
- * 启用客户端路由，支持单页面应用（SPA）的页面导航
- */
+// Vue Router
 app.use(router)
+
+// Vuex widget store（Mars3D widget 激活/关闭机制专用）
+app.use(injectState(widgetStore), widgetKey)
 
 // ==================== 应用挂载 ====================
 
-/**
- * 挂载应用到DOM
- * 将Vue应用实例挂载到index.html中的#app元素上
- * 应用启动的最后一步，之后用户界面开始渲染和交互
- */
 app.mount('#app')

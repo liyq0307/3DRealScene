@@ -340,6 +340,146 @@ export const useAnalysisStore = defineStore('analysis', () => {
     graphicObjectPool.clearAll()
   }
 
+  // ==================== cityplan 兼容字段 (P2/P4 widget 引用,P5 完整对齐) ====================
+  const xzfxvisible = ref(false)
+  const pmfxvisible = ref(false)
+  const JJfxvisible = ref(false)
+  const ytvisible = ref(false)
+  const analysisSyncArray = ref<any[]>([])
+
+  // 选中模型 (cityplan mxs/save-dialog 使用)
+  const selectedModelIds = ref<string[]>([])
+  const selectedModelsInfo = ref<any[]>([])
+  // 点击行数据 (cityplan history-list 使用)
+  const clickedRow = ref<any>({})
+  // 观测台数据 (cityplan dsj/gct 使用)
+  const gctData = ref<any[]>([])
+  // 基础绘制数据 (cityplan tsbh 使用)
+  const basicDrawData = ref<any[]>([])
+  // 塔基建模数据 (cityplan tjjm 使用)
+  const tjjmPoleData = ref<any[]>([])
+  // 可视域分析数据 (cityplan tsfx 使用)
+  const tsfxVideoData = ref<any>({
+    showFrustum: false,
+    cameraAngle: 60,
+    cameraAngle2: 45,
+    distanceValue: 80,
+    heading: 44,
+    pitchValue: -12,
+    opacity: 1,
+    videoRotate: 0,
+    graphicName: '',
+    selectedGraphic: false
+  })
+
+  // ---------- 兼容方法 (P5 完整对齐 cityplan/src/stores/analysis.ts) ----------
+  function changeXzfxvisible(visible: boolean) { xzfxvisible.value = visible }
+  function changePmfxvisible(visible: boolean) { pmfxvisible.value = visible }
+  function changeJJfxvisible(visible: boolean) { JJfxvisible.value = visible }
+  function changeYtvisible(visible: boolean) { ytvisible.value = visible }
+  function setCurrentAnalysisData(row: any) { clickedRow.value = row }
+  function clearCurrentAnalysisData() { clickedRow.value = {} }
+  function setTsfxDialogVisible(visible: boolean) { tsfxVideoData.value.selectedGraphic = visible }
+  function updateTsfxVideoData(data: any) {
+    Object.assign(tsfxVideoData.value, data)
+  }
+  function resetTsfxVideoData() {
+    tsfxVideoData.value = {
+      showFrustum: false,
+      cameraAngle: 60,
+      cameraAngle2: 45,
+      distanceValue: 80,
+      heading: 44,
+      pitchValue: -12,
+      opacity: 1,
+      videoRotate: 0,
+      graphicName: '',
+      selectedGraphic: false
+    }
+  }
+  const getTsfxVideoData = computed(() => tsfxVideoData.value)
+
+  function saveBasicDrawData(data: any) { basicDrawData.value.push(data) }
+  function clearBasicDrawData() { basicDrawData.value.length = 0 }
+  function saveTjjmPoleData(data: any) { tjjmPoleData.value.push(data) }
+  function clearTjjmPoleData() { tjjmPoleData.value.length = 0 }
+
+  function saveAnalysisDataToSelected(payload: { analysisType: string; data: any }) {
+    const { analysisType, data } = payload
+    const uniqueId = Math.random().toString(36).substr(2, 9)
+    setCurrentAnalysisData({ analysisType, data, id: uniqueId })
+    if (analysisType === 'zbdkxzx_analysis') changeXzfxvisible(true)
+    if (analysisType === 'pmfx_analysis') changePmfxvisible(true)
+    if (analysisType === 'djzjx_analysis') changeJJfxvisible(true)
+    if (analysisType === 'yt_analysis') changeYtvisible(true)
+
+    if (analysisType === 'wftffx_analysis') {
+      analysisSyncArray.value.forEach((item) => {
+        if (item.analysisType === 'wftffx_analysis') item.isLatest = false
+      })
+      analysisSyncArray.value.unshift({ analysisType, id: uniqueId, data, isLatest: true })
+    } else {
+      analysisSyncArray.value.unshift({ analysisType, id: uniqueId, data })
+    }
+  }
+  function clearAnalysisDataByType(analysisType: string) {
+    analysisSyncArray.value = analysisSyncArray.value.filter((i) => i.analysisType !== analysisType)
+  }
+  function clearAnalysisData(data: any) {
+    const idx = analysisSyncArray.value.findIndex((i) => i.id === data.id)
+    if (idx !== -1) analysisSyncArray.value.splice(idx, 1)
+  }
+  function clearSelectedModelsAnalysisData(_analysisType?: string) {
+    analysisSyncArray.value = []
+  }
+  function updateAnalysisName(key: any, name: string) {
+    const item = analysisSyncArray.value.find((i) => i.id === key)
+    if (item) item.data.name = name
+  }
+  function setAnalysisSyncArray(data: any) {
+    analysisSyncArray.value = Array.isArray(data) ? data : []
+  }
+  function saveGctData(data: any) { gctData.value.unshift(data.data) }
+  function setGctData(data: any) { gctData.value = Array.isArray(data) ? data : [] }
+  function updateGctData(id: any, _type: string, value: any) {
+    const idx = gctData.value.findIndex((i) => i.id === id)
+    if (idx !== -1) gctData.value[idx] = value
+  }
+  function clearGctData() { gctData.value = [] }
+  function removegctDataById(id: any) {
+    const idx = gctData.value.findIndex((i) => i.id === id)
+    if (idx !== -1) gctData.value.splice(idx, 1)
+  }
+  function updateSelectedModelsInfo(infos: any[]) { selectedModelsInfo.value = infos }
+  function updateSelectedModelsid(id: string) { selectedModelIds.value.push(id) }
+  function removeSelectedModelsid(id: string) {
+    const idx = selectedModelIds.value.findIndex((i) => i === id)
+    if (idx !== -1) selectedModelIds.value.splice(idx, 1)
+  }
+  function resetSelectedModels() {
+    selectedModelIds.value = []
+    selectedModelsInfo.value = []
+  }
+  function clearAllData() {
+    analysisSyncArray.value = []
+    gctData.value = []
+    basicDrawData.value = []
+    tjjmPoleData.value = []
+    clickedRow.value = {}
+    xzfxvisible.value = false
+    pmfxvisible.value = false
+    JJfxvisible.value = false
+    ytvisible.value = false
+    resetTsfxVideoData()
+  }
+
+  /**
+   * TODO(P5-store): 按 cityplan 实现完整字段同步逻辑。
+   */
+  function updateAnalysisDataToSelected(_payload: any) {
+    // 占位实现,P5 补全
+  }
+
   // ==================== Return ====================
   return {
     // Core managers
@@ -370,6 +510,20 @@ export const useAnalysisStore = defineStore('analysis', () => {
     // Actions - 分析状态
     startAnalysis, stopAnalysis, setError, clearError,
     // Actions - 初始化
-    init, dispose
+    init, dispose,
+    // cityplan 兼容 (P5 完整对齐)
+    xzfxvisible, pmfxvisible, JJfxvisible, ytvisible, analysisSyncArray,
+    selectedModelIds, selectedModelsInfo, clickedRow, gctData,
+    basicDrawData, tjjmPoleData, tsfxVideoData, getTsfxVideoData,
+    changeXzfxvisible, changePmfxvisible, changeJJfxvisible, changeYtvisible,
+    setCurrentAnalysisData, clearCurrentAnalysisData,
+    setTsfxDialogVisible, updateTsfxVideoData, resetTsfxVideoData,
+    saveBasicDrawData, clearBasicDrawData, saveTjjmPoleData, clearTjjmPoleData,
+    saveAnalysisDataToSelected, clearAnalysisDataByType, clearAnalysisData,
+    clearSelectedModelsAnalysisData, updateAnalysisName, setAnalysisSyncArray,
+    saveGctData, setGctData, updateGctData, clearGctData, removegctDataById,
+    updateSelectedModelsInfo, updateSelectedModelsid, removeSelectedModelsid,
+    resetSelectedModels, clearAllData,
+    updateAnalysisDataToSelected
   }
 })

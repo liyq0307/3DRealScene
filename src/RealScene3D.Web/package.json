@@ -9,24 +9,51 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@icon-park/svg": "^1.4.2",
     "@panzoom/panzoom": "^4.6.0",
+    "@turf/turf": "^7.3.5",
     "3d-tiles-renderer": "^0.4.18",
+    "ant-design-vue": "^4.2.6",
     "axios": "^1.6.0",
+    "dayjs": "^1.11.20",
+    "echarts": "^5.6.0",
+    "gdal3.js": "^2.8.1",
+    "jszip": "^3.10.1",
+    "kml-geojson": "^2.0.3",
+    "localforage": "^1.10.0",
+    "lodash": "^4.18.1",
     "lodash-es": "^4.17.21",
     "mars3d": "^3.11.2",
     "mars3d-cesium": "^1.140.0",
+    "mars3d-echarts": "~3.10.0",
+    "mars3d-heatmap": "~3.10.0",
+    "mars3d-mapv": "~3.10.0",
+    "mars3d-space": "~3.10.0",
+    "mitt": "^3.0.1",
+    "nprogress": "^0.2.0",
     "pinia": "^2.1.0",
+    "terraformer-wkt-parser": "^1.2.1",
     "three": "^0.170.0",
+    "uuid": "^9.0.1",
     "vue": "^3.4.0",
+    "vue-color-kit": "^1.0.6",
     "vue-draggable-plus": "^0.6.0",
-    "vue-router": "^4.2.0"
+    "vue-router": "^4.2.0",
+    "vuex": "^4.1.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/lodash": "^4.17.24",
     "@types/node": "^24.7.2",
+    "@types/nprogress": "^0.2.3",
     "@types/three": "^0.170.0",
+    "@types/uuid": "^9.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
+    "consola": "^3.4.2",
+    "less": "^4.3.0",
     "typescript": "^5.3.0",
     "vite": "^5.0.0",
-    "vite-plugin-mars3d": "^4.2.2"
+    "vite-plugin-mars3d": "^4.2.2",
+    "vite-plugin-style-import": "^2.0.0"
   }
 }

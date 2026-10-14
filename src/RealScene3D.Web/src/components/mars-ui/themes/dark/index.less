@@ -1,0 +1,61 @@
+@import url("./zhts.less");
+
+:root[data-theme="dark"],
+:root[data-theme="cyberpunk"],
+:root:not([data-theme]) {
+  // ==================== 深色主题配色系统 ====================
+  // 基于项目主色 #6366f1 (靛蓝色) 和深色背景系统
+
+  // 背景色系
+  --mars-base-bg: #0f172a; // 主背景 - 深蓝灰
+  --mars-base-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); // 阴影
+  --mars-base-border: #334155; // 边框色
+  --mars-collapse-title-bg: #1e293b; // 折叠面板标题背景
+  --mars-collapse-title-shadow: none;
+  --mars-base-manage-bg: #0f172a; // 管理面板背景
+  --mars-dropdown-bg: #0f172a; // 下拉菜单背景
+
+  // 文本色系
+  --mars-text-color: #f1f5f9; // 主文本 - 浅灰白
+  --mars-sub-title-color: #e2e8f0; // 小标题 - 更亮的灰白
+  --mars-extra-text-color: #cbd5e1; // 额外文本 - 灰白
+  --mars-control-text: #f1f5f9; // 控件文本
+  --mars-control-placeholder: #cbd5e1; // 占位符文本
+  --mars-control-icon: #e2e8f0; // 控件图标
+  --mars-collapse-icon: #e2e8f0; // 折叠图标
+  --mars-tree-text: #e2e8f0; // 树文本
+  --mars-tree-hover-text: #f1f5f9; // 树悬停文本
+  --mars-font-family: HarmonyOS Sans SC;
+
+  // 控件样式
+  --mars-control-bg: rgba(30, 41, 59, 0.6); // 控件背景
+  --mars-control-header-bg: linear-gradient(to right, #1e293b 0%, #0f172a 100%); // 控件头部背景
+  --mars-control-border: #334155; // 控件边框
+  --mars-poi-border: linear-gradient(96deg, rgba(99, 102, 241, 0.3) 0%, rgba(99, 102, 241, 0.1) 100%);
+
+  // 表格样式
+  --mars-table-odd-bg: rgba(30, 41, 59, 0.5); // 奇数行背景
+  --mars-table-header-bg: #1e293b; // 表头背景
+
+  // 状态色
+  --mars-primary-color: #6366f1; // 主色 - 靛蓝
+  --mars-dangerous-color: #ef4444; // 危险色
+  --mars-close-color: #475569; // 关闭状态
+  --mars-disable-color: #64748b; // 禁用状态
+  --mars-hover-color: rgba(99, 102, 241, 0.15); // 悬停状态
+  --mars-list-active: rgba(99, 102, 241, 0.25); // 激活列表项
+  --mars-list-select: rgba(99, 102, 241, 0.1); // 选中菜单
+
+  // 组件样式
+  --mars-msg-title-bg: #1e293b;
+  --mars-msg-title-bg-active: #334155;
+  --mars-msg-title-color: #f1f5f9;
+  --zhts-dialog-tilte-img: url("../assets/images/dialog-title.png");
+
+  // 滚动条
+  --mars-scrollbar-thumb: #475569;
+  --mars-scrollbar-track: #1e293b;
+
+  // 菜单
+  --mars-menu-emb: linear-gradient(0deg, rgba(99, 102, 241, 0) 0%, rgba(99, 102, 241, 0.1) 50%, rgba(99, 102, 241, 0) 100%);
+}

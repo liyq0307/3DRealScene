@@ -6,6 +6,11 @@ declare module '*.vue' {
   export default component
 }
 
+// 兼容旧代码 `import * as Cesium from 'cesium'`，运行时由 vite alias 重定向到 mars3d-cesium
+declare module 'cesium' {
+  export * from 'mars3d-cesium'
+}
+
 interface ImportMetaEnv {
   readonly VITE_API_URL: string
 }

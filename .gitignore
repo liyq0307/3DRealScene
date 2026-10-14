@@ -4,6 +4,9 @@ dist/
 .DS_Store
 .vscode/
 .idea/
+.codeartsdoer/
+docs
+.omc
 
 # .NET
 bin/
@@ -12,6 +15,8 @@ obj/
 *.suo
 *.cache
 .vs/
+src/RealScene3D.Lib/3dParty/osg
+src/RealScene3D.Lib/OSGB/Interop/Swig
 
 # EF Core
 **/Migrations/

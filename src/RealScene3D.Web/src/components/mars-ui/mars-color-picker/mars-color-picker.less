@@ -1,0 +1,283 @@
+/**
+ * 颜色选择器
+ *
+ * @copyright 火星科技 mars3d.cn
+ * @author 木遥 2022-01-01
+ */
+
+.hu-color-picker {
+  padding: 10px;
+  background: transparent;
+  border-radius: 2px;
+  z-index: 1;
+  width: 220px !important;
+  box-shadow: none;
+}
+
+.hu-color-picker.light {
+  background: #f7f8f9;
+}
+
+.hu-color-picker.light .color-show .sucker {
+  background: #eceef0;
+}
+
+.hu-color-picker.light .color-type .name {
+  background: #e7e8e9;
+}
+
+.hu-color-picker.light .color-type .value {
+  color: #666;
+  background: #eceef0;
+}
+
+.hu-color-picker.light .colors.history {
+  border-top: 1px solid #eee;
+}
+
+.hu-color-picker canvas {
+  vertical-align: top;
+  width: 100%;
+}
+
+.hu-color-picker .color-set {
+  display: flex;
+}
+
+.hu-color-picker .color-show {
+  margin-top: 8px;
+  display: flex;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 2px;
+}
+
+.saturation {
+  position: relative;
+  cursor: pointer;
+}
+
+.saturation .slide {
+  position: absolute;
+  left: 100px;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  box-shadow: 0 0 1px 1px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.color-alpha {
+  position: relative;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+.color-alpha .slide {
+  position: absolute;
+  left: 0;
+  top: 100px;
+  width: 100%;
+  height: 4px;
+  background: #fff;
+  box-shadow: 0 0 1px 0 rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.sucker {
+  width: 30px;
+  fill: #9099a4;
+  background: #2e333a;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.sucker.active,
+.sucker:hover {
+  fill: #1593ff;
+}
+
+.hue {
+  position: relative;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+.hue .slide {
+  position: absolute;
+  left: 0;
+  top: 100px;
+  width: 100%;
+  height: 4px;
+  background: #fff;
+  box-shadow: 0 0 1px 0 rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.colors {
+  padding: 0;
+  margin: 0;
+}
+
+.colors.history {
+  margin-top: 10px;
+  border-top: 1px solid #2e333a;
+}
+
+.colors .item {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 10px 0 0 10px;
+  border-radius: 3px;
+  box-sizing: border-box;
+  vertical-align: top;
+  display: inline-block;
+  transition: all 0.1s;
+  cursor: pointer;
+}
+
+// .colors .item:nth-child(8n + 1) {
+//   margin-left: 0;
+// }
+
+.colors .item:hover {
+  transform: scale(1.4);
+}
+
+.colors .item .alpha {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.colors .item .color {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.color-type {
+  display: flex;
+  margin-top: 8px;
+  font-size: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+}
+
+.color-type .name {
+  width: 60px;
+  height: 30px;
+  float: left;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #999;
+  background: var(--mars-control-bg);
+}
+
+.color-type .value {
+  flex: 1;
+  height: 30px;
+  min-width: 100px;
+  padding: 0 12px;
+  border: 0;
+  color: var(--mars-text-color);
+  background: var(--mars-control-bg);
+  box-sizing: border-box;
+  text-transform: uppercase;
+}
+
+.ml5 {
+  margin-left: 5px;
+  border-radius: 6px !important;
+}
+
+.overlay-className {
+  .color-alpha {
+    display: none;
+  }
+
+  .hue {
+    margin-left: 18px;
+  }
+
+  .hu-color-picker {
+    .color-type {
+      &:nth-last-child(2) {
+        display: none;
+      }
+    }
+  }
+}
+
+.mars-color-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .mars-button {
+    width: 100%;
+  }
+}
+
+// 父元素
+.mars-color-view {
+  position: relative;
+  height: 32px;
+  min-width: 158px;
+}
+
+// 展示的输入框样式
+.mars-color-bg {
+  display: inline-block;
+  height: 100%;
+  width: 100%;
+  background-color: var(--mars-control-bg);
+  border: 1px solid rgba(234, 242, 255, 0.2);
+  border-radius: 4px;
+  padding: 3px 4px;
+  position: absolute;
+  top: 0;
+  left: 0;
+
+  &:hover {
+    border-color: var(--mars-primary-color);
+  }
+}
+
+// 色值
+.mars-color-label {
+  max-width: calc(100% - 40px);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--mars-control-text);
+  font-family: var(--mars-font-family);
+  font-size: 14px;
+  font-weight: normal;
+  display: inline-block;
+  position: absolute;
+  top: 50%;
+  left: 42px;
+  transform: translateY(-50%);
+  text-transform: uppercase;
+}
+
+// 色块
+.mars-color-picker {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  display: inline-block;
+  z-index: 2;
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+  cursor: pointer;
+}

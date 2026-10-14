@@ -1,0 +1,104 @@
+.mars-main-view {
+  // 树控件
+  .ant-tree {
+    background: none;
+    color: var(--mars-tree-hover-text);
+    padding-bottom: 2px;
+    .ant-tree-treenode {
+      width: 100%;
+
+      .ant-tree-node-content-wrapper {
+        color: var(--mars-tree-text);
+        .ant-tree-title {
+          font-family: var(--mars-font-family);
+          font-size: 14px;
+          font-weight: normal;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+          overflow: hidden;
+          // width: 176px;
+          display: inline-block;
+          padding-top: 2px;
+          margin-bottom: -4px;
+        }
+      }
+
+      &:hover {
+
+        .ant-tree-node-content-wrapper {
+          color: var(--mars-tree-hover-text);
+          background: transparent;
+        }
+      }
+    }
+    .ant-tree-treenode-checkbox-checked {
+      background: var(--mars-list-active) !important;
+      border-radius: 2px;
+      .ant-tree-node-content-wrapper {
+        color: var(--mars-tree-hover-text);
+      }
+    }
+  }
+
+  .ant-tree-checkbox {
+    margin-right: 0;
+  }
+
+  .ant-tree-show-line .ant-tree-switcher,
+  .ant-tree-checkbox-inner {
+    background: none !important;
+    border-radius: 2px !important;
+  }
+
+  .ant-tree-checkbox-checked {
+    background: var(--mars-primary-color);
+    border-radius: 2px;
+
+    .ant-tree-checkbox-inner {
+      border-color: var(--mars-primary-color);
+    }
+  }
+
+  .anticon-file.ant-tree-switcher-line-icon {
+    display: none;
+  }
+
+  .ant-tree-show-line .ant-tree-indent-unit::before {
+    border-right: 1px dotted var(--mars-text-tree);
+  }
+
+  .ant-tree-switcher-noop {
+    width: 20px;
+  }
+
+  .ant-tree-node-selected {
+    background: none !important;
+  }
+
+  .ant-tree-switcher-noop::before {
+    content: "";
+    display: inline-block;
+    position: absolute;
+    height: 26px;
+    border-right: 1px dotted var(--mars-text-color);
+  }
+
+  .ant-tree-treenode-leaf-last {
+    .ant-tree-switcher-noop::before {
+      content: "";
+      display: inline-block;
+      position: absolute;
+      height: 10px;
+      border-right: 1px dotted var(--mars-text-color);
+    }
+  }
+
+  .ant-tree-switcher-noop::after {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    position: absolute;
+    top: 10px;
+    border-bottom: 1px dotted var(--mars-text-color);
+  }
+}

@@ -87,15 +87,12 @@
           @objectLoaded="onThreeJSObjectLoaded"
         />
 
-        <!-- Mars3D 3D地球查看器 (用于地理空间数据) -->
-        <Mars3DViewer
+        <!-- Mars3D 3D地球查看器 (基于 main-view + widget 架构) -->
+        <MainView
           v-else-if="!loading && sceneRenderEngine === 'cesium'"
           ref="mars3dViewerRef"
-          :show-info="true"
-          :scene-objects="visibleObjects"
-          :show-basemap="true"
-          @ready="onMars3DReady"
-          @error="onMars3DError"
+          :map-options="mapOptions"
+          @mapLoaded="onMars3DReady"
         />
 
         <!-- 无可见对象提示 (仅Three.js模式) -->
@@ -108,11 +105,6 @@
         </div>
       </div>
 
-      <!-- 可视化分析右侧面板（常驻） -->
-      <RightAnalysisPanel
-        :viewer-instance="currentViewerInstance"
-        :scene-objects="visibleObjects"
-      />
     </div>
 
     <!-- 加载状态 -->
@@ -139,20 +131,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '../services/api'
 import { useMessage } from '@/composables/useMessage'
 import { loadSceneConfig, getSceneConfig } from '@/config/scene-config'
-import Mars3DViewer from '@/components/Mars3DViewer.vue'
+import MainView from '@mars/components/mars-work/main-view.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
-import RightAnalysisPanel from '@/components/analysis/RightAnalysisPanel.vue'
-import { useToolboxStore } from '@/stores/toolbox'
+import { useWidget } from '@mars/common/store/widget'
+import { useSceneObjectLoader } from '@/composables/useSceneObjectLoader'
 
 const router = useRouter()
 const route = useRoute()
 const { success: showSuccess, error: showError } = useMessage()
-const toolbox = useToolboxStore()
+const { activate } = useWidget()
+const loader = useSceneObjectLoader()
 
 // ==================== 响应式状态 ====================
 
@@ -162,8 +155,9 @@ const currentScene = ref<any>(null)
 const sceneObjects = ref<any[]>([])
 const isFullscreen = ref(false)
 const sidebarVisible = ref(true)
-const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
-const currentViewerInstance = ref<any>(null)
+const mars3dViewerRef = ref<InstanceType<typeof MainView>>()
+
+const mapOptions = ref({})
 
 // ==================== 计算属性 ====================
 
@@ -285,6 +279,7 @@ const toggleSidebar = () => {
  */
 const toggleObjectVisibility = (obj: any) => {
   obj.isVisible = obj.isVisible === false ? true : false
+  loader.setObjectVisibility(obj.id, obj.isVisible)
 }
 
 /**
@@ -292,9 +287,9 @@ const toggleObjectVisibility = (obj: any) => {
  */
 const toggleAll = () => {
   if (allSelected.value) {
-    sceneObjects.value.forEach(obj => obj.isVisible = false)
+    sceneObjects.value.forEach(obj => { obj.isVisible = false; loader.setObjectVisibility(obj.id, false) })
   } else {
-    sceneObjects.value.forEach(obj => obj.isVisible = true)
+    sceneObjects.value.forEach(obj => { obj.isVisible = true; loader.setObjectVisibility(obj.id, true) })
   }
 }
 
@@ -372,8 +367,12 @@ const convertModelsToTiles = async () => {
 
 const onMars3DReady = (map: any) => {
   console.log('[ScenePreview] Mars3D地球初始化成功', map)
-  currentViewerInstance.value = map
   showSuccess('Mars3D 3D地球加载成功')
+
+  loader.setMap(map)
+  if (visibleObjects.value.length > 0) {
+    loader.loadSceneObjects(visibleObjects.value)
+  }
 
   // 移动 Cesium 内置控件（HomeButton、SceneModePicker）到右下角
   nextTick(() => {
@@ -397,28 +396,6 @@ const onMars3DReady = (map: any) => {
       console.warn('[ScenePreview] 移动Cesium控件位置失败:', e)
     }
   })
-
-  // 监听右侧面板状态，动态调整控件位置
-  watch([() => toolbox.isCollapsed, () => toolbox.activeTab], ([isCollapsed, activeTab]) => {
-    if (!map?.control) return
-    try {
-      const toolbar = map.control.toolbar?.container
-      const compass = map.control.compass?.container
-
-      if (isCollapsed) {
-        if (toolbar) toolbar.style.right = '50px'
-        if (compass) compass.style.right = '95px'
-      } else if (activeTab) {
-        if (toolbar) toolbar.style.right = '304px'
-        if (compass) compass.style.right = '348px'
-      } else {
-        if (toolbar) toolbar.style.right = '50px'
-        if (compass) compass.style.right = '95px'
-      }
-    } catch (e) {
-      console.warn('[ScenePreview] 调整控件位置失败:', e)
-    }
-  })
 }
 
 const onMars3DError = (err: Error) => {
@@ -428,7 +405,6 @@ const onMars3DError = (err: Error) => {
 
 const onThreeJSReady = (viewerData: any) => {
   console.log('[ScenePreview] Three.js场景初始化成功', viewerData)
-  currentViewerInstance.value = viewerData
   showSuccess('Three.js 场景加载成功')
 }
 
@@ -452,10 +428,15 @@ onMounted(async () => {
   await loadSceneConfig() // 加载场景配置文件
   loadSceneDetails()
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+  // 默认激活基础 widget (toolbar) 与可视化分析 widget
+  activate('toolbar')
+  activate('analysis')
 })
 
 onUnmounted(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  loader.dispose()
 })
 </script>
 
@@ -573,6 +554,8 @@ onUnmounted(() => {
 .sidebar {
   width: 220px;
   min-width: 220px;
+  align-self: flex-start;
+  height: calc(100% - 22px);
   background: linear-gradient(180deg, rgba(15, 15, 20, 0.98) 0%, rgba(20, 20, 28, 0.98) 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;

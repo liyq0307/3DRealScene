@@ -71,16 +71,11 @@
 
     <!-- 3D查看器容器 -->
     <div class="viewer-container">
-      <Mars3DViewer
+      <MainView
         v-if="!loading && sceneObject"
         ref="mars3dViewerRef"
-        :sceneObjects="[sceneObject]"
-        :showInfo="true"
-        :initialPosition="initialCameraPosition"
-        :showBasemap="showBasemap"
-        @objectLoaded="onObjectLoaded"
-        @error="onViewerError"
-        @basemapChange="onBasemapChange"
+        :map-options="mapOptions"
+        @mapLoaded="onMars3DReady"
       />
 
       <!-- 加载状态 -->
@@ -138,13 +133,17 @@ import { useRouter, useRoute } from 'vue-router'
 import { slicingService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import { getBasemapPreference, setBasemapPreference } from '@/composables/useBasemapPreference'
-import Mars3DViewer from '@/components/Mars3DViewer.vue'
+import MainView from '@mars/components/mars-work/main-view.vue'
+import { useWidget } from '@mars/common/store/widget'
+import { useSceneObjectLoader } from '@/composables/useSceneObjectLoader'
 
 // ==================== 组合式API ====================
 
 const router = useRouter()
 const route = useRoute()
 const { success: showSuccess, error: showError } = useMessage()
+const { activate, disable } = useWidget()
+const loader = useSceneObjectLoader()
 
 // ==================== 响应式状态 ====================
 
@@ -154,7 +153,9 @@ const taskInfo = ref<any>(null)
 const showStats = ref(false)
 const isFullscreen = ref(false)
 const showBasemap = ref(getBasemapPreference())
-const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
+const mars3dViewerRef = ref<InstanceType<typeof MainView>>()
+
+const mapOptions = ref({})
 
 // ==================== 计算属性 ====================
 
@@ -309,11 +310,12 @@ const onViewerError = (err: Error) => {
 
 /**
  * 切换底图显示状态
+ *
+ * TODO(P5): 原 Mars3DViewer.toggleBasemap 方法已不在 main-view 上,
+ * 后续接入 manage-basemap widget 后通过 widget 完成,本函数暂留 UI 入口 + 警告。
  */
 const toggleBasemap = async () => {
-  if (mars3dViewerRef.value) {
-    await mars3dViewerRef.value.toggleBasemap()
-  }
+  console.warn('[SlicePreviewPage] toggleBasemap pending wire-up to manage-basemap widget')
 }
 
 /**
@@ -322,6 +324,17 @@ const toggleBasemap = async () => {
 const onBasemapChange = (visible: boolean) => {
   showBasemap.value = visible
   setBasemapPreference(visible)
+}
+
+/**
+ * Mars3D 地图就绪回调 — 加载切片对象
+ */
+const onMars3DReady = (map: any) => {
+  console.log('[SlicePreviewPage] Mars3D 地图就绪', map)
+  loader.setMap(map)
+  if (sceneObject.value) {
+    loader.loadSceneObjects([sceneObject.value])
+  }
 }
 
 /**
@@ -381,11 +394,17 @@ onMounted(() => {
 
   // 监听全屏状态变化
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+  // 默认激活基础 widget (toolbar)
+  // 可视化分析工具栏在此页面不需要，确保关闭
+  activate('toolbar')
+  disable('analysis')
 })
 
 onUnmounted(() => {
   // 清理全屏事件监听
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  loader.dispose()
 })
 </script>
 

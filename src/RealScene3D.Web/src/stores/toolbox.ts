@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { AnalysisToolType, AnalysisCategory } from '@/types/analysis'
 
 export const useToolboxStore = defineStore('toolbox', () => {
@@ -74,6 +74,8 @@ export const useToolboxStore = defineStore('toolbox', () => {
 
   return {
     isVisible,
+    // cityplan 兼容别名 (cityplan widgets 读 isToolboxVisible)
+    isToolboxVisible: computed(() => isVisible.value),
     isCollapsed,
     activeTab,
     activeToolByCategory,

@@ -36,6 +36,9 @@ import { useRoute } from 'vue-router'
 import SidebarMenu from '@/components/SidebarMenu.vue'
 import MessageToast from '@/components/MessageToast.vue'
 import { useResponsiveSingleton } from '@/composables/useResponsive'
+import { useTheme } from '@/composables/useTheme'
+
+useTheme()
 
 const route = useRoute()
 

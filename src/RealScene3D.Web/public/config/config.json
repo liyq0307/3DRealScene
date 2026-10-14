@@ -1,0 +1,108 @@
+{
+  "scene": {
+    "center": {
+      "lat": 39.908802,
+      "lng": 116.397128,
+      "alt": 15000000,
+      "heading": 0,
+      "pitch": -45
+    },
+    "scene3DOnly": false,
+    "shadows": false,
+    "removeDblClick": true,
+    "sceneMode": 3,
+    "showSun": false,
+    "showMoon": false,
+    "showSkyBox": false,
+    "showSkyAtmosphere": true,
+    "fog": false,
+    "fxaa": true,
+    "requestRenderMode": true,
+    "contextOptions": {
+      "requestWebgl1": false,
+      "webgl": {
+        "preserveDrawingBuffer": true
+      }
+    },
+    "globe": {
+      "depthTestAgainstTerrain": false,
+      "baseColor": "#000",
+      "showGroundAtmosphere": true,
+      "enableLighting": false
+    },
+    "cameraController": {
+      "zoomFactor": 3.0,
+      "minimumZoomDistance": 1,
+      "maximumZoomDistance": 50000000,
+      "enableRotate": true,
+      "enableTranslate": true,
+      "enableTilt": true,
+      "enableZoom": true,
+      "enableCollisionDetection": false
+    }
+  },
+  "control": {
+    "toolbar": {
+      "position": "right-bottom"
+    },
+    "homeButton": false,
+    "fullscreenButton": false,
+    "navigationHelpButton": false,
+    "baseLayerPicker": false,
+    "sceneModePicker": false,
+    "vrButton": false,
+    "animation": false,
+    "timeline": false,
+    "infoBox": false,
+    "selectionIndicator": false,
+    "showRenderLoopErrors": true,
+    "contextmenu": {
+      "hasDefault": true
+    },
+    "mouseDownView": true,
+    "compass": {
+      "bottom": "toolbar",
+      "right": "5px"
+    },
+    "distanceLegend": {
+      "left": "10px",
+      "bottom": "2px"
+    },
+    "locationBar": {
+      "crs": "WGS84",
+      "crsDecimal": 6,
+      "template": "<div>经度:{lng}</div> <div>纬度:{lat}</div> <div>海拔:{alt}米</div> <div class='hide700'>层级:{level}</div> <div>方向:{heading}°</div> <div>俯仰角:{pitch}°</div><div class='hide700'>视高:{cameraHeight}米</div>"
+    }
+  },
+  "basemaps": [
+    {
+      "id": 10,
+      "name": "底图",
+      "type": "group"
+    },
+    {
+      "name": "无底图",
+      "type": "grid",
+      "color": "#0a0e2b",
+      "alpha": 0.2,
+      "cells": 1,
+      "show": false
+    },
+    {
+      "name": "ESRI影像",
+      "type": "xyz",
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      "minimumLevel": 0,
+      "maximumLevel": 19,
+      "show": true
+    },
+    {
+      "name": "CartoDB浅色",
+      "type": "xyz",
+      "url": "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+      "subdomains": "abcd",
+      "minimumLevel": 0,
+      "maximumLevel": 18
+    }
+  ]
+}

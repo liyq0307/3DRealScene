@@ -48,16 +48,12 @@
         @error="onThreeJSError"
       />
 
-      <!-- Mars3D 3D地球查看器 (用于3D Tiles, GLTF等格式) -->
-      <Mars3DViewer
+      <!-- Mars3D 3D地球查看器 (基于 main-view + widget 架构) -->
+      <MainView
         v-else-if="!loading && currentObject && renderEngine === 'cesium'"
         ref="mars3dViewerRef"
-        :show-info="true"
-        :scene-objects="[currentObject]"
-        :show-basemap="showBasemap"
-        @ready="onMars3DReady"
-        @error="onMars3DError"
-        @basemapChange="onBasemapChange"
+        :map-options="mapOptions"
+        @mapLoaded="onMars3DReady"
       />
     </div>
 
@@ -104,14 +100,18 @@ import { useRouter, useRoute } from 'vue-router'
 import { sceneService } from '@/services/api'
 import { useMessage } from '@/composables/useMessage'
 import { getBasemapPreference, setBasemapPreference } from '@/composables/useBasemapPreference'
-import Mars3DViewer from '@/components/Mars3DViewer.vue'
+import MainView from '@mars/components/mars-work/main-view.vue'
 import ThreeViewer from '@/components/ThreeViewer.vue'
+import { useWidget } from '@mars/common/store/widget'
+import { useSceneObjectLoader } from '@/composables/useSceneObjectLoader'
 
 // ==================== 组合式API ====================
 
 const router = useRouter()
 const route = useRoute()
 const { success: showSuccess, error: showError } = useMessage()
+const { activate, disable } = useWidget()
+const loader = useSceneObjectLoader()
 
 // ==================== 响应式状态 ====================
 
@@ -122,7 +122,9 @@ const currentScene = ref<any>(null)
 const sceneName = ref<string>('')
 const isFullscreen = ref(false)
 const showBasemap = ref(getBasemapPreference())
-const mars3dViewerRef = ref<InstanceType<typeof Mars3DViewer>>()
+const mars3dViewerRef = ref<InstanceType<typeof MainView>>()
+
+const mapOptions = ref({})
 
 // ==================== 计算属性 ====================
 
@@ -317,6 +319,10 @@ const convertToTiles = async () => {
 const onMars3DReady = (map: any) => {
   console.log('[SceneObjectPreview] Mars3D地球初始化成功', map)
   showSuccess('Mars3D 3D地球加载成功')
+  loader.setMap(map)
+  if (currentObject.value) {
+    loader.loadSceneObjects([currentObject.value])
+  }
 }
 
 /**
@@ -345,11 +351,12 @@ const onThreeJSError = (err: Error) => {
 
 /**
  * 切换底图显示状态
+ *
+ * TODO(P5): 原 Mars3DViewer.toggleBasemap 方法已不在 main-view 上,
+ * 后续接入 manage-basemap widget 后通过 widget 完成,本函数暂留 UI 入口 + 警告。
  */
 const toggleBasemap = async () => {
-  if (mars3dViewerRef.value) {
-    await mars3dViewerRef.value.toggleBasemap()
-  }
+  console.warn('[SceneObjectPreview] toggleBasemap pending wire-up to manage-basemap widget')
 }
 
 /**
@@ -375,11 +382,18 @@ onMounted(() => {
 
   // 监听全屏状态变化
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+  // 默认激活基础 widget (toolbar + location-point)
+  // 可视化分析工具栏在此页面不需要，确保关闭
+  activate('toolbar')
+  activate('location-point')
+  disable('analysis')
 })
 
 onUnmounted(() => {
   // 清理全屏事件监听
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  loader.dispose()
 })
 </script>
 
