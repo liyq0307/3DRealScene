@@ -59,7 +59,7 @@ bool MeshProcessor::CompressToKtx2(const std::vector<unsigned char>& rgbaData, i
 		// - Quality 128 (0-255): 压缩质量
 		// - cFlagKTX2: 输出KTX2格式
 		// - cFlagGenMipsWrap: 生成mipmap并包装
-		unsigned int nCompressionFlags = 128 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap | basisu::cFlagDebug | basisu::cFlagThreaded;;
+		unsigned int nCompressionFlags = 128 | basisu::cFlagKTX2 | basisu::cFlagGenMipsWrap | basisu::cFlagThreaded;;
 		auto format = static_cast<basist::basis_tex_format>(nTexFormat);
 		void* pCompressedData = basisu::basis_compress(
 			format,
